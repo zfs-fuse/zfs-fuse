@@ -849,7 +849,6 @@ retry:
 			goto retry;
 	}
 
-out:
 	zap_put_leaf_maybe_grow_ptrtbl(zap, l, tx);
 	return (err);
 }

@@ -61,7 +61,7 @@ void
 uu_set_error(uint_t code)
 {
 	int error;
-	if (thr_main() != 0) {
+	if (zfsfuse_thr_main() != 0) {
 		_uu_main_error = code;
 		return;
 	}
@@ -84,7 +84,7 @@ uu_set_error(uint_t code)
 uint32_t
 uu_error(void)
 {
-	if (thr_main() != 0)
+	if (zfsfuse_thr_main() != 0)
 		return (_uu_main_error);
 
 	if (uu_error_key_setup < 0)
@@ -222,7 +222,9 @@ uu_release_child(void)
 	uu_release();
 }
 
-#pragma init(uu_init)
+static void
+uu_init(void) __attribute__((constructor));
+
 static void
 uu_init(void)
 {

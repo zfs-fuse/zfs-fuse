@@ -379,7 +379,7 @@ zfs_graph_add(libzfs_handle_t *hdl, zfs_graph_t *zgp, const char *source,
 static int
 iterate_children(libzfs_handle_t *hdl, zfs_graph_t *zgp, const char *dataset)
 {
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {};
 	int ret = 0, err;
 	zfs_vertex_t *zvp;
 
@@ -492,7 +492,7 @@ static zfs_graph_t *
 construct_graph(libzfs_handle_t *hdl, const char *dataset)
 {
 	zfs_graph_t *zgp = zfs_graph_create(hdl, ZFS_GRAPH_SIZE);
-	zfs_cmd_t zc = { 0 };
+	zfs_cmd_t zc = {};
 	int ret = 0;
 
 	if (zgp == NULL)

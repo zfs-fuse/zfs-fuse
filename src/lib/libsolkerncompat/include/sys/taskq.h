@@ -74,7 +74,6 @@ extern void	taskq_wait(taskq_t *);
 extern void	taskq_suspend(taskq_t *);
 extern int	taskq_suspended(taskq_t *);
 extern void	taskq_resume(taskq_t *);
-extern int	taskq_member(taskq_t *, kthread_t *);
 
 #endif	/* _KERNEL */
 

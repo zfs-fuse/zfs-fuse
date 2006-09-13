@@ -143,7 +143,8 @@ static int		arc_grow_retry = 60;
  * minimum lifespan of a prefetched block in seconds
  * (this is converted to ticks during the arc initialization)
  */
-static int		arc_min_prefetch_lifespan = 1;
+static int		arc_min_prefetch_lifespan_seconds = 1;
+static int		arc_min_prefetch_lifespan;
 
 static kmutex_t arc_reclaim_lock;
 static int arc_dead;
@@ -1138,7 +1139,7 @@ arc_kmem_reclaim(void)
 
 	mutex_enter(&arc_reclaim_lock);
 
-#ifdef _KERNEL
+#if 0
 	to_free = MAX(arc.c >> arc_kmem_reclaim_shift, ptob(needfree));
 #else
 	to_free = arc.c >> arc_kmem_reclaim_shift;
@@ -1165,9 +1166,8 @@ arc_kmem_reclaim(void)
 static int
 arc_reclaim_needed(void)
 {
+#if 0
 	uint64_t extra;
-
-#ifdef _KERNEL
 
 	if (needfree)
 		return (1);
@@ -1228,7 +1228,7 @@ arc_kmem_reap_now(arc_reclaim_strategy_t strat)
 	kmem_cache_t		*prev_cache = NULL;
 	extern kmem_cache_t	*zio_buf_cache[];
 
-#ifdef _KERNEL
+#if 0
 	/*
 	 * First purge some DNLC entries, in case the DNLC is using
 	 * up too much memory.
@@ -1287,6 +1287,7 @@ arc_reclaim_thread(void)
 
 			/* reset the growth delay for every reclaim */
 			growtime = lbolt + (arc_grow_retry * hz);
+			ASSERT(growtime > 0);
 
 			arc_kmem_reap_now(last_reclaim);
 
@@ -2407,12 +2408,12 @@ arc_init(void)
 	cv_init(&arc_reclaim_thr_cv, NULL, CV_DEFAULT, NULL);
 
 	/* Convert seconds to clock ticks */
-	arc_min_prefetch_lifespan *= hz;
+	arc_min_prefetch_lifespan = arc_min_prefetch_lifespan_seconds * hz;
 
 	/* Start out with 1/8 of all memory */
 	arc.c = physmem * PAGESIZE / 8;
 
-#ifdef _KERNEL
+#if 0
 	/*
 	 * On architectures where the physical memory can be larger
 	 * than the addressable space (intel in 32-bit mode), we may

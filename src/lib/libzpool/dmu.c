@@ -42,6 +42,11 @@
 #include <sys/zap.h>
 #include <sys/zio_checksum.h>
 
+/* zfs-fuse: ??? */
+#ifdef _KERNEL
+#include <sys/vnode.h>
+#endif
+
 const dmu_object_type_info_t dmu_ot[DMU_OT_NUMTYPES] = {
 	{	byteswap_uint8_array,	TRUE,	"unallocated"		},
 	{	zap_byteswap,		TRUE,	"object directory"	},
@@ -442,7 +447,7 @@ dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
 }
 
-#ifdef _KERNEL
+#if 0
 int
 dmu_write_uio(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
     uio_t *uio, dmu_tx_t *tx)
