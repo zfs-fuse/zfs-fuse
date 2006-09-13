@@ -190,7 +190,8 @@ uu_panic(const char *format, ...)
 int
 assfail(const char *astring, const char *file, int line)
 {
-	__assert(astring, file, line);
+	fprintf(stderr, "%s:%i: Assertion `%s` failed.\n", file, line, astring);
+	abort();
 	/*NOTREACHED*/
 	return (0);
 }

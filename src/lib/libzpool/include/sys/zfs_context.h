@@ -92,24 +92,21 @@ extern "C" {
 
 #ifdef ZFS_DEBUG
 extern void dprintf_setup(int *argc, char **argv);
+#else
+#define dprintf_setup(a,b) ((void) 0)
 #endif /* ZFS_DEBUG */
 
 extern void cmn_err(int, const char *, ...);
 extern void panic(const char *, ...);
 extern void vpanic(const char *, __va_list);
 
-/* This definition is copied from assert.h. */
-#if defined(__STDC__)
-#if __STDC_VERSION__ - 0 >= 199901L
-#define	VERIFY(EX) (void)((EX) || \
-	(__assert_fail(#EX, __FILE__, __LINE__, __func__), 0))
-#else
-#define	VERIFY(EX) (void)((EX) || (__assert(#EX, __FILE__, __LINE__), 0))
-#endif /* __STDC_VERSION__ - 0 >= 199901L */
-#else
-#define	VERIFY(EX) (void)((EX) || (_assert("EX", __FILE__, __LINE__), 0))
-#endif	/* __STDC__ */
+#define ASSERT_FAIL(EX) \
+        do { \
+        	fprintf(stderr, __FILE__ ":%i: %s: Assertion `" #EX "` failed.\n", __LINE__, __PRETTY_FUNCTION__); \
+        	abort(); \
+        } while(0)
 
+#define VERIFY(EX) do { if(!(EX)) ASSERT_FAIL(EX); } while(0)
 
 #define	ASSERT	assert
 

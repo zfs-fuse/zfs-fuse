@@ -29,8 +29,17 @@
 
 #include <assert.h>
 
-#define VERIFY(EX) (void)((EX) || \
-    (__assert_fail(#EX, __FILE__, __LINE__, __func__), 0))
+#define ASSERT_FAIL(EX) \
+        do { \
+        	fprintf(stderr, __FILE__ ":%i: %s: Assertion `" #EX "` failed.\n", __LINE__, __PRETTY_FUNCTION__); \
+        	abort(); \
+        } while(0)
+
+#define VERIFY(EX) do { if(!(EX)) ASSERT_FAIL(EX); } while(0)
+
+#ifndef __assert
+#define __assert(EX, FILE, LINE) ASSERT_FAIL(EX)
+#endif
 
 #define ASSERT(EX) assert(EX)
 
