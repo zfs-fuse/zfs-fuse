@@ -573,7 +573,7 @@ zpool_do_create(int argc, char **argv)
 
 	if (altroot != NULL && altroot[0] != '/') {
 		(void) fprintf(stderr, gettext("invalid alternate root '%s': "
-		    "must be an absolute path\n"));
+		    "must be an absolute path\n"), altroot);
 		nvlist_free(nvroot);
 		return (1);
 	}
@@ -2853,8 +2853,8 @@ status_callback(zpool_handle_t *zhp, void *data)
 				(void) printf(gettext("errors: No known data "
 				    "errors\n"));
 			else if (!cbp->cb_verbose)
-				(void) printf(gettext("errors: %d data errors, "
-				    "use '-v' for a list\n"), nerr);
+				(void) printf(gettext("errors: %llu data errors, "
+				    "use '-v' for a list\n"), (u_longlong_t) nerr);
 			else
 				print_error_log(zhp);
 		}
