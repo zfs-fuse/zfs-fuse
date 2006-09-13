@@ -29,6 +29,7 @@
 
 #include_next <sys/time.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <time.h>
@@ -40,8 +41,12 @@ typedef longlong_t hrtime_t;
 static inline hrtime_t gethrtime(void) {
 	struct timespec ts;
 
-	if(clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+	if(clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+		fprintf(stderr, "Error: clock_gettime(CLOCK_MONOTONIC) failed\n");
+		fprintf(stderr, "Make sure you are are running kernel 2.6.x and have glibc 2.3.3 installed\n");
+		fprintf(stderr, "Aborting...\n");
 		abort();
+	}
 
 	return (((u_int64_t)ts.tv_sec) * NANOSEC) + ts.tv_nsec;
 }
