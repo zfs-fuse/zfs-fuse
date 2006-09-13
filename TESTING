@@ -1,0 +1,45 @@
+Testing
+-------
+
+If you want to run ztest, you need a directory with about 2 GB free
+(be careful, it uses /tmp by default).
+You should have properly cooled CPU(s) and hard drive(s).
+
+The program, at peak times, will use about 200 threads and +200MB of RAM,
+and it will intensively use your hard disk. The script will run by default
+with nice level 20.
+
+So, if you still want to run the testing program, you should do at least a
+300-second test.
+If you want to make sure it's stable, you can do a 1 hour (3600-second) test.
+If you want to be really really sure, please do a 24-hour (86400-second) test.
+
+Testing steps:
+
+  1) cd src/cmd/ztest
+  2) ./runtest.sh -T testing-time-in-seconds [-f /directory/with/2GB/available]
+
+If it's successful, you will receive a "Test successful" message at the end.
+
+Don't forget to remove the ztest.* files in /tmp (or the provided directory)
+after it's finished!
+
+If the program aborts, crashes or otherwise fails, please email me at
+rcorreia@wizy.org with the following info:
+  1) The output of ztest (including the error message)
+  2) The output of the following commands (make sure you are in the ztest
+directory):
+
+       # gdb ./ztest --core core.xxx (replace core.xxx with the correct
+filename)
+         (gdb) bt
+         (gdb) bt full
+         (gdb) exit
+       # getconf GNU_LIBPTHREAD_VERSION
+       # /lib/libc.so.6
+       # gcc --version
+       # uname -a
+
+  3) The zfs-fuse version you are using (or subversion revision).
+
+Thanks ;)

@@ -1133,6 +1133,8 @@ ztest_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t object, int mode)
 	return (zil_itx_assign(zilog, itx, tx));
 }
 
+/* ztest_log_remove is no longer used? */
+#if 0
 #ifndef lint
 static uint64_t
 ztest_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t object)
@@ -1154,6 +1156,7 @@ ztest_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t object)
 	return (zil_itx_assign(zilog, itx, tx));
 }
 #endif /* lint */
+#endif
 
 void
 ztest_dmu_objset_create_destroy(ztest_args_t *za)
@@ -2776,15 +2779,11 @@ ztest_verify_blocks(char *pool)
 	int status;
 	char zdb[MAXPATHLEN + MAXNAMELEN + 20];
 	char zbuf[1024];
-	char *bin;
 	FILE *fp;
 
-	(void) realpath(getexecname(), zdb);
-
-	/* zdb lives in /usr/sbin, while ztest lives in /usr/bin */
-	bin = strstr(zdb, "/usr/bin/");
 	/* LINTED */
-	(void) sprintf(bin, "/usr/sbin/zdb -bc%s%s -U -O %s %s",
+	/* zfs-fuse: ztest is never installed, so zdb should be in ../zdb/ */
+	(void) sprintf(zdb, "../zdb/zdb -bc%s%s -U -O %s %s",
 	    zopt_verbose >= 3 ? "s" : "",
 	    zopt_verbose >= 4 ? "v" : "",
 	    ztest_random(2) == 0 ? "pre" : "post", pool);
@@ -3335,7 +3334,7 @@ main(int argc, char **argv)
 			exit(0);
 		}
 
-		while (waitpid(pid, &status, WEXITED) != pid)
+		while (waitpid(pid, &status, 0) != pid)
 			continue;
 
 		if (WIFEXITED(status)) {

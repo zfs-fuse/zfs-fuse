@@ -708,6 +708,8 @@ spa_get_random(uint64_t range)
 
 	(void) random_get_pseudo_bytes((void *)&r, sizeof (uint64_t));
 
+	ASSERT(sizeof(uint64_t) == 8);
+
 	return (r % range);
 }
 

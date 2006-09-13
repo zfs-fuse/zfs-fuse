@@ -46,6 +46,28 @@ extern "C" {
 #define	DMU_BACKUP_MAGIC 0x2F5bacbacULL
 
 /*
+ * zfs-fuse socket messages
+ */
+typedef struct {
+	enum {
+		IOCTL_REQ, IOCTL_ANS, COPYIN_REQ, COPYOUT_REQ
+	} cmd_type;
+	union {
+		struct ioctl_req {
+			int32_t cmd;
+			uint64_t arg;
+		} ioctl_req;
+
+		int32_t ioctl_ans_ret;
+
+		struct copy_req {
+			uint64_t ptr;
+			uint64_t size;
+		} copy_req;
+	} cmd_u;
+} zfsfuse_cmd_t;
+
+/*
  * zfs ioctl command structure
  */
 typedef struct dmu_replay_record {
@@ -148,9 +170,12 @@ extern dev_info_t *zfs_dip;
 extern int zfs_secpolicy_write(const char *dataset, const char *, cred_t *cr);
 extern int zfs_busy(void);
 
+#if 0
 extern int zvol_check_volsize(zfs_cmd_t *zc, uint64_t blocksize);
 extern int zvol_check_volblocksize(zfs_cmd_t *zc);
+#endif
 extern int zvol_get_stats(zfs_cmd_t *zc, objset_t *os);
+#if 0
 extern void zvol_create_cb(objset_t *os, void *arg, dmu_tx_t *tx);
 extern int zvol_create_minor(zfs_cmd_t *zc);
 extern int zvol_remove_minor(zfs_cmd_t *zc);
@@ -168,6 +193,7 @@ extern int zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr,
 extern int zvol_busy(void);
 extern void zvol_init(void);
 extern void zvol_fini(void);
+#endif
 
 #endif	/* _KERNEL */
 

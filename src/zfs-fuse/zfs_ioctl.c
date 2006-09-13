@@ -58,6 +58,7 @@
 #include <sys/zfs_ctldir.h>
 
 #include "zfs_namecheck.h"
+#include "zfs_ioctl.h"
 
 extern struct modlfs zfs_modlfs;
 
@@ -101,6 +102,8 @@ __dprintf(const char *file, const char *func, int line, const char *fmt, ...)
 	va_start(adx, fmt);
 	(void) vsnprintf(buf, sizeof (buf), fmt, adx);
 	va_end(adx);
+
+// 	fprintf(stderr, "%s", buf);
 
 	/*
 	 * To get this data, use the zfs-dprintf probe as so:
@@ -691,7 +694,7 @@ retry:
 
 	dmu_objset_stats(os, &zc->zc_objset_stats);
 
-	if (zc->zc_config_src != NULL &&
+	if (((char *) (uintptr_t) zc->zc_config_src) != NULL &&
 	    (error = dsl_prop_get_all(os, &nv)) == 0) {
 		VERIFY(nvlist_size(nv, &sz, NV_ENCODE_NATIVE) == 0);
 		if (sz > zc->zc_config_src_size) {
@@ -839,25 +842,29 @@ zfs_ioc_set_reservation(zfs_cmd_t *zc)
 static int
 zfs_ioc_set_volsize(zfs_cmd_t *zc)
 {
-	return (zvol_set_volsize(zc));
+	/* ZFSFUSE TODO: implement ZVOLs */
+	return ENXIO;
 }
 
 static int
 zfs_ioc_set_volblocksize(zfs_cmd_t *zc)
 {
-	return (zvol_set_volblocksize(zc));
+	/* ZFSFUSE TODO: implement ZVOLs */
+	return ENXIO;
 }
 
 static int
 zfs_ioc_create_minor(zfs_cmd_t *zc)
 {
-	return (zvol_create_minor(zc));
+	/* ZFSFUSE TODO: implement ZVOLs */
+	return ENXIO;
 }
 
 static int
 zfs_ioc_remove_minor(zfs_cmd_t *zc)
 {
-	return (zvol_remove_minor(zc));
+	/* ZFSFUSE TODO: implement ZVOLs */
+	return ENXIO;
 }
 
 /*
@@ -865,6 +872,7 @@ zfs_ioc_remove_minor(zfs_cmd_t *zc)
  * or NULL if no suitable entry is found. The caller of this routine
  * is responsible for releasing the returned vfs pointer.
  */
+#if 0
 static vfs_t *
 zfs_get_vfs(const char *resource)
 {
@@ -884,12 +892,16 @@ zfs_get_vfs(const char *resource)
 	vfs_list_unlock();
 	return (vfs_found);
 }
+#endif
 
 static void
 zfs_create_cb(objset_t *os, void *arg, dmu_tx_t *tx)
 {
+	/* ZFSFUSE: TODO */
+#if 0
 	zfs_cmd_t *zc = arg;
 	zfs_create_fs(os, (cred_t *)(uintptr_t)zc->zc_cred, tx);
+#endif
 }
 
 static int
@@ -905,11 +917,12 @@ zfs_ioc_create(zfs_cmd_t *zc)
 	case DMU_OST_ZFS:
 		cbfunc = zfs_create_cb;
 		break;
-
+	/* ZFSFUSE: TODO Implement ZVOLs */
+#if 0
 	case DMU_OST_ZVOL:
 		cbfunc = zvol_create_cb;
 		break;
-
+#endif
 	default:
 		cbfunc = NULL;
 	}
@@ -936,6 +949,8 @@ zfs_ioc_create(zfs_cmd_t *zc)
 		/*
 		 * We're creating a new dataset.
 		 */
+	/* ZFSFUSE: TODO Implement ZVOLs */
+#if 0
 		if (type == DMU_OST_ZVOL) {
 
 			if ((error = zvol_check_volblocksize(zc)) != 0)
@@ -945,6 +960,7 @@ zfs_ioc_create(zfs_cmd_t *zc)
 			    zc->zc_volblocksize)) != 0)
 				return (error);
 		}
+#endif
 		error = dmu_objset_create(zc->zc_name, type, NULL, cbfunc, zc);
 	}
 	return (error);
@@ -962,6 +978,8 @@ zfs_ioc_snapshot(zfs_cmd_t *zc)
 static int
 zfs_unmount_snap(char *name, void *arg)
 {
+	/* ZFSFUSE: TODO */
+#if 0
 	char *snapname = arg;
 	char *cp;
 	vfs_t *vfsp = NULL;
@@ -996,6 +1014,7 @@ zfs_unmount_snap(char *name, void *arg)
 		if ((err = dounmount(vfsp, flag, kcred)) != 0)
 			return (err);
 	}
+#endif
 	return (0);
 }
 
@@ -1051,6 +1070,8 @@ zfs_ioc_rename(zfs_cmd_t *zc)
 static int
 zfs_ioc_recvbackup(zfs_cmd_t *zc)
 {
+/* zfs-fuse: TODO */
+#if 0
 	file_t *fp;
 	int error, fd;
 
@@ -1062,11 +1083,15 @@ zfs_ioc_recvbackup(zfs_cmd_t *zc)
 	    &zc->zc_cookie, fp->f_vnode, fp->f_offset);
 	releasef(fd);
 	return (error);
+#endif
+	return EBADF;
 }
 
 static int
 zfs_ioc_sendbackup(zfs_cmd_t *zc)
 {
+/* zfs-fuse: TODO */
+#if 0
 	objset_t *fromsnap = NULL;
 	objset_t *tosnap;
 	file_t *fp;
@@ -1101,6 +1126,8 @@ zfs_ioc_sendbackup(zfs_cmd_t *zc)
 		dmu_objset_close(fromsnap);
 	dmu_objset_close(tosnap);
 	return (error);
+#endif
+	return EBADF;
 }
 
 static int
@@ -1269,15 +1296,18 @@ static zfs_ioc_vec_t zfs_ioc_vec[] = {
 	{ zfs_ioc_snapshot,		zfs_secpolicy_write,	dataset_name }
 };
 
-static int
+int
 zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 {
 	zfs_cmd_t *zc;
 	uint_t vec;
 	int error, rc;
 
+/* zfs-fuse: not implemented */
+#if 0
 	if (getminor(dev) != 0)
 		return (zvol_ioctl(dev, cmd, arg, flag, cr, rvalp));
+#endif
 
 	vec = cmd - ZFS_IOC;
 
@@ -1311,6 +1341,9 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 			if (dataset_namecheck(zc->zc_name, NULL, NULL) != 0)
 				error = EINVAL;
 			break;
+
+		case no_name:
+			break;
 		}
 	}
 
@@ -1325,6 +1358,7 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 	return (error);
 }
 
+#if 0
 static int
 zfs_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 {
@@ -1429,52 +1463,66 @@ static struct modlinkage modlinkage = {
 	(void *)&zfs_modldrv,
 	NULL
 };
+#endif
 
 int
-_init(void)
+zfs_ioctl_init(void)
 {
-	int error;
-
 	spa_init(FREAD | FWRITE);
-	zfs_init();
-	zvol_init();
 
+	/* ZFSFUSE: TODO */
+	/* zfs_init(); */
+
+	/* zfs-fuse: not implemented */
+	/*zvol_init();*/
+
+#if 0
 	if ((error = mod_install(&modlinkage)) != 0) {
 		zvol_fini();
 		zfs_fini();
 		spa_fini();
 		return (error);
 	}
-
 	error = ldi_ident_from_mod(&modlinkage, &zfs_li);
 	ASSERT(error == 0);
+#endif
 
 	return (0);
 }
 
 int
-_fini(void)
+zfs_ioctl_fini(void)
 {
-	int error;
+	int error = 0;
 
-	if (spa_busy() || zfs_busy() || zvol_busy() || zio_injection_enabled)
+	/* ZFSFUSE: TODO */
+	if (spa_busy() || /*zfs_busy() ||*/ /*zvol_busy() ||*/ zio_injection_enabled)
 		return (EBUSY);
 
+#if 0
 	if ((error = mod_remove(&modlinkage)) != 0)
 		return (error);
+#endif
 
-	zvol_fini();
-	zfs_fini();
+	/* zfs-fuse: not implemented */
+	/*zvol_fini();*/
+
+	/* ZFSFUSE: TODO */
+	/*zfs_fini();*/
 	spa_fini();
 
+#if 0
 	ldi_ident_release(zfs_li);
 	zfs_li = NULL;
+#endif
 
 	return (error);
 }
 
+#if 0
 int
 _info(struct modinfo *modinfop)
 {
 	return (mod_info(&modlinkage, modinfop));
 }
+#endif

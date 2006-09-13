@@ -101,17 +101,16 @@ extern void vpanic(const char *, __va_list);
 /* This definition is copied from assert.h. */
 #if defined(__STDC__)
 #if __STDC_VERSION__ - 0 >= 199901L
-#define	verify(EX) (void)((EX) || \
-	(__assert_c99(#EX, __FILE__, __LINE__, __func__), 0))
+#define	VERIFY(EX) (void)((EX) || \
+	(__assert_fail(#EX, __FILE__, __LINE__, __func__), 0))
 #else
-#define	verify(EX) (void)((EX) || (__assert(#EX, __FILE__, __LINE__), 0))
+#define	VERIFY(EX) (void)((EX) || (__assert(#EX, __FILE__, __LINE__), 0))
 #endif /* __STDC_VERSION__ - 0 >= 199901L */
 #else
-#define	verify(EX) (void)((EX) || (_assert("EX", __FILE__, __LINE__), 0))
+#define	VERIFY(EX) (void)((EX) || (_assert("EX", __FILE__, __LINE__), 0))
 #endif	/* __STDC__ */
 
 
-#define	VERIFY	verify
 #define	ASSERT	assert
 
 extern void __assert(const char *, const char *, int);
@@ -156,18 +155,18 @@ _NOTE(CONSTCOND) } while (0)
 
 #ifdef DTRACE_PROBE1
 #undef	DTRACE_PROBE1
-#define	DTRACE_PROBE1(a, b, c)	((void)0)
 #endif	/* DTRACE_PROBE1 */
+#define	DTRACE_PROBE1(a, b, c)	((void)0)
 
 #ifdef DTRACE_PROBE2
 #undef	DTRACE_PROBE2
-#define	DTRACE_PROBE2(a, b, c, d, e)	((void)0)
 #endif	/* DTRACE_PROBE2 */
+#define	DTRACE_PROBE2(a, b, c, d, e)	((void)0)
 
 #ifdef DTRACE_PROBE3
 #undef	DTRACE_PROBE3
-#define	DTRACE_PROBE3(a, b, c, d, e, f, g)	((void)0)
 #endif	/* DTRACE_PROBE3 */
+#define	DTRACE_PROBE3(a, b, c, d, e, f, g)	((void)0)
 
 /*
  * Threads
@@ -178,7 +177,7 @@ typedef struct kthread kthread_t;
 
 #define	thread_create(stk, stksize, func, arg, len, pp, state, pri)	\
 	zk_thread_create(func, arg)
-#define	thread_exit() thr_exit(0)
+#define	thread_exit() thr_exit(NULL)
 
 extern kthread_t *zk_thread_create(void (*func)(), void *arg);
 
@@ -195,14 +194,7 @@ typedef struct kmutex {
 
 #define	MUTEX_DEFAULT	USYNC_THREAD
 #undef MUTEX_HELD
-#define	MUTEX_HELD(m) _mutex_held(&(m)->m_lock)
-
-/*
- * Argh -- we have to get cheesy here because the kernel and userland
- * have different signatures for the same routine.
- */
-extern int _mutex_init(mutex_t *mp, int type, void *arg);
-extern int _mutex_destroy(mutex_t *mp);
+#define	MUTEX_HELD(m) ((m)->m_owner == curthread)
 
 #define	mutex_init(mp, b, c, d)		zmutex_init((kmutex_t *)(mp))
 #define	mutex_destroy(mp)		zmutex_destroy((kmutex_t *)(mp))
@@ -218,21 +210,22 @@ extern void *mutex_owner(kmutex_t *mp);
  * RW locks
  */
 typedef struct krwlock {
-	void		*rw_owner;
-	rwlock_t	rw_lock;
+	kmutex_t   mutex;
+	int        thr_count;
+	void       *rw_owner;
+	rwlock_t   rw_lock;
 } krwlock_t;
 
 typedef int krw_t;
 
 #define	RW_READER	0
 #define	RW_WRITER	1
-#define	RW_DEFAULT	USYNC_THREAD
+#define	RW_DEFAULT	0
 
 #undef RW_READ_HELD
-#define	RW_READ_HELD(x)		_rw_read_held(&(x)->rw_lock)
 
-#undef RW_WRITE_HELD
-#define	RW_WRITE_HELD(x)	_rw_write_held(&(x)->rw_lock)
+#define RW_WRITE_HELD(x) ((x)->rw_owner == curthread)
+#define RW_LOCK_HELD(x) rw_lock_held(x)
 
 extern void rw_init(krwlock_t *rwlp, char *name, int type, void *arg);
 extern void rw_destroy(krwlock_t *rwlp);
@@ -240,6 +233,7 @@ extern void rw_enter(krwlock_t *rwlp, krw_t rw);
 extern int rw_tryenter(krwlock_t *rwlp, krw_t rw);
 extern int rw_tryupgrade(krwlock_t *rwlp);
 extern void rw_exit(krwlock_t *rwlp);
+extern int rw_lock_held(krwlock_t *rwlp);
 #define	rw_downgrade(rwlp) do { } while (0)
 
 /*
@@ -247,7 +241,7 @@ extern void rw_exit(krwlock_t *rwlp);
  */
 typedef cond_t kcondvar_t;
 
-#define	CV_DEFAULT	USYNC_THREAD
+#define	CV_DEFAULT	0
 
 extern void cv_init(kcondvar_t *cv, char *name, int type, void *arg);
 extern void cv_destroy(kcondvar_t *cv);
@@ -430,5 +424,6 @@ extern int kobj_read_file(struct _buf *file, char *buf, unsigned size,
 extern void kobj_close_file(struct _buf *file);
 extern int kobj_fstat(intptr_t, struct bootstat *);
 
+#define PAGESIZE sysconf(_SC_PAGE_SIZE)
 
 #endif	/* _SYS_ZFS_CONTEXT_H */

@@ -1,0 +1,6 @@
+Import('env')
+
+objects = Split('umem.c')
+cpppath = Split('./include #lib/libsolcompat/include')
+
+env.StaticLibrary('libumem', objects, CPPPATH = env['CPPPATH'] + cpppath)

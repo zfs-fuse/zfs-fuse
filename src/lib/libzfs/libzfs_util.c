@@ -40,6 +40,7 @@
 #include <sys/mnttab.h>
 
 #include <libzfs.h>
+#include <zfsfuse.h>
 
 #include "libzfs_impl.h"
 
@@ -393,13 +394,13 @@ zfs_nicenum(uint64_t num, char *buf, size_t buflen)
 	u = " KMGTPE"[index];
 
 	if (index == 0) {
-		(void) snprintf(buf, buflen, "%llu", n);
+		(void) snprintf(buf, buflen, "%llu", (unsigned long long) n);
 	} else if ((num & ((1ULL << 10 * index) - 1)) == 0) {
 		/*
 		 * If this is an even multiple of the base, always display
 		 * without any decimal precision.
 		 */
-		(void) snprintf(buf, buflen, "%llu%c", n, u);
+		(void) snprintf(buf, buflen, "%llu%c", (unsigned long long) n, u);
 	} else {
 		/*
 		 * We want to choose a precision that reflects the best choice
@@ -435,7 +436,7 @@ libzfs_init(void)
 		return (NULL);
 	}
 
-	if ((hdl->libzfs_fd = open(ZFS_DEV, O_RDWR)) == NULL) {
+	if ((hdl->libzfs_fd = zfsfuse_open(ZFS_DEV_NAME, O_RDWR)) == -1) {
 		free(hdl);
 		return (NULL);
 	}

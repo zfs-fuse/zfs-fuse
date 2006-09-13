@@ -48,11 +48,15 @@ lzjb_compress(void *s_start, void *d_start, size_t s_len, size_t d_len)
 {
 	uchar_t *src = s_start;
 	uchar_t *dst = d_start;
-	uchar_t *cpy, *copymap;
+	uchar_t *cpy, *copymap = NULL;
 	int copymask = 1 << (NBBY - 1);
 	int mlen, offset;
 	uint16_t *hp;
+#ifdef DEBUG
+	uint16_t lempel[LEMPEL_SIZE] = {};
+#else
 	uint16_t lempel[LEMPEL_SIZE];	/* uninitialized; see above */
+#endif
 
 	while (src < (uchar_t *)s_start + s_len) {
 		if ((copymask <<= 1) == (1 << NBBY)) {
@@ -101,7 +105,7 @@ lzjb_decompress(void *s_start, void *d_start, size_t s_len, size_t d_len)
 	uchar_t *src = s_start;
 	uchar_t *dst = d_start;
 	uchar_t *d_end = (uchar_t *)d_start + d_len;
-	uchar_t *cpy, copymap;
+	uchar_t *cpy, copymap = 0;
 	int copymask = 1 << (NBBY - 1);
 
 	while (dst < d_end) {
