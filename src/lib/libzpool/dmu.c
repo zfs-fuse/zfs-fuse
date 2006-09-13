@@ -42,11 +42,6 @@
 #include <sys/zap.h>
 #include <sys/zio_checksum.h>
 
-/* zfs-fuse: ??? */
-#ifdef _KERNEL
-#include <sys/vnode.h>
-#endif
-
 const dmu_object_type_info_t dmu_ot[DMU_OT_NUMTYPES] = {
 	{	byteswap_uint8_array,	TRUE,	"unallocated"		},
 	{	zap_byteswap,		TRUE,	"object directory"	},

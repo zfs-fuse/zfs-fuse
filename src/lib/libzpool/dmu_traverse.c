@@ -401,7 +401,7 @@ find_block(traverse_handle_t *th, zseg_t *zseg, dnode_phys_t *dnp, int depth)
 		SET_BOOKMARK(&bc->bc_bookmark, zb->zb_objset, zb->zb_object,
 		    level, blkid);
 
-		if ((rc = traverse_read(th, bc, bp + i, dnp))) {
+		if (rc = traverse_read(th, bc, bp + i, dnp)) {
 			if (rc != EAGAIN) {
 				SET_BOOKMARK_LB(zb, level, blkid);
 			}

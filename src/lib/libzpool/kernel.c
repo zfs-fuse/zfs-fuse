@@ -262,7 +262,8 @@ cv_wait(kcondvar_t *cv, kmutex_t *mp)
 {
 	ASSERT(mutex_owner(mp) == curthread);
 	mp->m_owner = NULL;
-	VERIFY(cond_wait(cv, &mp->m_lock) == 0);
+	int ret = cond_wait(cv, &mp->m_lock);
+	VERIFY(ret == 0 || ret == EINTR);
 	mp->m_owner = curthread;
 }
 
@@ -341,7 +342,7 @@ vn_open(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2, int x3)
 {
 	int fd;
 	vnode_t *vp;
-	int old_umask = 0;
+	int old_umask;
 	char realpath[MAXPATHLEN];
 	struct stat64 st;
 

@@ -81,6 +81,7 @@
 
 #include "zpool_util.h"
 
+/* ZFSFUSE */
 #define	DISK_ROOT	"/dev"
 #define	RDISK_ROOT	"/dev"
 #define	BACKUP_SLICE	"s2"

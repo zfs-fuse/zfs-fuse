@@ -424,7 +424,7 @@ dnode_sync_free(dnode_t *dn, dmu_tx_t *tx)
 	ASSERT(dmu_tx_is_syncing(tx));
 
 	/* Undirty all buffers */
-	while ((db = list_head(&dn->dn_dirty_dbufs[txgoff]))) {
+	while (db = list_head(&dn->dn_dirty_dbufs[txgoff])) {
 		mutex_enter(&db->db_mtx);
 		/* XXX - use dbuf_undirty()? */
 		list_remove(&dn->dn_dirty_dbufs[txgoff], db);

@@ -1961,7 +1961,7 @@ zdb_read_block(char *thing, spa_t **spap)
 
 	for (s = strtok(flagstr, ":"); s; s = strtok(NULL, ":")) {
 		for (i = 0; flagstr[i]; i++) {
-			int bit = flagbits[(unsigned char) flagstr[i]];
+			int bit = flagbits[(uchar_t) flagstr[i]];
 
 			if (bit == 0) {
 				(void) printf("***Invalid flag: %c\n",

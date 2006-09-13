@@ -1133,31 +1133,6 @@ ztest_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t object, int mode)
 	return (zil_itx_assign(zilog, itx, tx));
 }
 
-/* ztest_log_remove is no longer used? */
-#if 0
-#ifndef lint
-static uint64_t
-ztest_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t object)
-{
-	itx_t *itx;
-	lr_remove_t *lr;
-	size_t namesize;
-	char name[24];
-
-	(void) sprintf(name, "ZOBJ_%llu", (u_longlong_t)object);
-	namesize = strlen(name) + 1;
-
-	itx = zil_itx_create(TX_REMOVE, sizeof (*lr) + namesize +
-	    ztest_random(8000));
-	lr = (lr_remove_t *)&itx->itx_lr;
-	lr->lr_doid = object;
-	bcopy(name, (char *)(lr + 1), namesize);
-
-	return (zil_itx_assign(zilog, itx, tx));
-}
-#endif /* lint */
-#endif
-
 void
 ztest_dmu_objset_create_destroy(ztest_args_t *za)
 {
@@ -3344,7 +3319,7 @@ main(int argc, char **argv)
 				    WEXITSTATUS(status));
 				exit(2);
 			}
-		} else {
+		} else if (WIFSIGNALED(status)) {
 			if (WTERMSIG(status) != SIGKILL) {
 				(void) fprintf(stderr,
 				    "child died with signal %d\n",
@@ -3352,6 +3327,9 @@ main(int argc, char **argv)
 				exit(3);
 			}
 			kills++;
+		} else {
+			(void) fprintf(stderr, "something strange happened to child\n");
+			exit(4);
 		}
 
 		iters++;
