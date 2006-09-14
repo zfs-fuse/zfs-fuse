@@ -24,22 +24,5 @@ If it's successful, you will receive a "Test successful" message at the end.
 Don't forget to remove the ztest.* files in /tmp (or the provided directory)
 after it's finished!
 
-If the program aborts, crashes or otherwise fails, please email me at
-rcorreia@wizy.org with the following info:
-  1) The output of ztest (including the error message)
-  2) The output of the following commands (make sure you are in the ztest
-directory):
-
-       # gdb ./ztest --core core.xxx (replace core.xxx with the correct
-filename)
-         (gdb) bt
-         (gdb) bt full
-         (gdb) exit
-       # getconf GNU_LIBPTHREAD_VERSION
-       # /lib/libc.so.6
-       # gcc --version
-       # uname -a
-
-  3) The zfs-fuse version you are using (or subversion revision).
-
-Thanks ;)
+If the program aborts, crashes or otherwise fails, please read the information
+in the BUGS file in order to report bugs.
