@@ -14,3 +14,5 @@
 ^src/lib/libzpool/build-kernel/
 ^src/lib/libzfscommon/build-user/
 ^src/lib/libzfscommon/build-kernel/
+
+/trace/\d+-TRACE\.\d+$
