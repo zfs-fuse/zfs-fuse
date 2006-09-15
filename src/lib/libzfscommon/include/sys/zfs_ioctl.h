@@ -50,7 +50,7 @@ extern "C" {
  */
 typedef struct {
 	enum {
-		IOCTL_REQ, IOCTL_ANS, COPYIN_REQ, COPYOUT_REQ
+		IOCTL_REQ, IOCTL_ANS, COPYIN_REQ, COPYOUT_REQ, MOUNT_REQ
 	} cmd_type;
 	union {
 		struct ioctl_req {
@@ -64,6 +64,13 @@ typedef struct {
 			uint64_t ptr;
 			uint64_t size;
 		} copy_req;
+
+		struct mount_req {
+			uint32_t speclen;
+			uint32_t dirlen;
+			int32_t mflag;
+			int32_t optlen;
+		} mount_req;
 	} cmd_u;
 } zfsfuse_cmd_t;
 

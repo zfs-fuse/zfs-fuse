@@ -27,8 +27,11 @@
 #ifndef _SOL_SYS_MOUNT_H
 #define _SOL_SYS_MOUNT_H
 
-#include <assert.h>
 #include_next <sys/mount.h>
+
+#include <assert.h>
+#include <string.h>
+#include <stdlib.h>
 
 /* LINUX */
 /*
@@ -44,15 +47,33 @@
 #define MS_NOMNTTAB  0         /* Not supported in Linux */
 #define MS_OPTIONSTR 0         /* Not necessary in Linux */
 
+#define FUSESPEC "zfs-fuse#"
+
+/* If you change this, check zfsfuse_mount in lib/libzfs/libzfs_zfsfuse.c */
 static inline int _sol_mount(const char *spec, const char *dir, int mflag, char *fstype, char *dataptr, int datalen, char *optptr, int optlen)
 {
 	assert(dataptr == NULL);
 	assert(datalen == 0);
 	assert(mflag == 0);
+	assert(strcmp(fstype, "zfs") == 0);
 
-	return mount(spec, dir, fstype, mflag, optptr);
+	char *newspec = malloc(strlen(spec) + strlen(FUSESPEC) + 1);
+	if(newspec == NULL)
+		abort();
+
+	strcpy(newspec, FUSESPEC);
+	strcat(newspec, spec);
+
+	fprintf(stderr, "spec: \"%s\", dir: \"%s\", mflag: %i, optptr: \"%s\"\n", newspec, dir, mflag, optptr);
+
+	int ret = mount(newspec, dir, "fuse", mflag, "defaults");
+
+	free(newspec);
+
+	return ret;
 }
 
 #define mount _sol_mount
+//#undef mount
 
 #endif

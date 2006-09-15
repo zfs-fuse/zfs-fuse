@@ -35,11 +35,11 @@
 
 #include <sys/fs/zfs.h>
 
-#include "zfsfuse_ioctl.h"
+#include "zfsfuse_socket.h"
 
 int cur_fd = -1;
 
-int zfsfuse_ioctl_open()
+int zfsfuse_socket_create()
 {
 	struct sockaddr_un name;
 
@@ -79,8 +79,11 @@ int zfsfuse_ioctl_open()
 	return sock;
 }
 
-/* This function is repeated in lib/libzfs/libzfs_zfsfuse.c */
-int zfsfuse_ioctl_read_loop(int fd, void *buf, int bytes)
+/*
+ * This function is repeated in lib/libzfs/libzfs_zfsfuse.c
+ * and in zfs-fuse/fuse_listener.c
+ */
+int zfsfuse_socket_read_loop(int fd, void *buf, int bytes)
 {
 	int read_bytes = 0;
 	int left_bytes = bytes;
@@ -100,28 +103,14 @@ int zfsfuse_ioctl_read_loop(int fd, void *buf, int bytes)
 	return 0;
 }
 
-void zfsfuse_ioctl_close(int fd)
+void zfsfuse_socket_close(int fd)
 {
 	close(fd);
 
 	unlink(ZFS_DEV_NAME);
 }
 
-int zfsfuse_ioctl_read(int fd, intptr_t *arg)
-{
-	zfsfuse_cmd_t cmd;
-
-	if(zfsfuse_ioctl_read_loop(fd, &cmd, sizeof(zfsfuse_cmd_t)) != 0)
-		return -1;
-
-	VERIFY(cmd.cmd_type == IOCTL_REQ);
-
-	*arg = (intptr_t) cmd.cmd_u.ioctl_req.arg;
-
-	return cmd.cmd_u.ioctl_req.cmd;
-}
-
-int zfsfuse_ioctl_write(int fd, int ret)
+int zfsfuse_socket_ioctl_write(int fd, int ret)
 {
 	zfsfuse_cmd_t cmd;
 
@@ -151,7 +140,7 @@ int xcopyin(const void *src, void *dest, size_t size)
 		return -1;
 	}
 
-	if(zfsfuse_ioctl_read_loop(cur_fd, dest, size) != 0)
+	if(zfsfuse_socket_read_loop(cur_fd, dest, size) != 0)
 		return -1;
 
 	return 0;

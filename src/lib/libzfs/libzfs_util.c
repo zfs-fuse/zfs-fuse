@@ -437,6 +437,7 @@ libzfs_init(void)
 		return (NULL);
 	}
 
+	/* ZFSFUSE */
 	if ((hdl->libzfs_fd = zfsfuse_open(ZFS_DEV_NAME, O_RDWR)) == -1) {
 		free(hdl);
 		return (NULL);

@@ -2,8 +2,9 @@
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
+ * Common Development and Distribution License, Version 1.0 only
+ * (the "License").  You may not use this file except in compliance
+ * with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -19,23 +20,22 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Ricardo Correia.
+ * Copyright 2006 Ricardo Correia.  All rights reserved.
  * Use is subject to license terms.
  */
 
-#include "util.h"
-#include "fuse_listener.h"
+#ifndef ZFSFUSE_IOCTL_H
+#define ZFSFUSE_IOCTL_H
 
-int main(int argc, char *argv[])
-{
-	if(do_init() != 0) {
-		do_exit();
-		return 1;
-	}
+#include <sys/zfs_ioctl.h>
+#include <sys/types.h>
 
-	int ret = zfsfuse_listener_loop();
+extern int cur_fd;
 
-	do_exit();
+extern int zfsfuse_socket_create();
+extern void zfsfuse_socket_close(int fd);
 
-	return ret;
-}
+extern int zfsfuse_socket_read_loop(int fd, void *buf, int bytes);
+extern int zfsfuse_socket_ioctl_write(int fd, int ret);
+
+#endif

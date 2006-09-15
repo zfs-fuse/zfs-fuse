@@ -63,7 +63,10 @@ int zfsfuse_open(const char *pathname, int flags)
 	return sock;
 }
 
-/* This function is repeated in zfs-fuse/zfsfuse_ioctl.c */
+/*
+ * This function is repeated in zfs-fuse/zfsfuse_ioctl.c
+ * and in zfs-fuse/fuse_listener.c
+ */
 int zfsfuse_ioctl_read_loop(int fd, void *buf, int bytes)
 {
 	int read_bytes = 0;
@@ -104,6 +107,7 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 
 		switch(cmd.cmd_type) {
 			case IOCTL_REQ:
+			case MOUNT_REQ:
 				abort();
 			case IOCTL_ANS:
 				errno = cmd.cmd_u.ioctl_ans_ret;
@@ -118,4 +122,47 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 				break;
 		}
 	}
+}
+
+/* If you change this, check _sol_mount in lib/libsolcompat/include/sys/mount.h */
+int zfsfuse_mount(libzfs_handle_t *hdl, const char *spec, const char *dir, int mflag, char *fstype, char *dataptr, int datalen, char *optptr, int optlen)
+{
+	assert(dataptr == NULL);
+	assert(datalen == 0);
+	assert(mflag == 0);
+	assert(strcmp(fstype, "zfs") == 0);
+
+	zfsfuse_cmd_t cmd;
+
+	uint32_t speclen = strlen(spec);
+	uint32_t dirlen = strlen(dir);
+
+	cmd.cmd_type = MOUNT_REQ;
+	cmd.cmd_u.mount_req.speclen = speclen;
+	cmd.cmd_u.mount_req.dirlen = dirlen;
+	cmd.cmd_u.mount_req.mflag = mflag;
+	cmd.cmd_u.mount_req.optlen = optlen;
+
+	if(write(hdl->libzfs_fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t))
+		return -1;
+
+	if(write(hdl->libzfs_fd, spec, speclen) != speclen)
+		return -1;
+
+	if(write(hdl->libzfs_fd, dir, dirlen) != dirlen)
+		return -1;
+
+	if(write(hdl->libzfs_fd, optptr, optlen) != optlen)
+		return -1;
+
+	uint32_t error;
+
+	if(zfsfuse_ioctl_read_loop(hdl->libzfs_fd, &error, sizeof(uint32_t)) != 0)
+		return -1;
+
+	if(error == 0)
+		return error;
+
+	errno = error;
+	return -1;
 }

@@ -23,19 +23,14 @@
  * Use is subject to license terms.
  */
 
-#include "util.h"
-#include "fuse_listener.h"
+#ifndef ZFSFUSE_LISTENER_H
+#define ZFSFUSE_LISTENER_H
 
-int main(int argc, char *argv[])
-{
-	if(do_init() != 0) {
-		do_exit();
-		return 1;
-	}
+#include "fuse.h"
 
-	int ret = zfsfuse_listener_loop();
+extern int zfsfuse_listener_init();
+extern int zfsfuse_listener_loop();
+extern void zfsfuse_listener_exit();
+extern int zfsfuse_newfs(char *mntpoint, struct fuse_chan *ch);
 
-	do_exit();
-
-	return ret;
-}
+#endif

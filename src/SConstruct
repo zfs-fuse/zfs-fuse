@@ -4,7 +4,9 @@ env = Environment()
 
 env['CC'] = 'gcc'
 env['LINKFLAGS'] = Split('-pipe -Wall -Werror -ggdb')
-env['CCFLAGS'] = Split('-pipe -std=c99 -Wall -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -Werror -fno-strict-aliasing -finstrument-functions -ggdb -DDEBUG -D_GNU_SOURCE -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\"')
+env['CCFLAGS'] = Split('-DDEBUG -ggdb -pipe -std=c99 -Wall -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -Werror -fno-strict-aliasing -finstrument-functions -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\"')
+#env['LINKFLAGS'] = Split('-pipe -Wall -Werror -s')
+#env['CCFLAGS'] = Split('-DNDEBUG -s -O2 -march=athlon64 -pipe -std=c99 -Wall -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -Werror -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\"')
 env['CPPPATH'] = []
 
 f = os.popen('uname -m')

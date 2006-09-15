@@ -23,19 +23,13 @@
  * Use is subject to license terms.
  */
 
-#include "util.h"
-#include "fuse_listener.h"
+#ifndef ZFSFUSE_UTIL_H
+#define ZFSFUSE_UTIL_H
 
-int main(int argc, char *argv[])
-{
-	if(do_init() != 0) {
-		do_exit();
-		return 1;
-	}
+#include <sys/types.h>
 
-	int ret = zfsfuse_listener_loop();
+extern int do_init();
+extern void do_exit();
+extern uint32_t do_mount(char *spec, char *dir, int mflag, char *opt);
 
-	do_exit();
-
-	return ret;
-}
+#endif

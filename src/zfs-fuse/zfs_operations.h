@@ -23,19 +23,11 @@
  * Use is subject to license terms.
  */
 
-#include "util.h"
-#include "fuse_listener.h"
+#ifndef ZFS_OPERATIONS_H
+#define ZFS_OPERATIONS_H
 
-int main(int argc, char *argv[])
-{
-	if(do_init() != 0) {
-		do_exit();
-		return 1;
-	}
+#include "fuse.h"
 
-	int ret = zfsfuse_listener_loop();
+extern struct fuse_lowlevel_ops zfs_operations;
 
-	do_exit();
-
-	return ret;
-}
+#endif
