@@ -143,7 +143,6 @@ typedef struct znode {
 	zfs_dirlock_t	*z_dirlocks;	/* directory entry lock list */
 	kmutex_t	z_range_lock;	/* protects changes to z_range_avl */
 	avl_tree_t	z_range_avl;	/* avl tree of file range locks */
-	uint8_t		z_active;	/* znode is in use */
 	uint8_t		z_reap;		/* reap file at last reference */
 	uint8_t		z_atime_dirty;	/* atime needs to be synced */
 	uint8_t		z_dbuf_held;	/* Is z_dbuf already held? */
@@ -256,23 +255,23 @@ extern int	zfs_create_op_tables();
 extern int	zfs_sync(vfs_t *vfsp, short flag, cred_t *cr);
 extern dev_t	zfs_cmpldev(uint64_t);
 
-extern uint64_t zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *dzp, znode_t *zp, char *name);
-extern uint64_t zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *dzp, char *name);
-extern uint64_t zfs_log_link(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_link(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *dzp, znode_t *zp, char *name);
-extern uint64_t zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *dzp, znode_t *zp, char *name, char *link);
-extern uint64_t zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *sdzp, char *sname, znode_t *tdzp, char *dname, znode_t *szp);
-extern uint64_t zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, offset_t off, ssize_t len, int ioflag, uio_t *uio);
-extern uint64_t zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, uint64_t off, uint64_t len);
-extern uint64_t zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, vattr_t *vap, uint_t mask_applied);
-extern uint64_t zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+extern void zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, int aclcnt, ace_t *z_ace);
 
 extern zil_get_data_t zfs_get_data;
