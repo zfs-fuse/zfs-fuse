@@ -28,6 +28,7 @@ env.Execute(SymLink('cmd/zdb/trace-parse.py', 'zfs-fuse/trace-parse.py'))
 env.Execute(SymLink('cmd/zfs/trace-parse.py', 'zfs-fuse/trace-parse.py'))
 env.Execute(SymLink('cmd/zpool/trace-parse.py', 'zfs-fuse/trace-parse.py'))
 
+env.Execute(SymLink('lib/libsolkerncompat/taskq.c', 'lib/libzpool/taskq.c'))
 env.Execute(SymLink('lib/libsolkerncompat/i386', 'lib/libsolcompat/i386'))
 env.Execute(SymLink('lib/libsolkerncompat/amd64', 'lib/libsolcompat/amd64'))
 

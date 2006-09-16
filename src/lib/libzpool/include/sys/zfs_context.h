@@ -285,7 +285,7 @@ extern taskq_t	*taskq_create(const char *, int, pri_t, int, int, uint_t);
 extern taskqid_t taskq_dispatch(taskq_t *, task_func_t, void *, uint_t);
 extern void	taskq_destroy(taskq_t *);
 extern void	taskq_wait(taskq_t *);
-extern int	taskq_member(taskq_t *, void *);
+extern int	taskq_member(taskq_t *, kthread_t *);
 
 /*
  * vnodes
