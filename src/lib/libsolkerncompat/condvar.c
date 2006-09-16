@@ -40,7 +40,7 @@
 void
 cv_init(kcondvar_t *cv, char *name, int type, void *arg)
 {
-	assert(type == CV_DEFAULT);
+	ASSERT(type == CV_DEFAULT);
 
 	VERIFY(pthread_cond_init(cv, NULL) == 0);
 }

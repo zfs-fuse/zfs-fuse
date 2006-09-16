@@ -246,7 +246,7 @@ int rw_lock_held(krwlock_t *rwlp)
 void
 cv_init(kcondvar_t *cv, char *name, int type, void *arg)
 {
-	assert(type == CV_DEFAULT);
+	ASSERT(type == CV_DEFAULT);
 
 	VERIFY(cond_init(cv, type, NULL) == 0);
 }
