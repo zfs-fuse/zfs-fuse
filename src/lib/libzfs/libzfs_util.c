@@ -461,7 +461,7 @@ libzfs_init(void)
 		return (NULL);
 	}
 
-	if ((hdl->libzfs_mnttab = fopen(MNTTAB, "r")) == NULL) {
+	if ((hdl->libzfs_mnttab = setmntent(MNTTAB, "r")) == NULL) {
 		(void) close(hdl->libzfs_fd);
 		free(hdl);
 		return (NULL);
@@ -477,7 +477,7 @@ libzfs_fini(libzfs_handle_t *hdl)
 {
 	(void) close(hdl->libzfs_fd);
 	if (hdl->libzfs_mnttab)
-		(void) fclose(hdl->libzfs_mnttab);
+		(void) endmntent(hdl->libzfs_mnttab);
 	if (hdl->libzfs_sharetab)
 		(void) fclose(hdl->libzfs_sharetab);
 	namespace_clear(hdl);

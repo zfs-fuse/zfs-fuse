@@ -29,6 +29,8 @@
 
 #include_next <sys/mount.h>
 
+#include <sys/mntent.h>
+
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -55,7 +57,7 @@ static inline int _sol_mount(const char *spec, const char *dir, int mflag, char 
 	assert(dataptr == NULL);
 	assert(datalen == 0);
 	assert(mflag == 0);
-	assert(strcmp(fstype, "zfs") == 0);
+	assert(strcmp(fstype, MNTTYPE_ZFS) == 0);
 
 	char *newspec = malloc(strlen(spec) + strlen(FUSESPEC) + 1);
 	if(newspec == NULL)

@@ -43,7 +43,6 @@ __thread char buf[BUFSIZE];
 
 #define DIFF(xx) (mrefp->xx != NULL && (mgetp->xx == NULL || strcmp(mrefp->xx, mgetp->xx) != 0))
 
-/* FIXME: Not tested */
 int
 getmntany(FILE *fp, struct mnttab *mgetp, struct mnttab *mrefp)
 {
@@ -54,7 +53,6 @@ getmntany(FILE *fp, struct mnttab *mgetp, struct mnttab *mrefp)
 	return ret;
 }
 
-/* FIXME: Not tested */
 int _sol_getmntent(FILE *fp, struct mnttab *mgetp)
 {
 	struct mntent mntbuf;

@@ -34,6 +34,11 @@
 #include <mntent.h>
 #include <sys/types.h>
 
+#ifdef MNTTAB
+#undef MNTTAB
+#endif
+
+#define MNTTAB "/proc/mounts"
 #define MNT_LINE_MAX 1024
 
 #define MNT_TOOLONG 1    /* entry exceeds MNT_LINE_MAX */

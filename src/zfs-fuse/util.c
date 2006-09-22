@@ -23,6 +23,7 @@
  * Use is subject to license terms.
  */
 
+#include <stdio.h>
 #include <sys/debug.h>
 #include <sys/types.h>
 #include <pthread.h>
@@ -84,7 +85,7 @@ void do_exit()
 	libsolkerncompat_exit();
 }
 
-#define FUSE_OPTIONS "allow_other"
+#define FUSE_OPTIONS "fsname=%s,allow_other"
 
 uint32_t do_mount(char *spec, char *dir, int mflag, char *opt)
 {
@@ -93,7 +94,13 @@ uint32_t do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	fprintf(stderr, "mounting %s\n", dir);
 
-	int fd = fuse_mount(dir, FUSE_OPTIONS);
+	char *fuse_opts;
+	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec) == -1)
+		return ENOMEM;
+
+	int fd = fuse_mount(dir, fuse_opts);
+	free(fuse_opts);
+
 	if(fd == -1)
 		return EIO;
 

@@ -172,7 +172,7 @@ int zfsfuse_listener_loop()
 					continue;
 				}
 
-				fprintf(stderr, "Adding filesystem %i at mntpoint %s\n", i, mntpoint);
+				fprintf(stderr, "Adding filesystem %i at mntpoint %s\n", nfds, mntpoint);
 
 				fsinfo[nfds] = fs;
 				mountpoints[nfds] = mntpoint;
