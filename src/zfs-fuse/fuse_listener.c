@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <sys/poll.h>
 #include <sys/debug.h>
+#include <errno.h>
 
 #include "fuse.h"
 
@@ -122,12 +123,13 @@ int zfsfuse_listener_loop()
 
 	for(;;) {
 		int ret = poll(fds, nfds, -1);
+		if(ret == 0 || (ret == -1 && errno == EINTR))
+			continue;
+
 		if(ret == -1) {
 			perror("poll");
 			break;
 		}
-		if(ret == 0)
-			continue;
 
 		int oldfds = nfds;
 

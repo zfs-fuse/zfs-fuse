@@ -27,6 +27,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/poll.h>
+#include <errno.h>
 
 #include <stdio.h>
 #include <unistd.h>
@@ -99,12 +100,13 @@ void *listener_loop(void *arg)
 	while(!exit_listener) {
 		/* Poll all sockets with a 1 second timeout */
 		int ret = poll(fds, nfds, 1000);
+		if(ret == 0 || (ret == -1 && errno == EINTR))
+			continue;
+
 		if(ret == -1) {
 			perror("poll");
 			break;
 		}
-		if(ret == 0)
-			continue;
 
 		int oldfds = nfds;
 
