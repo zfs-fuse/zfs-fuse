@@ -41,10 +41,12 @@ typedef struct vn_vfslocks_entry {
 /* Please look at vfs_init() if you change this structure */
 typedef struct vnode {
 	struct vfs          *v_vfsp;      /* ptr to containing VFS */
-	vn_vfslocks_entry_t  v_vfsmhlock; /* Protects v_vfsmountedhere */
+	/* vn_vfslocks_entry_t  v_vfsmhlock;*/ /* Protects v_vfsmountedhere */
 	int                  v_fd;
 	uint64_t             v_size;
 	char                *v_path;
+	void                *v_data;
+	uint_t               v_count;
 } vnode_t;
 
 typedef struct vattr {
@@ -83,15 +85,22 @@ typedef enum symfollow symfollow_t;
 typedef enum vcexcl    vcexcl_t;
 typedef enum create    create_t;
 
+#if 0
 extern int vn_vfswlock(vnode_t *);
 extern vn_vfslocks_entry_t *vn_vfslocks_getlock_vnode(vnode_t *);
 #define vn_vfslocks_rele(x) ((void) (0))
+#endif
 
 #define VOP_GETATTR(vp, vap, fl, cr)    ((vap)->va_size = (vp)->v_size, 0)
 #define VOP_FSYNC(vp, f, cr)            fsync((vp)->v_fd)
 #define VOP_PUTPAGE(vp, of, sz, fl, cr) 0
 #define VOP_CLOSE(vp, f, c, o, cr)      0
 #define VN_RELE(vp)                     vn_close(vp)
+
+extern vnode_t *vn_alloc(int kmflag);
+extern void vn_reinit(vnode_t *vp);
+extern void vn_recycle(vnode_t *vp);
+extern void vn_free(vnode_t *vp);
 
 extern int vn_open(char *pnamep, enum uio_seg seg, int filemode, int createmode, struct vnode **vpp, enum create crwhy, mode_t umask);
 extern int vn_openat(char *pnamep, enum uio_seg seg, int filemode, int createmode, struct vnode **vpp, enum create crwhy, mode_t umask, struct vnode *startvp);

@@ -34,7 +34,9 @@
 #include <pthread.h>
 
 static struct vfs st_rootvfs = {};
-static vnode_t st_rootdir = {};
+static vnode_t st_rootdir = {
+	.v_fd = -1
+};
 static pthread_rwlock_t vfslist;
 
 /*

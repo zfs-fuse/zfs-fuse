@@ -1217,7 +1217,7 @@ zfs_init(void)
 	/*
 	 * Initialize znode cache, vnode ops, etc...
 	 */
-	/* zfs_znode_init(); */
+	zfs_znode_init();
 }
 
 void
@@ -1225,7 +1225,7 @@ zfs_fini(void)
 {
 	/* ZFSFUSE: TODO */
 	/* zfsctl_fini(); */
-	/* zfs_znode_fini(); */
+	zfs_znode_fini();
 }
 
 int
