@@ -1566,8 +1566,7 @@ zfs_ioctl_init(void)
 {
 	spa_init(FREAD | FWRITE);
 
-	/* ZFSFUSE: TODO */
-	/* zfs_init(); */
+	zfs_init();
 
 	/* zfs-fuse: not implemented */
 	/*zvol_init();*/
@@ -1591,8 +1590,7 @@ zfs_ioctl_fini(void)
 {
 	int error = 0;
 
-	/* ZFSFUSE: TODO */
-	if (spa_busy() || /*zfs_busy() ||*/ /*zvol_busy() ||*/ zio_injection_enabled)
+	if (spa_busy() || zfs_busy() || /*zvol_busy() ||*/ zio_injection_enabled)
 		return (EBUSY);
 
 #if 0
@@ -1603,8 +1601,7 @@ zfs_ioctl_fini(void)
 	/* zfs-fuse: not implemented */
 	/*zvol_fini();*/
 
-	/* ZFSFUSE: TODO */
-	/*zfs_fini();*/
+	zfs_fini();
 	spa_fini();
 
 #if 0

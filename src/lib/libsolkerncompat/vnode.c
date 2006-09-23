@@ -42,6 +42,7 @@
 #include <sys/file.h>
 #include <sys/debug.h>
 #include <sys/systm.h>
+#include <sys/kmem.h>
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -56,6 +57,7 @@
  * vn_vfswlock is used to implement a lock which is logically a writers lock
  * protecting the v_vfsmountedhere field.
  */
+#if 0
 int
 vn_vfswlock(vnode_t *vp)
 {
@@ -85,6 +87,53 @@ vn_vfswlock(vnode_t *vp)
 vn_vfslocks_entry_t *vn_vfslocks_getlock_vnode(vnode_t *vfsvpptr)
 {
 	return &vfsvpptr->v_vfsmhlock;
+}
+#endif
+
+vnode_t *vn_alloc(int kmflag)
+{
+	ASSERT(kmflag == 0 || kmflag == UMEM_NOFAIL);
+
+	vnode_t *vp;
+
+	vp = umem_alloc(sizeof(vnode_t), kmflag);
+
+	if(vp != NULL)
+		vn_reinit(vp);
+
+	return vp;
+}
+
+void vn_reinit(vnode_t *vp)
+{
+	vp->v_vfsp = NULL;
+	vp->v_fd = -1;
+	vp->v_size = 0;
+	vp->v_path = NULL;
+	vp->v_data = NULL;
+	vp->v_count = 0;
+
+	vn_recycle(vp);
+}
+
+void vn_recycle(vnode_t *vp)
+{
+	if(vp->v_path) {
+		free(vp->v_path);
+		vp->v_path = NULL;
+	}
+}
+
+void vn_free(vnode_t *vp)
+{
+	ASSERT(vp->v_count == 0 || vp->v_count == 1);
+
+	if(vp->v_path != NULL) {
+		free(vp->v_path);
+		vp->v_path = NULL;
+	}
+
+	umem_free(vp, sizeof (vnode_t));
 }
 
 /*
