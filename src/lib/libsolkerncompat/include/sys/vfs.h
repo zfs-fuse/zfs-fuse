@@ -31,6 +31,7 @@
 #include <sys/types.h>
 #include <sys/refstr.h>
 #include <sys/cred.h>
+#include <sys/statvfs.h>
 
 typedef int fid_t;
 
