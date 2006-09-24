@@ -155,7 +155,7 @@ uu_avl_node_init(void *base, uu_avl_node_t *np, uu_avl_pool_t *pp)
 	}
 
 	na[0] = POOL_TO_MARKER(pp);
-	na[1] = NULL;
+	na[1] = (uintptr_t) NULL;
 }
 
 void
@@ -169,7 +169,7 @@ uu_avl_node_fini(void *base, uu_avl_node_t *np, uu_avl_pool_t *pp)
 			    "node already finied\n",
 			    base, np, pp, pp->uap_name);
 		}
-		if (na[0] != POOL_TO_MARKER(pp) || na[1] != NULL) {
+		if (na[0] != POOL_TO_MARKER(pp) || na[1] != (uintptr_t) NULL) {
 			uu_panic("uu_avl_node_fini(%p, %p, %p (\"%s\")): "
 			    "node corrupt, in tree, or in different pool\n",
 			    base, np, pp, pp->uap_name);
@@ -449,7 +449,7 @@ uu_avl_remove(uu_avl_t *ap, void *elem)
 	avl_remove(&ap->ua_tree, elem);
 
 	na[0] = POOL_TO_MARKER(pp);
-	na[1] = NULL;
+	na[1] = (uintptr_t) NULL;
 }
 
 void *
@@ -462,7 +462,7 @@ uu_avl_teardown(uu_avl_t *ap, void **cookie)
 		uintptr_t *na = NODE_ARRAY(pp, elem);
 
 		na[0] = POOL_TO_MARKER(pp);
-		na[1] = NULL;
+		na[1] = (uintptr_t) NULL;
 	}
 	return (elem);
 }
@@ -495,11 +495,11 @@ uu_avl_insert(uu_avl_t *ap, void *elem, uu_avl_index_t idx)
 		uu_avl_pool_t *pp = ap->ua_pool;
 		uintptr_t *na = NODE_ARRAY(pp, elem);
 
-		if (na[1] != NULL)
+		if (na[1] != (uintptr_t) NULL)
 			uu_panic("uu_avl_insert(%p, %p, %p): node already "
 			    "in tree, or corrupt\n",
 			    ap, elem, idx);
-		if (na[0] == NULL)
+		if (na[0] == (uintptr_t) NULL)
 			uu_panic("uu_avl_insert(%p, %p, %p): node not "
 			    "initialized\n",
 			    ap, elem, idx);

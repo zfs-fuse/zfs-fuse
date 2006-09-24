@@ -1,0 +1,9 @@
+Import('env')
+
+subst = {'arch': env['ARCH']}
+
+objects = Split('main.c bitmap.c clock.c cmn_err.c condvar.c kcf_random.c kobj.c kobj_subr.c mutex.c pathname.c refstr.c rwlock.c taskq.c thread.c vfs.c vnode.c %(arch)s/atomic.S' % subst)
+cpppath = Split('. ./include ./include/%(arch)s #lib/libumem/include' % subst)
+ccflags = Split('-D_KERNEL')
+
+env.StaticLibrary('libsolkerncompat', objects, CPPPATH = env['CPPPATH'] + cpppath, CCFLAGS = env['CCFLAGS'] + ccflags)

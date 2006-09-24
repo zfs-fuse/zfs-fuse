@@ -157,6 +157,18 @@ zfs_validate_name(libzfs_handle_t *hdl, const char *path, int type)
 				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 				    "multiple '@' delimiters in name"));
 				break;
+
+			case NAME_ERR_NOLETTER:
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "pool doesn't begin with a letter"));
+
+			case NAME_ERR_RESERVED:
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "name is reserved"));
+
+			case NAME_ERR_DISKLIKE:
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "reserved disk name"));
 			}
 		}
 
@@ -849,6 +861,9 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 				goto error;
 			}
 			break;
+
+		default:
+			break;
 		}
 
 		/*
@@ -939,6 +954,9 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 					    errbuf);
 					goto error;
 				}
+				break;
+			default:
+				break;
 			}
 		}
 	}
@@ -1540,7 +1558,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		if (get_numeric_property(zhp, prop, src, &source, &val) != 0)
 			return (-1);
 		if (literal)
-			(void) snprintf(propbuf, proplen, "%llu", val);
+			(void) snprintf(propbuf, proplen, "%llu", (u_longlong_t) val);
 		else
 			zfs_nicenum(val, propbuf, proplen);
 		break;
@@ -1570,7 +1588,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 			    strftime(propbuf, proplen, "%a %b %e %k:%M %Y",
 			    &t) == 0)
 				(void) snprintf(propbuf, proplen, "%llu",
-				    zhp->zfs_dmustats.dds_creation_time);
+				    (u_longlong_t) zhp->zfs_dmustats.dds_creation_time);
 		}
 		break;
 
@@ -1648,7 +1666,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 				(void) strlcpy(propbuf, "none", proplen);
 		} else {
 			if (literal)
-				(void) snprintf(propbuf, proplen, "%llu", val);
+				(void) snprintf(propbuf, proplen, "%llu", (u_longlong_t) val);
 			else
 				zfs_nicenum(val, propbuf, proplen);
 		}
@@ -1657,8 +1675,8 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 	case ZFS_PROP_COMPRESSRATIO:
 		if (get_numeric_property(zhp, prop, src, &source, &val) != 0)
 			return (-1);
-		(void) snprintf(propbuf, proplen, "%lld.%02lldx", val / 100,
-		    val % 100);
+		(void) snprintf(propbuf, proplen, "%lld.%02lldx", (longlong_t) val / 100,
+		    (longlong_t) val % 100);
 		break;
 
 	case ZFS_PROP_TYPE:
@@ -3235,6 +3253,7 @@ error:
 int
 zvol_create_link(libzfs_handle_t *hdl, const char *dataset)
 {
+#if 0
 	zfs_cmd_t zc = { 0 };
 	di_devlink_handle_t dhdl;
 
@@ -3275,6 +3294,10 @@ zvol_create_link(libzfs_handle_t *hdl, const char *dataset)
 	}
 
 	return (0);
+#endif
+
+	/* zfs-fuse TODO: implement ZVOLs */
+	abort();
 }
 
 /*

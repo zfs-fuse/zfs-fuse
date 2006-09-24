@@ -1,0 +1,55 @@
+import os, sys, re
+
+env = Environment()
+
+env['CC'] = 'gcc'
+env['LINKFLAGS'] = Split('-pipe -Wall -Werror -ggdb')
+env['CCFLAGS'] = Split('-DDEBUG -ggdb -pipe -std=c99 -Wall -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -Werror -fno-strict-aliasing -finstrument-functions -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\"')
+#env['LINKFLAGS'] = Split('-pipe -Wall -Werror -s')
+#env['CCFLAGS'] = Split('-DNDEBUG -s -O2 -march=athlon64 -pipe -std=c99 -Wall -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -Werror -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\"')
+env['CPPPATH'] = []
+
+f = os.popen('uname -m')
+arch = f.readline().strip()
+f.close()
+
+def getarch(arch):
+	if arch == 'x86_64':
+		return 'amd64'
+
+	if re.compile('i\d86').match(arch):
+		return 'i386'
+
+	return None
+
+myarch = getarch(arch)
+
+if not myarch:
+	print
+	print 'Sorry, only the x86 and amd64 hardware architectures are supported'
+	sys.exit(1)
+
+env['ARCH'] = ARGUMENTS.get('target', myarch)
+
+if env['ARCH'] == 'i386' and myarch == 'amd64':
+	env.Append(CCFLAGS = '-m32')
+	env.Append(ASFLAGS = '-m32')
+	env.Append(LINKFLAGS = '-m32')
+
+Export('env')
+
+SConscript('lib/libavl/SConscript')
+SConscript('lib/libsolcompat/SConscript')
+SConscript('lib/libnvpair/SConscript')
+SConscript('lib/libumem/SConscript')
+SConscript('lib/libuutil/SConscript')
+SConscript('lib/libzfs/SConscript')
+SConscript('lib/libzfscommon/SConscript')
+SConscript('lib/libzpool/SConscript')
+SConscript('lib/libsolkerncompat/SConscript')
+SConscript('cmd/zdb/SConscript')
+SConscript('cmd/ztest/SConscript')
+SConscript('cmd/zpool/SConscript')
+SConscript('cmd/zfs/SConscript')
+SConscript('zfs-fuse/SConscript')
+SConscript('SConscript-symlinks')

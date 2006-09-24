@@ -28,6 +28,7 @@
 
 	.file	"%M%"
 
+#define _ASM
 #include <sys/asm_linkage.h>
 
 #if defined(_KERNEL)

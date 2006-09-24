@@ -1402,9 +1402,9 @@ print_header(zfs_proplist_t *pl)
 		if (pl->pl_next == NULL && !right_justify)
 			(void) printf("%s", header);
 		else if (right_justify)
-			(void) printf("%*s", pl->pl_width, header);
+			(void) printf("%*s", (int) pl->pl_width, header);
 		else
-			(void) printf("%-*s", pl->pl_width, header);
+			(void) printf("%-*s", (int) pl->pl_width, header);
 	}
 
 	(void) printf("\n");
@@ -1885,7 +1885,6 @@ set_callback(zfs_handle_t *zhp, void *data)
 		return (1);
 	}
 	ret = 0;
-error:
 	return (ret);
 }
 
@@ -3014,7 +3013,7 @@ manual_unmount(int argc, char **argv)
 static int
 volcheck(zpool_handle_t *zhp, void *data)
 {
-	int isinit = (int)data;
+	boolean_t isinit = *((boolean_t *) data);
 
 	if (isinit)
 		return (zpool_create_zvol_links(zhp));
@@ -3029,7 +3028,7 @@ volcheck(zpool_handle_t *zhp, void *data)
 static int
 do_volcheck(boolean_t isinit)
 {
-	return (zpool_iter(g_zfs, volcheck, (void *)isinit) ? 1 : 0);
+	return (zpool_iter(g_zfs, volcheck, (void *) &isinit) ? 1 : 0);
 }
 
 int

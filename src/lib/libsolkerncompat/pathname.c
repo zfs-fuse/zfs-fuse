@@ -195,6 +195,7 @@ pn_insert(struct pathname *pnp, struct pathname *sympnp, size_t complen)
 	return (0);
 }
 
+#if 0
 int
 pn_getsymlink(vnode_t *vp, struct pathname *pnp, cred_t *crp)
 {
@@ -219,6 +220,7 @@ pn_getsymlink(vnode_t *vp, struct pathname *pnp, cred_t *crp)
 	}
 	return (error);
 }
+#endif
 
 /*
  * Get next component from a path name and leave in
