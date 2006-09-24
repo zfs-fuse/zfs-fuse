@@ -56,6 +56,7 @@
 #include <sys/sunddi.h>
 #include <sys/dnlc.h>
 
+#if 0
 int zfsfstype;
 vfsops_t *zfs_vfsops = NULL;
 static major_t zfs_major;
@@ -89,6 +90,7 @@ static const fs_operation_def_t zfs_vfsops_eio_template[] = {
 	VFSNAME_FREEVFS, (fs_generic_func_p) zfs_freevfs,
 	NULL, NULL
 };
+#endif
 
 /*
  * We need to keep a count of active fs's.
@@ -97,6 +99,7 @@ static const fs_operation_def_t zfs_vfsops_eio_template[] = {
  */
 static uint32_t	zfs_active_fs_count = 0;
 
+#if 0
 static char *noatime_cancel[] = { MNTOPT_ATIME, NULL };
 static char *atime_cancel[] = { MNTOPT_NOATIME, NULL };
 
@@ -1200,6 +1203,7 @@ zfs_vfsinit(int fstype, char *name)
 
 	return (0);
 }
+#endif
 
 void
 zfs_init(void)
@@ -1207,7 +1211,8 @@ zfs_init(void)
 	/*
 	 * Initialize .zfs directory structures
 	 */
-	zfsctl_init();
+	/* ZFSFUSE: TODO */
+	/* zfsctl_init(); */
 
 	/*
 	 * Initialize znode cache, vnode ops, etc...
@@ -1218,7 +1223,8 @@ zfs_init(void)
 void
 zfs_fini(void)
 {
-	zfsctl_fini();
+	/* ZFSFUSE: TODO */
+	/* zfsctl_fini(); */
 	zfs_znode_fini();
 }
 
@@ -1228,6 +1234,7 @@ zfs_busy(void)
 	return (zfs_active_fs_count != 0);
 }
 
+#if 0
 static vfsdef_t vfw = {
 	VFSDEF_VERSION,
 	MNTTYPE_ZFS,
@@ -1239,3 +1246,4 @@ static vfsdef_t vfw = {
 struct modlfs zfs_modlfs = {
 	&mod_fsops, "ZFS filesystem version " ZFS_VERSION_STRING, &vfw
 };
+#endif

@@ -71,7 +71,7 @@ safe_strdup(const char *str)
  * Display an out of memory error message and abort the current program.
  */
 void
-no_memory(void)
+zpool_no_memory(void)
 {
 	assert(errno == ENOMEM);
 	(void) fprintf(stderr,

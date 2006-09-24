@@ -230,7 +230,8 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 	}
 
 	/* perform the mount */
-	if (mount(zfs_get_name(zhp), mountpoint, MS_OPTIONSTR | flags,
+	/* ZFSFUSE */
+	if (zfsfuse_mount(hdl, zfs_get_name(zhp), mountpoint, MS_OPTIONSTR | flags,
 	    MNTTYPE_ZFS, NULL, 0, mntopts, sizeof (mntopts)) != 0) {
 		/*
 		 * Generic errors are nasty, but there are just way too many
@@ -257,14 +258,24 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 static int
 unmount_one(libzfs_handle_t *hdl, const char *mountpoint, int flags)
 {
-	if (umount2(mountpoint, flags) != 0) {
-		zfs_error_aux(hdl, strerror(errno));
-		return (zfs_error(hdl, EZFS_UMOUNTFAILED,
-		    dgettext(TEXT_DOMAIN, "cannot unmount '%s'"),
-		    mountpoint));
+	ASSERT(flags == 0);
+	char *cmd;
+	if(asprintf(&cmd, "fusermount -u %s", mountpoint) == -1) {
+		zfs_error_aux(hdl, strerror(ENOMEM));
+		goto error;
+	}
+	int ret = system(cmd);
+	free(cmd);
+	if (ret != 0) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "fusermount failed"));
+		goto error;
 	}
 
 	return (0);
+error:
+	return (zfs_error(hdl, EZFS_UMOUNTFAILED,
+	    dgettext(TEXT_DOMAIN, "cannot unmount '%s'"),
+	    mountpoint));
 }
 
 /*

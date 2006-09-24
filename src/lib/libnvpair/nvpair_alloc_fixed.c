@@ -69,7 +69,7 @@ nv_fixed_init(nv_alloc_t *nva, va_list valist)
 	uintptr_t lim = base + va_arg(valist, size_t);
 	nvbuf_t *nvb = (nvbuf_t *)P2ROUNDUP(base, sizeof (uintptr_t));
 
-	if (base == NULL || (uintptr_t)&nvb[1] > lim)
+	if (base == (uintptr_t) NULL || (uintptr_t)&nvb[1] > lim)
 		return (EINVAL);
 
 	nvb->nvb_buf = (uintptr_t)&nvb[0];

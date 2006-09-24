@@ -99,6 +99,7 @@
 /*
  * Check if a write lock can be grabbed, or wait and recheck until available.
  */
+#if 0
 static void
 zfs_range_lock_writer(znode_t *zp, rl_t *new)
 {
@@ -559,7 +560,7 @@ zfs_range_reduce(rl_t *rl, uint64_t off, uint64_t len)
 	if (rl->r_read_wanted)
 		cv_broadcast(&rl->r_rd_cv);
 }
-
+#endif
 /*
  * AVL comparison function used to order range locks
  * Locks are ordered on the start offset of the range.
