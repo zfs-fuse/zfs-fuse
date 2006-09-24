@@ -54,8 +54,9 @@
 #include <sys/dmu.h>
 #include <sys/fs/zfs.h>
 
-struct kmem_cache *znode_cache = NULL;
+kmem_cache_t *znode_cache = NULL;
 
+#if 0
 /*ARGSUSED*/
 static void
 znode_pageout_func(dmu_buf_t *dbuf, void *user_ptr)
@@ -74,6 +75,7 @@ znode_pageout_func(dmu_buf_t *dbuf, void *user_ptr)
 		mutex_exit(&zp->z_lock);
 	}
 }
+#endif
 
 /*ARGSUSED*/
 static int
@@ -133,7 +135,8 @@ zfs_znode_fini(void)
 	/*
 	 * Cleanup vfs & vnode ops
 	 */
-	zfs_remove_op_tables();
+	/* ZFSFUSE: TODO */
+	/* zfs_remove_op_tables(); */
 
 	/*
 	 * Cleanup zcache
@@ -143,6 +146,7 @@ zfs_znode_fini(void)
 	znode_cache = NULL;
 }
 
+#if 0
 struct vnodeops *zfs_dvnodeops;
 struct vnodeops *zfs_fvnodeops;
 struct vnodeops *zfs_symvnodeops;
@@ -1126,3 +1130,4 @@ zfs_create_fs(objset_t *os, cred_t *cr, dmu_tx_t *tx)
 	ZTOV(rootzp)->v_count = 0;
 	kmem_cache_free(znode_cache, rootzp);
 }
+#endif

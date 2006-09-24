@@ -37,10 +37,10 @@
  */
 
 zio_compress_info_t zio_compress_table[ZIO_COMPRESS_FUNCTIONS] = {
-	NULL,			NULL,			"inherit",
-	NULL,			NULL,			"on",
-	NULL,			NULL,			"uncompressed",
-	lzjb_compress,		lzjb_decompress,	"lzjb",
+	{NULL,			NULL,			"inherit"},
+	{NULL,			NULL,			"on"},
+	{NULL,			NULL,			"uncompressed"},
+	{lzjb_compress,		lzjb_decompress,	"lzjb"},
 };
 
 uint8_t
