@@ -35,14 +35,16 @@
 
 static struct vfs st_rootvfs = {};
 static vnode_t st_rootdir = {
-	.v_fd = -1
+	.v_fd = -1,
+	.v_type = VDIR,
+	.v_count = 1
 };
 static pthread_rwlock_t vfslist;
 
 /*
  * VFS global data.
  */
-vnode_t *rootdir = &st_rootdir; /* pointer to root inode vnode. */
+vnode_t *rootdir = &st_rootdir; /* pointer to root vnode. */
 struct vfs *rootvfs = &st_rootvfs;
 
 void vfs_init()

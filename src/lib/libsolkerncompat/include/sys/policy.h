@@ -31,5 +31,7 @@
 #define secpolicy_sys_config(c, co) (0)
 #define secpolicy_zfs(c) (0)
 #define secpolicy_zinject(c) (0)
+#define secpolicy_fs_mount(c,vnode,vfs) (0)
+#define secpolicy_fs_unmount(c,vfs) (0)
 
 #endif

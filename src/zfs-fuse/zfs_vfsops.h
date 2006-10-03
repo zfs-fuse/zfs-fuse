@@ -2,9 +2,8 @@
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
+ * Common Development and Distribution License (the "License").
+ * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -20,17 +19,20 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
  * Copyright 2006 Ricardo Correia.
  * Use is subject to license terms.
  */
 
-#ifndef _SYS_CPUVAR_H
-#define _SYS_CPUVAR_H
+#ifndef ZFS_VFSOPS_H
+#define ZFS_VFSOPS_H
 
-#include <sys/file.h>
+#include <sys/vfs.h>
+#include <sys/vnode.h>
 
-#define max_ncpus 64
-extern int ncpus;
+int zfs_vfsinit(int fstype, char *name);
+int zfs_mount(vfs_t *vfsp, vnode_t *mvp, struct mounta *uap, cred_t *cr);
+int zfs_umount(vfs_t *vfsp, int fflag, cred_t *cr);
+int zfs_statvfs(vfs_t *vfsp, struct statvfs64 *statp);
+void zfs_freevfs(vfs_t *vfsp);
 
 #endif

@@ -30,12 +30,13 @@
 #include <sys/types.h>
 
 #include <pthread.h>
+#include <errno.h>
 
 /*ARGSUSED*/
 void
 rw_init(krwlock_t *rwlp, char *name, int type, void *arg)
 {
-	pthread_rwlock_init(&rwlp->rw_lock, NULL);
+	VERIFY(pthread_rwlock_init(&rwlp->rw_lock, NULL) == 0);
 	zmutex_init(&rwlp->mutex);
 	rwlp->rw_owner = NULL;
 	rwlp->thr_count = 0;
@@ -44,7 +45,7 @@ rw_init(krwlock_t *rwlp, char *name, int type, void *arg)
 void
 rw_destroy(krwlock_t *rwlp)
 {
-	pthread_rwlock_destroy(&rwlp->rw_lock);
+	VERIFY(pthread_rwlock_destroy(&rwlp->rw_lock) == 0);
 	zmutex_destroy(&rwlp->mutex);
 	rwlp->rw_owner = (void *)-1UL;
 	rwlp->thr_count = -2;
@@ -93,7 +94,7 @@ rw_exit(krwlock_t *rwlp)
 		rwlp->thr_count--;
 		mutex_exit(&rwlp->mutex);
 	}
-	(void) pthread_rwlock_unlock(&rwlp->rw_lock);
+	VERIFY(pthread_rwlock_unlock(&rwlp->rw_lock) == 0);
 }
 
 int
@@ -124,6 +125,7 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
 		}
 		return (1);
 	}
+	VERIFY(rv == EBUSY);
 
 	return (0);
 }

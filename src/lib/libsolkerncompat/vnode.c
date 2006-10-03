@@ -43,6 +43,8 @@
 #include <sys/debug.h>
 #include <sys/systm.h>
 #include <sys/kmem.h>
+#include <sys/rwstlock.h>
+#include <sys/vfs.h>
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -54,10 +56,23 @@
 #include <sys/mount.h>
 
 /*
+ * Convert stat(2) formats to vnode types and vice versa.  (Knows about
+ * numerical order of S_IFMT and vnode types.)
+ */
+enum vtype iftovt_tab[] = {
+	VNON, VFIFO, VCHR, VNON, VDIR, VNON, VBLK, VNON,
+	VREG, VNON, VLNK, VNON, VSOCK, VNON, VNON, VNON
+};
+
+ushort_t vttoif_tab[] = {
+	0, S_IFREG, S_IFDIR, S_IFBLK, S_IFCHR, S_IFLNK, S_IFIFO,
+	0, 0, S_IFSOCK, 0, 0
+};
+
+/*
  * vn_vfswlock is used to implement a lock which is logically a writers lock
  * protecting the v_vfsmountedhere field.
  */
-#if 0
 int
 vn_vfswlock(vnode_t *vp)
 {
@@ -81,14 +96,23 @@ vn_vfswlock(vnode_t *vp)
 	return (EBUSY);
 }
 
-/*
- * I don't think fancy hash tables are needed
- */
-vn_vfslocks_entry_t *vn_vfslocks_getlock_vnode(vnode_t *vfsvpptr)
+void
+vn_vfsunlock(vnode_t *vp)
 {
-	return &vfsvpptr->v_vfsmhlock;
+	vn_vfslocks_entry_t *vpvfsentry;
+
+	/*
+	 * ve_refcnt needs to be decremented twice.
+	 * 1. To release refernce after a call to vn_vfslocks_getlock()
+	 * 2. To release the reference from the locking routines like
+	 *    vn_vfsrlock/vn_vfswlock etc,.
+	 */
+	vpvfsentry = vn_vfslocks_getlock(vp);
+	vn_vfslocks_rele(vpvfsentry);
+
+	rwst_exit(&vpvfsentry->ve_lock);
+	vn_vfslocks_rele(vpvfsentry);
 }
-#endif
 
 vnode_t *vn_alloc(int kmflag)
 {
@@ -98,8 +122,14 @@ vnode_t *vn_alloc(int kmflag)
 
 	vp = umem_alloc(sizeof(vnode_t), kmflag);
 
-	if(vp != NULL)
+	/* taken from vn_cache_constructor */
+	mutex_init(&vp->v_lock, NULL, MUTEX_DEFAULT, NULL);
+	rwst_init(&vp->v_vfsmhlock.ve_lock, NULL, RW_DEFAULT, NULL);
+
+	if(vp != NULL) {
+		vp->v_path = NULL;
 		vn_reinit(vp);
+	}
 
 	return vp;
 }
@@ -109,16 +139,15 @@ void vn_reinit(vnode_t *vp)
 	vp->v_vfsp = NULL;
 	vp->v_fd = -1;
 	vp->v_size = 0;
-	vp->v_path = NULL;
 	vp->v_data = NULL;
-	vp->v_count = 0;
+	vp->v_count = 1;
 
 	vn_recycle(vp);
 }
 
 void vn_recycle(vnode_t *vp)
 {
-	if(vp->v_path) {
+	if(vp->v_path != NULL) {
 		free(vp->v_path);
 		vp->v_path = NULL;
 	}
@@ -128,12 +157,7 @@ void vn_free(vnode_t *vp)
 {
 	ASSERT(vp->v_count == 0 || vp->v_count == 1);
 
-	if(vp->v_path != NULL) {
-		free(vp->v_path);
-		vp->v_path = NULL;
-	}
-
-	umem_free(vp, sizeof (vnode_t));
+	vn_close(vp);
 }
 
 /*
@@ -218,6 +242,30 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 		vp->v_size = st.st_size;
 	vp->v_path = strdup(path);
 
+	vp->v_type = VNON;
+
+	if(S_ISREG(st.st_mode))
+		vp->v_type = VREG;
+	else if(S_ISDIR(st.st_mode))
+		vp->v_type = VDIR;
+	else if(S_ISCHR(st.st_mode))
+		vp->v_type = VCHR;
+	else if(S_ISBLK(st.st_mode))
+		vp->v_type = VBLK;
+	else if(S_ISFIFO(st.st_mode))
+		vp->v_type = VFIFO;
+	else if(S_ISLNK(st.st_mode))
+		vp->v_type = VLNK;
+	else if(S_ISSOCK(st.st_mode))
+		vp->v_type = VSOCK;
+
+	VERIFY(vp->v_type != VNON);
+
+	zmutex_init(&vp->v_lock);
+	rwst_init(&vp->v_vfsmhlock.ve_lock, NULL, RW_DEFAULT, NULL);
+
+	vp->v_count = 1;
+
 	return (0);
 }
 
@@ -262,10 +310,29 @@ vn_rdwr(enum uio_rw uio, vnode_t *vp, caddr_t addr, ssize_t len, offset_t offset
 	return (0);
 }
 
+void vn_rele(vnode_t *vp)
+{
+	ASSERT(vp->v_count > 0);
+
+	mutex_enter(&vp->v_lock);
+	if(vp->v_count == 1) {
+		mutex_exit(&vp->v_lock);
+		/* ZFSFUSE: FIXME FIXME */
+// 		zfs_inactive(
+	} else {
+		vp->v_count--;
+		mutex_exit(&vp->v_lock);
+	}
+}
+
 void
 vn_close(vnode_t *vp)
 {
-	close(vp->v_fd);
-	free(vp->v_path);
+	rwst_destroy(&vp->v_vfsmhlock.ve_lock);
+	zmutex_destroy(&vp->v_lock);
+	if(vp->v_fd != -1)
+		close(vp->v_fd);
+	if(vp->v_path != NULL)
+		free(vp->v_path);
 	umem_free(vp, sizeof (vnode_t));
 }

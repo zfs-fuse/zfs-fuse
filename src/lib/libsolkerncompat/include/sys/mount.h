@@ -37,6 +37,9 @@
 #define BLKGETSIZE64 _IOR(0x12,114,size_t)
 #endif
 
-#define MS_FORCE 0x0400 /* Forced unmount */
+#define MS_DATA     0x0004 /* 6-argument mount */
+#define MS_SYSSPACE 0x0008 /* Mounta already in kernel space */
+#define MS_OVERLAY  0x0080 /* Allow overlay mounts */
+#define MS_FORCE    0x0400 /* Forced unmount */
 
 #endif

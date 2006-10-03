@@ -25,19 +25,26 @@
  */
 
 #include <sys/types.h>
+#include <sys/debug.h>
 
 #include <stdio.h>
 #include <unistd.h>
 
 #include "vfs.h"
 
+int ncpus;
 uint64_t physmem;
 
 void libsolkerncompat_init()
 {
+	/* LINUX */
+	ncpus = sysconf(_SC_NPROCESSORS_CONF);
 	physmem = sysconf(_SC_PHYS_PAGES);
 
+	VERIFY(ncpus > 0 && physmem > 0);
+
 #ifdef DEBUG
+	printf("ncpus = %i\n", ncpus);
 	printf("physmem = %llu pages (%.2f GB)\n", (unsigned long long) physmem, (double) physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 #endif
 

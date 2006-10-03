@@ -25,10 +25,18 @@
 
 #include "fuse.h"
 
+#include <sys/statfs.h>
+#include <sys/statvfs.h>
+
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <assert.h>
+
+#include "zfs_vfsops.h"
+#include "util.h"
+
+#define ZFS_MAGIC 0x2f52f5
 
 static const char *hello_str = "Hello World!\n";
 static const char *hello_name = "hello";
@@ -151,6 +159,39 @@ static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
     reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
 }
 
+static void zfsfuse_destroy(void *userdata)
+{
+	vfs_t *vfs = (vfs_t *) userdata;
+
+	VERIFY(do_umount(vfs) == 0);
+}
+
+static void zfsfuse_statfs(fuse_req_t req)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+
+	struct statvfs64 zfs_stat;
+
+	int ret = zfs_statvfs(vfs, &zfs_stat);
+	if(ret != 0) {
+		fuse_reply_err(req, ret);
+		return;
+	}
+
+	struct statfs stat = { 0 };
+
+	stat.f_type = ZFS_MAGIC;
+	stat.f_bsize = zfs_stat.f_frsize;
+	stat.f_blocks = zfs_stat.f_blocks;
+	stat.f_bfree = zfs_stat.f_bfree;
+	stat.f_bavail = zfs_stat.f_bavail;
+	stat.f_files = zfs_stat.f_files;
+	stat.f_ffree = zfs_stat.f_ffree;
+	stat.f_namelen = zfs_stat.f_namemax;
+
+	fuse_reply_statfs(req, &stat);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.lookup     = hello_ll_lookup,
@@ -158,4 +199,6 @@ struct fuse_lowlevel_ops zfs_operations =
 	.readdir    = hello_ll_readdir,
 	.open       = hello_ll_open,
 	.read       = hello_ll_read,
+	.statfs     = zfsfuse_statfs,
+	.destroy    = zfsfuse_destroy,
 };

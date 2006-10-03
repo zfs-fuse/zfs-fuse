@@ -202,7 +202,7 @@ int zfsfuse_listener_loop()
 					fuse_session_destroy(fsinfo[i].se);
 					close(fds[i].fd);
 					fds[i].fd = -1;
-					free(mountpoints[nfds]);
+					free(mountpoints[i]);
 					continue;
 				}
 			}

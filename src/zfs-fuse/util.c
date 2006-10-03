@@ -37,6 +37,8 @@
 
 #include "fuse.h"
 #include "zfs_operations.h"
+#include "zfs_vfsops.h"
+#include "util.h"
 
 int ioctl_fd = -1;
 
@@ -48,6 +50,8 @@ int num_filesystems;
 int do_init()
 {
 	libsolkerncompat_init();
+
+	zfs_vfsinit(0, NULL);
 
 	VERIFY(zfs_ioctl_init() == 0);
 
@@ -87,26 +91,42 @@ void do_exit()
 
 #define FUSE_OPTIONS "fsname=%s,allow_other"
 
-uint32_t do_mount(char *spec, char *dir, int mflag, char *opt)
+int do_mount(char *spec, char *dir, int mflag, char *opt)
 {
 	VERIFY(mflag == 0);
 	VERIFY(opt[0] == '\0');
 
+	vfs_t *vfs = calloc(1, sizeof(vfs_t));
+	if(vfs == NULL)
+		return ENOMEM;
+
+	struct mounta uap = {spec, dir, mflag, NULL, opt, strlen(opt)};
+
+	int ret = zfs_mount(vfs, rootdir, &uap, NULL);
+
+	if(ret != 0)
+		return ret;
+
 	fprintf(stderr, "mounting %s\n", dir);
 
 	char *fuse_opts;
-	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec) == -1)
+	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec) == -1) {
+		VERIFY(do_umount(vfs) == 0);
 		return ENOMEM;
+	}
 
 	int fd = fuse_mount(dir, fuse_opts);
 	free(fuse_opts);
 
-	if(fd == -1)
+	if(fd == -1) {
+		VERIFY(do_umount(vfs) == 0);
 		return EIO;
+	}
 
-	struct fuse_session *se = fuse_lowlevel_new(NULL, &zfs_operations, sizeof(zfs_operations), NULL);
+	struct fuse_session *se = fuse_lowlevel_new(NULL, &zfs_operations, sizeof(zfs_operations), vfs);
 
 	if(se == NULL) {
+		VERIFY(do_umount(vfs) == 0); /* ZFSFUSE: FIXME?? */
 		close(fd);
 		fuse_unmount(dir);
 		return EIO;
@@ -130,4 +150,17 @@ uint32_t do_mount(char *spec, char *dir, int mflag, char *opt)
 	}
 
 	return 0;
+}
+
+int do_umount(vfs_t *vfs)
+{
+	int ret = zfs_umount(vfs, 0, NULL);
+	if(ret != 0)
+		return ret;
+
+	zfs_freevfs(vfs);
+
+	free(vfs);
+
+	return ret;
 }

@@ -99,7 +99,6 @@
 /*
  * Check if a write lock can be grabbed, or wait and recheck until available.
  */
-#if 0
 static void
 zfs_range_lock_writer(znode_t *zp, rl_t *new)
 {
@@ -538,6 +537,7 @@ zfs_range_unlock(rl_t *rl)
  * Asserts the whole file is exclusivly locked and so there's only one
  * entry in the tree.
  */
+#if 0
 void
 zfs_range_reduce(rl_t *rl, uint64_t off, uint64_t len)
 {

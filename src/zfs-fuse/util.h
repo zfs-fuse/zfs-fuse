@@ -27,9 +27,11 @@
 #define ZFSFUSE_UTIL_H
 
 #include <sys/types.h>
+#include <sys/vfs.h>
 
 extern int do_init();
 extern void do_exit();
-extern uint32_t do_mount(char *spec, char *dir, int mflag, char *opt);
+extern int do_mount(char *spec, char *dir, int mflag, char *opt);
+extern int do_umount(vfs_t *vfs);
 
 #endif

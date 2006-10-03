@@ -30,6 +30,9 @@
 
 typedef krwlock_t rwslock_t;
 
+#define rwst_init(a,b,c,d) rw_init(a,b,c,d)
 #define rwst_tryenter(a,b) rw_tryenter(a,b)
+#define rwst_exit(a)       rw_exit(a)
+#define rwst_destroy(a)    rw_destroy(a)
 
 #endif	/* _SYS_RWSTLOCK_H */

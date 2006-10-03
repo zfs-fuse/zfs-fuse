@@ -20,6 +20,7 @@
  */
 /*
  * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2006 Ricardo Correia.
  * Use is subject to license terms.
  */
 
@@ -28,20 +29,29 @@
 #include <sys/thread.h>
 #include <sys/types.h>
 
+#include <errno.h>
 #include <pthread.h>
 
 void
 zmutex_init(kmutex_t *mp)
 {
 	mp->m_owner = NULL;
-	(void) pthread_mutex_init(&mp->m_lock, NULL);
+#ifdef DEBUG
+	pthread_mutexattr_t attr;
+	VERIFY(pthread_mutexattr_init(&attr) == 0);
+	VERIFY(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK) == 0);
+	VERIFY(pthread_mutex_init(&mp->m_lock, &attr) == 0);
+	VERIFY(pthread_mutexattr_destroy(&attr) == 0);
+#else
+	VERIFY(pthread_mutex_init(&mp->m_lock, NULL) == 0);
+#endif
 }
 
 void
 zmutex_destroy(kmutex_t *mp)
 {
 	ASSERT(mp->m_owner == NULL);
-	(void) pthread_mutex_destroy(&(mp)->m_lock);
+	VERIFY(pthread_mutex_destroy(&mp->m_lock) == 0);
 	mp->m_owner = (void *)-1UL;
 }
 
@@ -59,11 +69,14 @@ int
 mutex_tryenter(kmutex_t *mp)
 {
 	ASSERT(mp->m_owner != (void *)-1UL);
-	if (0 == pthread_mutex_trylock(&mp->m_lock)) {
+	int ret = pthread_mutex_trylock(&mp->m_lock);
+
+	if (ret == 0) {
 		ASSERT(mp->m_owner == NULL);
 		mp->m_owner = curthread;
 		return (1);
 	} else {
+		VERIFY(ret == EBUSY);
 		return (0);
 	}
 }
