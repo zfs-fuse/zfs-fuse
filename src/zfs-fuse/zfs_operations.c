@@ -27,11 +27,11 @@
 
 #include <sys/statfs.h>
 #include <sys/statvfs.h>
+#include <sys/debug.h>
 
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <assert.h>
 
 #include "zfs_vfsops.h"
 #include "util.h"
