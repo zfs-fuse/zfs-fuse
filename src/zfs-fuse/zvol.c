@@ -75,6 +75,7 @@
 #define	ZVOL_OBJ		1ULL
 #define	ZVOL_ZAP_OBJ		2ULL
 
+#if 0
 static void *zvol_state;
 
 /*
@@ -149,6 +150,7 @@ zvol_readonly_changed_cb(void *arg, uint64_t newval)
 
 	zv->zv_readonly = (uint8_t)newval;
 }
+#endif
 
 int
 zvol_get_stats(objset_t *os, zvol_stats_t *zvs)
@@ -169,6 +171,7 @@ zvol_get_stats(objset_t *os, zvol_stats_t *zvs)
 	return (error);
 }
 
+#if 0
 /*
  * Find a free minor number.
  */
@@ -1012,3 +1015,4 @@ zvol_fini(void)
 	mutex_destroy(&zvol_state_lock);
 	ddi_soft_state_fini(&zvol_state);
 }
+#endif

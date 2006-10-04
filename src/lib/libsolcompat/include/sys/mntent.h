@@ -35,11 +35,11 @@
 extern "C" {
 #endif
 
-#define	MNTTAB		"/etc/mnttab"
+#define	MNTTAB		"/proc/mounts"
 #define	VFSTAB		"/etc/vfstab"
 #define	MNTMAXSTR	128
 
-#define	MNTTYPE_ZFS	"zfs"		/* ZFS file system */
+#define	MNTTYPE_ZFS	"fuse"		/* ZFS file system */
 #define	MNTTYPE_UFS	"ufs"		/* Unix file system */
 #define	MNTTYPE_NFS	"nfs"		/* NFS file system */
 #define	MNTTYPE_NFS3	"nfs3"		/* NFS Version 3 file system */

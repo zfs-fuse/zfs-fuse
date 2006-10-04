@@ -112,7 +112,7 @@ zio_init(void)
 
 		if (align != 0) {
 			char name[30];
-			(void) sprintf(name, "zio_buf_%lu", size);
+			(void) sprintf(name, "zio_buf_%lu", (ulong_t) size);
 			zio_buf_cache[c] = kmem_cache_create(name, size,
 			    align, NULL, NULL, NULL, NULL, NULL, KMC_NODEBUG);
 			dprintf("creating cache for size %5lx align %5lx\n",
@@ -724,7 +724,7 @@ zio_ready(zio_t *zio)
 		zio_notify_parent(zio, ZIO_STAGE_WAIT_CHILDREN_READY,
 		    &pio->io_children_notready);
 
-	if (zio->io_bp)
+	if (zio->io_bp && zio->io_bp != &zio->io_bp_copy)
 		zio->io_bp_copy = *zio->io_bp;
 
 	zio_next_stage(zio);

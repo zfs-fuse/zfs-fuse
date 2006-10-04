@@ -60,6 +60,7 @@ extern "C" {
  * Condition variables described in common/sys/condvar.h
  */
 
+#if 0
 #if defined(_KERNEL)
 
 extern int ncpus;
@@ -95,6 +96,7 @@ extern	void	disp_lock_destroy(disp_lock_t *lp);
 #endif
 
 #endif	/* defined(_KERNEL) */
+#endif
 
 #endif	/* _ASM */
 

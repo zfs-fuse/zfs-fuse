@@ -1,0 +1,8 @@
+Import('env')
+
+subst = {'arch': env['ARCH']}
+
+objects = Split('getmntany.c mkdirp.c strlcpy.c strlcat.c zone.c %(arch)s/atomic.S' % subst)
+cpppath = Split('./include ./include/%(arch)s' % subst)
+
+env.StaticLibrary('libsolcompat', objects, CPPPATH = env['CPPPATH'] + cpppath)

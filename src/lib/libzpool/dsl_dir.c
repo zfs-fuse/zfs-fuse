@@ -37,7 +37,6 @@
 #include <sys/arc.h>
 #include "zfs_namecheck.h"
 
-static uint64_t dsl_dir_space_accounted(dsl_dir_t *dd);
 static uint64_t dsl_dir_estimated_space(dsl_dir_t *dd);
 static uint64_t dsl_dir_space_available(dsl_dir_t *dd,
     dsl_dir_t *ancestor, int64_t delta, int ondiskonly);

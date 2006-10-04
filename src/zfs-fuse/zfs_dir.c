@@ -76,6 +76,7 @@
  *
  * NOTE: Always checks for, and rejects, '.' and '..'.
  */
+#if 0
 int
 zfs_dirent_lock(zfs_dirlock_t **dlpp, znode_t *dzp, char *name, znode_t **zpp,
 	int flag)
@@ -274,6 +275,7 @@ zfs_dirlook(znode_t *dzp, char *name, vnode_t **vpp)
 
 	return (error);
 }
+#endif
 
 static char *
 zfs_dq_hexname(char namebuf[17], uint64_t x)
@@ -650,6 +652,7 @@ zfs_rmnode(znode_t *zp)
 /*
  * Link zp into dl.  Can only fail if zp has been reaped.
  */
+#if 0
 int
 zfs_link_create(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag)
 {
@@ -690,6 +693,7 @@ zfs_link_create(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag)
 
 	return (0);
 }
+#endif
 
 /*
  * Unlink zp from dl, and mark zp for reaping if this was the last link.
@@ -768,6 +772,7 @@ zfs_dirempty(znode_t *dzp)
 	return (dzp->z_phys->zp_size == 2 && dzp->z_dirlocks == 0);
 }
 
+#if 0
 int
 zfs_make_xattrdir(znode_t *zp, vattr_t *vap, vnode_t **xvpp, cred_t *cr)
 {
@@ -901,3 +906,4 @@ zfs_sticky_remove_access(znode_t *zdp, znode_t *zp, cred_t *cr)
 	else
 		return (secpolicy_vnode_remove(cr));
 }
+#endif

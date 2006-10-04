@@ -62,7 +62,7 @@ extern "C" {
 #include <sys/uio.h>
 #include <sys/zfs_debug.h>
 
-#define	CPU_SEQID	(CPU->cpu_seqid)
+#define	CPU_SEQID (thr_self() & (max_ncpus - 1))
 
 #ifdef	__cplusplus
 }

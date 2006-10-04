@@ -445,7 +445,7 @@ dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
 }
 
-#ifdef _KERNEL
+#if 0
 int
 dmu_write_uio(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
     uio_t *uio, dmu_tx_t *tx)

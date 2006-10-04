@@ -35,8 +35,6 @@
 #include <sys/avl.h>
 
 
-static uint64_t mzap_write_cookie(zap_t *zap, uint64_t cookie,
-    uint64_t entptr);
 static void mzap_upgrade(zap_t *zap, dmu_tx_t *tx);
 
 

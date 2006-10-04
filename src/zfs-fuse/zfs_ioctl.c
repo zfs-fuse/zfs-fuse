@@ -103,6 +103,8 @@ __dprintf(const char *file, const char *func, int line, const char *fmt, ...)
 	(void) vsnprintf(buf, sizeof (buf), fmt, adx);
 	va_end(adx);
 
+// 	fprintf(stderr, "%s", buf);
+
 	/*
 	 * To get this data, use the zfs-dprintf probe as so:
 	 * dtrace -q -n 'zfs-dprintf \
@@ -614,7 +616,7 @@ retry:
 
 	dmu_objset_stats(os, &zc->zc_objset_stats);
 
-	if (zc->zc_nvlist_dst != NULL &&
+	if (zc->zc_nvlist_dst != (uint64_t)(uintptr_t) NULL &&
 	    (error = dsl_prop_get_all(os, &nv)) == 0) {
 		error = put_nvlist(zc, nv);
 		nvlist_free(nv);
@@ -797,6 +799,10 @@ zfs_set_prop_nvlist(const char *name, dev_t dev, cred_t *cr, nvlist_t *nvl)
 				if (dslen <= strlen(setpoint))
 					return (EPERM);
 			}
+			break;
+
+		default:
+			break;
 		}
 
 		switch (prop) {
@@ -815,17 +821,13 @@ zfs_set_prop_nvlist(const char *name, dev_t dev, cred_t *cr, nvlist_t *nvl)
 			break;
 
 		case ZFS_PROP_VOLSIZE:
-			if ((error = nvpair_value_uint64(elem, &intval)) != 0 ||
-			    (error = zvol_set_volsize(name, dev,
-			    intval)) != 0)
-				return (error);
+			/* ZFSFUSE: ZVols not implemented */
+			return ENXIO;
 			break;
 
 		case ZFS_PROP_VOLBLOCKSIZE:
-			if ((error = nvpair_value_uint64(elem, &intval)) != 0 ||
-			    (error = zvol_set_volblocksize(name,
-			    intval)) != 0)
-				return (error);
+			/* ZFSFUSE: ZVols not implemented */
+			return ENXIO;
 			break;
 
 		default:
@@ -907,13 +909,15 @@ zfs_ioc_set_prop(zfs_cmd_t *zc)
 static int
 zfs_ioc_create_minor(zfs_cmd_t *zc)
 {
-	return (zvol_create_minor(zc->zc_name, zc->zc_dev));
+	/* ZFSFUSE TODO: implement ZVOLs */
+	return ENXIO;
 }
 
 static int
 zfs_ioc_remove_minor(zfs_cmd_t *zc)
 {
-	return (zvol_remove_minor(zc->zc_name));
+	/* ZFSFUSE TODO: implement ZVOLs */
+	return ENXIO;
 }
 
 /*
@@ -921,6 +925,7 @@ zfs_ioc_remove_minor(zfs_cmd_t *zc)
  * or NULL if no suitable entry is found. The caller of this routine
  * is responsible for releasing the returned vfs pointer.
  */
+#if 0
 static vfs_t *
 zfs_get_vfs(const char *resource)
 {
@@ -940,12 +945,12 @@ zfs_get_vfs(const char *resource)
 	vfs_list_unlock();
 	return (vfs_found);
 }
+#endif
 
 static void
 zfs_create_cb(objset_t *os, void *arg, dmu_tx_t *tx)
 {
-	zfs_create_data_t *zc = arg;
-	zfs_create_fs(os, (cred_t *)(uintptr_t)zc->zc_cred, tx);
+	/* ZFSFUSE: TODO */
 }
 
 static int
@@ -962,18 +967,19 @@ zfs_ioc_create(zfs_cmd_t *zc)
 	case DMU_OST_ZFS:
 		cbfunc = zfs_create_cb;
 		break;
-
+	/* ZFSFUSE: TODO Implement ZVOLs */
+#if 0
 	case DMU_OST_ZVOL:
 		cbfunc = zvol_create_cb;
 		break;
-
+#endif
 	default:
 		cbfunc = NULL;
 	}
 	if (strchr(zc->zc_name, '@'))
 		return (EINVAL);
 
-	if (zc->zc_nvlist_src != NULL &&
+	if (zc->zc_nvlist_src != (uint64_t)(uintptr_t) NULL &&
 	    (error = get_nvlist(zc, &cbdata.zc_props)) != 0)
 		return (error);
 
@@ -1004,6 +1010,8 @@ zfs_ioc_create(zfs_cmd_t *zc)
 			return (EINVAL);
 		}
 
+	/* ZFSFUSE: TODO Implement ZVOLs */
+#if 0
 		if (type == DMU_OST_ZVOL) {
 			uint64_t volsize, volblocksize;
 
@@ -1034,6 +1042,7 @@ zfs_ioc_create(zfs_cmd_t *zc)
 				return (error);
 			}
 		}
+#endif
 
 		error = dmu_objset_create(zc->zc_name, type, NULL, cbfunc,
 		    &cbdata);
@@ -1065,6 +1074,8 @@ zfs_ioc_snapshot(zfs_cmd_t *zc)
 static int
 zfs_unmount_snap(char *name, void *arg)
 {
+	/* ZFSFUSE: TODO */
+#if 0
 	char *snapname = arg;
 	char *cp;
 	vfs_t *vfsp = NULL;
@@ -1099,6 +1110,7 @@ zfs_unmount_snap(char *name, void *arg)
 		if ((err = dounmount(vfsp, flag, kcred)) != 0)
 			return (err);
 	}
+#endif
 	return (0);
 }
 
@@ -1154,6 +1166,8 @@ zfs_ioc_rename(zfs_cmd_t *zc)
 static int
 zfs_ioc_recvbackup(zfs_cmd_t *zc)
 {
+/* zfs-fuse: TODO */
+#if 0
 	file_t *fp;
 	int error, fd;
 
@@ -1166,11 +1180,15 @@ zfs_ioc_recvbackup(zfs_cmd_t *zc)
 	    fp->f_offset);
 	releasef(fd);
 	return (error);
+#endif
+	return EBADF;
 }
 
 static int
 zfs_ioc_sendbackup(zfs_cmd_t *zc)
 {
+/* zfs-fuse: TODO */
+#if 0
 	objset_t *fromsnap = NULL;
 	objset_t *tosnap;
 	file_t *fp;
@@ -1205,6 +1223,8 @@ zfs_ioc_sendbackup(zfs_cmd_t *zc)
 		dmu_objset_close(fromsnap);
 	dmu_objset_close(tosnap);
 	return (error);
+#endif
+	return EBADF;
 }
 
 static int
@@ -1372,15 +1392,18 @@ static zfs_ioc_vec_t zfs_ioc_vec[] = {
 	{ zfs_ioc_snapshot,		zfs_secpolicy_write,	dataset_name }
 };
 
-static int
+int
 zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 {
 	zfs_cmd_t *zc;
 	uint_t vec;
 	int error, rc;
 
+/* zfs-fuse: not implemented */
+#if 0
 	if (getminor(dev) != 0)
 		return (zvol_ioctl(dev, cmd, arg, flag, cr, rvalp));
+#endif
 
 	vec = cmd - ZFS_IOC;
 
@@ -1413,6 +1436,9 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 			if (dataset_namecheck(zc->zc_name, NULL, NULL) != 0)
 				error = EINVAL;
 			break;
+
+		case no_name:
+			break;
 		}
 	}
 
@@ -1427,6 +1453,7 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 	return (error);
 }
 
+#if 0
 static int
 zfs_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 {
@@ -1532,52 +1559,63 @@ static struct modlinkage modlinkage = {
 	(void *)&zfs_modldrv,
 	NULL
 };
+#endif
 
 int
-_init(void)
+zfs_ioctl_init(void)
 {
-	int error;
-
 	spa_init(FREAD | FWRITE);
-	zfs_init();
-	zvol_init();
 
+	zfs_init();
+
+	/* zfs-fuse: not implemented */
+	/*zvol_init();*/
+
+#if 0
 	if ((error = mod_install(&modlinkage)) != 0) {
 		zvol_fini();
 		zfs_fini();
 		spa_fini();
 		return (error);
 	}
-
 	error = ldi_ident_from_mod(&modlinkage, &zfs_li);
 	ASSERT(error == 0);
+#endif
 
 	return (0);
 }
 
 int
-_fini(void)
+zfs_ioctl_fini(void)
 {
-	int error;
+	int error = 0;
 
-	if (spa_busy() || zfs_busy() || zvol_busy() || zio_injection_enabled)
+	if (spa_busy() || zfs_busy() || /*zvol_busy() ||*/ zio_injection_enabled)
 		return (EBUSY);
 
+#if 0
 	if ((error = mod_remove(&modlinkage)) != 0)
 		return (error);
+#endif
 
-	zvol_fini();
+	/* zfs-fuse: not implemented */
+	/*zvol_fini();*/
+
 	zfs_fini();
 	spa_fini();
 
+#if 0
 	ldi_ident_release(zfs_li);
 	zfs_li = NULL;
+#endif
 
 	return (error);
 }
 
+#if 0
 int
 _info(struct modinfo *modinfop)
 {
 	return (mod_info(&modlinkage, modinfop));
 }
+#endif

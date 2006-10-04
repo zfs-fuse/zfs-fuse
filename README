@@ -1,0 +1,85 @@
+ZFS on FUSE/Linux README
+------------------------
+
+This project is a port of the ZFS filesystem to FUSE/Linux (and in the future,
+FreeBSD), done as part of the Google Summer of Code 2006 initiative.
+
+Currently, it only works on the x86 and amd64 architectures.
+
+The project homepage is at http://www.wizy.org/wiki/ZFS_on_FUSE
+
+Prerequisites
+-------------
+
+In order to compile and use zfs-fuse, you need the following:
+
+ * SCons (packaged in most distributions)
+   Website: http://www.scons.org
+
+ * glibc version 2.3.3 or up with NPTL enabled.
+   You can check if it's enabled with the following command:
+
+   getconf GNU_LIBPTHREAD_VERSION
+
+ * A 2.6.x Linux kernel
+
+Compiling
+---------
+
+If you don't have SCons yet, do the usual 'sudo apt-get install scons',
+'emerge scons' or 'yum install scons'.
+
+To compile follow these steps:
+
+  1) cd src
+  2) scons
+
+That's it!
+
+If the compilation fails, please send me an email with the output of the
+compilation to rcorreia@wizy.org
+
+Testing
+-------
+
+If you want to run a few tests, please read the TESTING file.
+
+Using
+-----
+
+At this moment it is not possible to mount ZFS filesystems, however
+you can already create, change properties and delete ZFS pools and
+filesystems.
+
+So, if you want to play with zfs-fuse, you must do the following:
+
+1) Create a "/etc/zfs" directory.
+
+This directory is used to store a UNIX local socket, needed for the
+zfs-fuse <-> zpool/zfs communication and a "zpool.cache" file that
+contains the description of all known ZFS pools.
+
+Make sure this directory has appropriate permissions (it must be
+writable by the user who runs the zfs-fuse process and readable/
+executable by the users who run the zpool and zfs commands).
+
+2) Start the zfs-fuse process.
+
+This is the main daemon process that must be running at all times.
+
+3) Use the zpool and zfs commands to manage pools and filesystems.
+
+You should backup all your data first.
+
+You can learn about these commands at the OpenSolaris ZFS community
+site: http://www.opensolaris.org/os/community/zfs/
+
+Be careful when specifying disks/partitions (as opposed to files) as
+vdevs.
+
+I won't be held responsible if you lose data - either due to mistakes,
+deliberate actions or any bugs in the software!
+
+Note that filesystems won't mount yet (and there are still a few
+unimplemented features, such as EFI labels, etc), so you won't
+be able to read or write files to ZFS filesystems.

@@ -156,6 +156,7 @@
  */
 
 /* ARGSUSED */
+#if 0
 static int
 zfs_open(vnode_t **vpp, int flag, cred_t *cr)
 {
@@ -825,6 +826,7 @@ no_tx_done:
 	ZFS_EXIT(zfsvfs);
 	return (0);
 }
+#endif
 
 void
 zfs_get_done(dmu_buf_t *db, void *vrl)
@@ -929,6 +931,7 @@ out:
 }
 
 /*ARGSUSED*/
+#if 0
 static int
 zfs_access(vnode_t *vp, int mode, int flags, cred_t *cr)
 {
@@ -2954,6 +2957,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 	return (error);
 }
+#endif
 
 void
 zfs_inactive(vnode_t *vp, cred_t *cr)
@@ -3024,6 +3028,7 @@ zfs_inactive(vnode_t *vp, cred_t *cr)
  *		EINVAL if new offset invalid
  */
 /* ARGSUSED */
+#if 0
 static int
 zfs_seek(vnode_t *vp, offset_t ooff, offset_t *noffp)
 {
@@ -3768,3 +3773,4 @@ const fs_operation_def_t zfs_evnodeops_template[] = {
 	VOPNAME_PATHCONF, zfs_pathconf,
 	NULL, NULL
 };
+#endif
