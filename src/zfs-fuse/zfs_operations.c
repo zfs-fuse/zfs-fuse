@@ -178,16 +178,22 @@ static void zfsfuse_statfs(fuse_req_t req)
 		return;
 	}
 
-	struct statfs stat = { 0 };
+	struct statvfs stat = { 0 };
 
-	stat.f_type = ZFS_MAGIC;
+	/* There's a bug somewhere in FUSE, in the kernel or in df(1) where
+	   f_bsize is being used to calculate filesystem size instead of
+	   f_frsize, so we must use that instead */
 	stat.f_bsize = zfs_stat.f_frsize;
+	stat.f_frsize = zfs_stat.f_frsize;
 	stat.f_blocks = zfs_stat.f_blocks;
 	stat.f_bfree = zfs_stat.f_bfree;
 	stat.f_bavail = zfs_stat.f_bavail;
 	stat.f_files = zfs_stat.f_files;
 	stat.f_ffree = zfs_stat.f_ffree;
-	stat.f_namelen = zfs_stat.f_namemax;
+	stat.f_favail = zfs_stat.f_favail;
+	stat.f_fsid = zfs_stat.f_fsid;
+	stat.f_flag = zfs_stat.f_flag;
+	stat.f_namemax = zfs_stat.f_namemax;
 
 	fuse_reply_statfs(req, &stat);
 }
