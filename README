@@ -23,6 +23,8 @@ In order to compile and use zfs-fuse, you need the following:
 
  * A 2.6.x Linux kernel
 
+ * FUSE 2.5.x or greater
+
 Compiling
 ---------
 
@@ -36,8 +38,8 @@ To compile follow these steps:
 
 That's it!
 
-If the compilation fails, please send me an email with the output of the
-compilation to rcorreia@wizy.org
+If the compilation fails, please report a bug in the following URL:
+http://developer.berlios.de/bugs/?group_id=6836
 
 Testing
 -------
