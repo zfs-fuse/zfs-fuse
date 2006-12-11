@@ -1894,8 +1894,7 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 	vap->va_mode = pzp->zp_mode & MODEMASK;
 	vap->va_uid = zp->z_phys->zp_uid;
 	vap->va_gid = zp->z_phys->zp_gid;
-	/* ZFSFUSE: not needed */
-	/*vap->va_fsid = zp->z_zfsvfs->z_vfs->vfs_dev;*/
+	vap->va_fsid = zp->z_zfsvfs->z_vfs->vfs_dev;
 	vap->va_nodeid = zp->z_id;
 	vap->va_nlink = MIN(pzp->zp_links, UINT32_MAX);	/* nlink_t limit! */
 	vap->va_size = pzp->zp_size;

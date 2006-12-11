@@ -28,6 +28,9 @@
 #include <sys/statfs.h>
 #include <sys/statvfs.h>
 #include <sys/debug.h>
+#include <sys/zfs_vfsops.h>
+#include <sys/zfs_znode.h>
+#include <sys/mode.h>
 
 #include <string.h>
 #include <errno.h>
@@ -42,6 +45,7 @@ static const char *hello_name = "hello";
 
 static int hello_stat(fuse_ino_t ino, struct stat *stbuf)
 {
+	fprintf(stderr, "hello_stat: %li\n", (long) ino);
     stbuf->st_ino = ino;
     switch (ino) {
     case 1:
@@ -61,22 +65,10 @@ static int hello_stat(fuse_ino_t ino, struct stat *stbuf)
     return 0;
 }
 
-static void hello_ll_getattr(fuse_req_t req, fuse_ino_t ino,
-                             struct fuse_file_info *fi)
-{
-    struct stat stbuf;
-
-    (void) fi;
-
-    memset(&stbuf, 0, sizeof(stbuf));
-    if (hello_stat(ino, &stbuf) == -1)
-        fuse_reply_err(req, ENOENT);
-    else
-        fuse_reply_attr(req, &stbuf, 1.0);
-}
-
 static void hello_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
+	fprintf(stderr, "hello_ll_lookup: %li\n", (long) parent);
+
     struct fuse_entry_param e;
 
     if (parent != 1 || strcmp(name, hello_name) != 0)
@@ -122,6 +114,8 @@ static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
 static void hello_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
                              off_t off, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "hello_ll_readdir: %li\n", (long) ino);
+
     (void) fi;
 
     if (ino != 1)
@@ -141,6 +135,8 @@ static void hello_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
                          struct fuse_file_info *fi)
 {
+	fprintf(stderr, "hello_ll_open: %li\n", (long) ino);
+
     if (ino != 2)
         fuse_reply_err(req, EISDIR);
     else if ((fi->flags & 3) != O_RDONLY)
@@ -152,6 +148,8 @@ static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
 static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
                          off_t off, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "hello_ll_read: %li\n", (long) ino);
+
     (void) fi;
 
     assert(ino == 2);
@@ -197,13 +195,83 @@ static void zfsfuse_statfs(fuse_req_t req)
 	fuse_reply_statfs(req, &stat);
 }
 
+static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	fprintf(stderr, "zfsfuse_getattr: %li\n", (long) ino);
+
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, ino, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	vnode_t *vp = ZTOV(znode);
+
+	vattr_t vattr;
+	vattr.va_mask = AT_STAT | AT_NBLOCKS | AT_BLKSIZE | AT_SIZE;
+
+	error = VOP_GETATTR(vp, &vattr, 0, NULL);
+	if(error)
+		goto out;
+
+	struct stat stbuf = { 0 };
+
+	stbuf.st_dev = vattr.va_fsid;
+	stbuf.st_ino = vattr.va_nodeid == 3 ? 1 : vattr.va_nodeid;
+	stbuf.st_mode = VTTOIF(vattr.va_type) | vattr.va_mode;
+	stbuf.st_nlink = vattr.va_nlink;
+	stbuf.st_uid = vattr.va_uid;
+	stbuf.st_gid = vattr.va_gid;
+	stbuf.st_rdev = vattr.va_rdev;
+	stbuf.st_size = vattr.va_size;
+	stbuf.st_blksize = vattr.va_blksize;
+	stbuf.st_blocks = vattr.va_nblocks;
+	stbuf.st_atime = TIMESTRUC_TO_TIME(vattr.va_atime);
+	stbuf.st_mtime = TIMESTRUC_TO_TIME(vattr.va_mtime);
+	stbuf.st_ctime = TIMESTRUC_TO_TIME(vattr.va_ctime);
+
+	fuse_reply_attr(req, &stbuf, 0.0);
+
+out:
+	VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_getattr_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_getattr(req, real_ino, fi);
+	if(error)
+		fuse_reply_err(req, error);
+
+/*	struct stat stbuf;
+
+	(void) fi;
+
+	memset(&stbuf, 0, sizeof(stbuf));
+	if (hello_stat(ino, &stbuf) == -1)
+		fuse_reply_err(req, ENOENT);
+	else
+		fuse_reply_attr(req, &stbuf, 1.0);*/
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.lookup     = hello_ll_lookup,
-	.getattr    = hello_ll_getattr,
 	.readdir    = hello_ll_readdir,
 	.open       = hello_ll_open,
 	.read       = hello_ll_read,
+	.getattr    = zfsfuse_getattr_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
 };

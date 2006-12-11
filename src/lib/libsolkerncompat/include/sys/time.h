@@ -36,4 +36,6 @@ typedef struct timespec timestruc_t;
 #define gethrestime_sec() time(NULL)
 #define gethrestime(t)    VERIFY(clock_gettime(CLOCK_REALTIME, t) == 0)
 
+#define TIMESTRUC_TO_TIME(ts) ((ts).tv_sec)
+
 #endif
