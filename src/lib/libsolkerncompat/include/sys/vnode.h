@@ -175,6 +175,7 @@ typedef struct vattr {
 	dev_t        va_rdev;    /* device the file represents */
 	uint_t       va_blksize; /* fundamental block size */
 	u_longlong_t va_nblocks; /* # of blocks allocated */
+	uint_t       va_seq;     /* sequence number */
 } vattr_t;
 
 typedef int vsecattr_t;

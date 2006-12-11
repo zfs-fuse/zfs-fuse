@@ -234,7 +234,6 @@ zfs_dirent_unlock(zfs_dirlock_t *dl)
  *	the root of a filesystem, then '.zfs' is also treated as a
  *	special pseudo-directory.
  */
-#if 0
 int
 zfs_dirlook(znode_t *dzp, char *name, vnode_t **vpp)
 {
@@ -275,7 +274,6 @@ zfs_dirlook(znode_t *dzp, char *name, vnode_t **vpp)
 
 	return (error);
 }
-#endif
 
 static char *
 zfs_dq_hexname(char namebuf[17], uint64_t x)
@@ -652,7 +650,6 @@ zfs_rmnode(znode_t *zp)
 /*
  * Link zp into dl.  Can only fail if zp has been reaped.
  */
-#if 0
 int
 zfs_link_create(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag)
 {
@@ -693,7 +690,6 @@ zfs_link_create(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag)
 
 	return (0);
 }
-#endif
 
 /*
  * Unlink zp from dl, and mark zp for reaping if this was the last link.

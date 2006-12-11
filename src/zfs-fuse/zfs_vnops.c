@@ -1001,7 +1001,6 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 		/* ZFSFUSE: not implemented */
 		ZFS_EXIT(zfsvfs);
 		return (EINVAL);
-#if 0
 		/*
 		 * We don't allow recursive attributes..
 		 * Maybe someday we will.
@@ -1026,7 +1025,6 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 
 		ZFS_EXIT(zfsvfs);
 		return (error);
-#endif
 	}
 
 	if (dvp->v_type != VDIR) {
@@ -1899,8 +1897,7 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 	vap->va_nlink = MIN(pzp->zp_links, UINT32_MAX);	/* nlink_t limit! */
 	vap->va_size = pzp->zp_size;
 	vap->va_rdev = vp->v_rdev;
-	/* ZFSFUSE: not needed */
-	/*vap->va_seq = zp->z_seq;*/
+	vap->va_seq = zp->z_seq;
 
 	ZFS_TIME_DECODE(&vap->va_atime, pzp->zp_atime);
 	ZFS_TIME_DECODE(&vap->va_mtime, pzp->zp_mtime);

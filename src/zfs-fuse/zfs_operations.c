@@ -28,6 +28,7 @@
 #include <sys/statfs.h>
 #include <sys/statvfs.h>
 #include <sys/debug.h>
+#include <sys/vnode.h>
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_znode.h>
 #include <sys/mode.h>
@@ -42,47 +43,6 @@
 
 static const char *hello_str = "Hello World!\n";
 static const char *hello_name = "hello";
-
-static int hello_stat(fuse_ino_t ino, struct stat *stbuf)
-{
-	fprintf(stderr, "hello_stat: %li\n", (long) ino);
-    stbuf->st_ino = ino;
-    switch (ino) {
-    case 1:
-        stbuf->st_mode = S_IFDIR | 0755;
-        stbuf->st_nlink = 2;
-        break;
-
-    case 2:
-        stbuf->st_mode = S_IFREG | 0444;
-        stbuf->st_nlink = 1;
-        stbuf->st_size = strlen(hello_str);
-        break;
-
-    default:
-        return -1;
-    }
-    return 0;
-}
-
-static void hello_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
-{
-	fprintf(stderr, "hello_ll_lookup: %li\n", (long) parent);
-
-    struct fuse_entry_param e;
-
-    if (parent != 1 || strcmp(name, hello_name) != 0)
-        fuse_reply_err(req, ENOENT);
-    else {
-        memset(&e, 0, sizeof(e));
-        e.ino = 2;
-        e.attr_timeout = 1.0;
-        e.entry_timeout = 1.0;
-        hello_stat(e.ino, &e.attr);
-
-        fuse_reply_entry(req, &e);
-    }
-}
 
 struct dirbuf {
     char *p;
@@ -192,7 +152,40 @@ static void zfsfuse_statfs(fuse_req_t req)
 	stat.f_flag = zfs_stat.f_flag;
 	stat.f_namemax = zfs_stat.f_namemax;
 
-	fuse_reply_statfs(req, &stat);
+	int error = -fuse_reply_statfs(req, &stat);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
+static int zfsfuse_stat(vnode_t *vp, struct stat *stbuf)
+{
+	ASSERT(vp != NULL);
+	ASSERT(stbuf != NULL);
+
+	vattr_t vattr;
+	vattr.va_mask = AT_STAT | AT_NBLOCKS | AT_BLKSIZE | AT_SIZE;
+
+	int error = VOP_GETATTR(vp, &vattr, 0, NULL);
+	if(error)
+		return error;
+
+	memset(stbuf, 0, sizeof(struct stat));
+
+	stbuf->st_dev = vattr.va_fsid;
+	stbuf->st_ino = vattr.va_nodeid == 3 ? 1 : vattr.va_nodeid;
+	stbuf->st_mode = VTTOIF(vattr.va_type) | vattr.va_mode;
+	stbuf->st_nlink = vattr.va_nlink;
+	stbuf->st_uid = vattr.va_uid;
+	stbuf->st_gid = vattr.va_gid;
+	stbuf->st_rdev = vattr.va_rdev;
+	stbuf->st_size = vattr.va_size;
+	stbuf->st_blksize = vattr.va_blksize;
+	stbuf->st_blocks = vattr.va_nblocks;
+	stbuf->st_atime = TIMESTRUC_TO_TIME(vattr.va_atime);
+	stbuf->st_mtime = TIMESTRUC_TO_TIME(vattr.va_mtime);
+	stbuf->st_ctime = TIMESTRUC_TO_TIME(vattr.va_ctime);
+
+	return 0;
 }
 
 static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
@@ -214,36 +207,79 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 
 	vnode_t *vp = ZTOV(znode);
 
-	vattr_t vattr;
-	vattr.va_mask = AT_STAT | AT_NBLOCKS | AT_BLKSIZE | AT_SIZE;
-
-	error = VOP_GETATTR(vp, &vattr, 0, NULL);
+	struct stat stbuf;
+	error = zfsfuse_stat(vp, &stbuf);
 	if(error)
 		goto out;
 
-	struct stat stbuf = { 0 };
-
-	stbuf.st_dev = vattr.va_fsid;
-	stbuf.st_ino = vattr.va_nodeid == 3 ? 1 : vattr.va_nodeid;
-	stbuf.st_mode = VTTOIF(vattr.va_type) | vattr.va_mode;
-	stbuf.st_nlink = vattr.va_nlink;
-	stbuf.st_uid = vattr.va_uid;
-	stbuf.st_gid = vattr.va_gid;
-	stbuf.st_rdev = vattr.va_rdev;
-	stbuf.st_size = vattr.va_size;
-	stbuf.st_blksize = vattr.va_blksize;
-	stbuf.st_blocks = vattr.va_nblocks;
-	stbuf.st_atime = TIMESTRUC_TO_TIME(vattr.va_atime);
-	stbuf.st_mtime = TIMESTRUC_TO_TIME(vattr.va_mtime);
-	stbuf.st_ctime = TIMESTRUC_TO_TIME(vattr.va_ctime);
-
-	fuse_reply_attr(req, &stbuf, 0.0);
+	error = -fuse_reply_attr(req, &stbuf, 0.0);
 
 out:
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
 
 	return error;
+}
+
+static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	fprintf(stderr, "zfsfuse_lookup: %li, \"%s\"\n", (long) parent, name);
+
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	vnode_t *dvp = ZTOV(znode);
+	vnode_t *vp = NULL;
+
+	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, NULL);
+	if(error)
+		goto out;
+
+	struct fuse_entry_param e = { 0 };
+
+	e.attr_timeout = 0.0;
+	e.entry_timeout = 0.0;
+
+	if(vp == NULL)
+		goto reply;
+
+	e.ino = VTOZ(vp)->z_id;
+	if(e.ino == 3)
+		e.ino = 1;
+
+	e.generation = VTOZ(vp)->z_phys->zp_gen;
+
+	error = zfsfuse_stat(vp, &e.attr);
+	VN_RELE(vp);
+	if(error)
+		goto out;
+
+reply:
+	error = -fuse_reply_entry(req, &e);
+out:
+	VN_RELE(dvp);
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_lookup_helper(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	fuse_ino_t real_parent = parent == 1 ? 3 : parent;
+
+	int error = zfsfuse_lookup(req, real_parent, name);
+	if(error)
+		fuse_reply_err(req, error);
 }
 
 static void zfsfuse_getattr_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
@@ -253,24 +289,14 @@ static void zfsfuse_getattr_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_f
 	int error = zfsfuse_getattr(req, real_ino, fi);
 	if(error)
 		fuse_reply_err(req, error);
-
-/*	struct stat stbuf;
-
-	(void) fi;
-
-	memset(&stbuf, 0, sizeof(stbuf));
-	if (hello_stat(ino, &stbuf) == -1)
-		fuse_reply_err(req, ENOENT);
-	else
-		fuse_reply_attr(req, &stbuf, 1.0);*/
 }
 
 struct fuse_lowlevel_ops zfs_operations =
 {
-	.lookup     = hello_ll_lookup,
 	.readdir    = hello_ll_readdir,
 	.open       = hello_ll_open,
 	.read       = hello_ll_read,
+	.lookup     = zfsfuse_lookup_helper,
 	.getattr    = zfsfuse_getattr_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,

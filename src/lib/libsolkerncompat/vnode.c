@@ -49,6 +49,7 @@
 #include <sys/atomic.h>
 #include <sys/types.h>
 #include <sys/atomic.h>
+#include <sys/pathname.h>
 #include <fs/fs_subr.h>
 
 #include <stdio.h>
@@ -557,6 +558,79 @@ vn_is_readonly(vnode_t *vp)
 	return (vp->v_vfsp->vfs_flag & VFS_RDONLY);
 }
 
+/*
+ * Given a starting vnode and a path, updates the path in the target vnode in
+ * a safe manner.  If the vnode already has path information embedded, then the
+ * cached path is left untouched.
+ */
+void
+vn_setpath(vnode_t *rootvp, struct vnode *startvp, struct vnode *vp,
+    const char *path, size_t plen)
+{
+	char	*rpath;
+	vnode_t	*base;
+	size_t	rpathlen, rpathalloc;
+	int	doslash = 1;
+
+	if (*path == '/') {
+		base = rootvp;
+		path++;
+		plen--;
+	} else {
+		base = startvp;
+	}
+
+	/*
+	 * We cannot grab base->v_lock while we hold vp->v_lock because of
+	 * the potential for deadlock.
+	 */
+	mutex_enter(&base->v_lock);
+	if (base->v_path == NULL) {
+		mutex_exit(&base->v_lock);
+		return;
+	}
+
+	rpathlen = strlen(base->v_path);
+	rpathalloc = rpathlen + plen + 1;
+	/* Avoid adding a slash if there's already one there */
+	if (base->v_path[rpathlen-1] == '/')
+		doslash = 0;
+	else
+		rpathalloc++;
+
+	/*
+	 * We don't want to call kmem_alloc(KM_SLEEP) with kernel locks held,
+	 * so we must do this dance.  If, by chance, something changes the path,
+	 * just give up since there is no real harm.
+	 */
+	mutex_exit(&base->v_lock);
+
+	rpath = kmem_alloc(rpathalloc, KM_SLEEP);
+
+	mutex_enter(&base->v_lock);
+	if (base->v_path == NULL || strlen(base->v_path) != rpathlen) {
+		mutex_exit(&base->v_lock);
+		kmem_free(rpath, rpathalloc);
+		return;
+	}
+	bcopy(base->v_path, rpath, rpathlen);
+	mutex_exit(&base->v_lock);
+
+	if (doslash)
+		rpath[rpathlen++] = '/';
+	bcopy(path, rpath + rpathlen, plen);
+	rpath[rpathlen + plen] = '\0';
+
+	mutex_enter(&vp->v_lock);
+	if (vp->v_path != NULL) {
+		mutex_exit(&vp->v_lock);
+		kmem_free(rpath, rpathalloc);
+	} else {
+		vp->v_path = rpath;
+		mutex_exit(&vp->v_lock);
+	}
+}
+
 int
 fop_close(
 	vnode_t *vp,
@@ -648,6 +722,29 @@ fop_realvp(
 	err = (*(vp)->v_op->vop_realvp)(vp, vpp);
 	VOPSTATS_UPDATE(vp, realvp);
 	return (err);
+}
+
+int
+fop_lookup(
+	vnode_t *dvp,
+	char *nm,
+	vnode_t **vpp,
+	pathname_t *pnp,
+	int flags,
+	vnode_t *rdir,
+	cred_t *cr)
+{
+	int ret;
+
+	ret = (*(dvp)->v_op->vop_lookup)(dvp, nm, vpp, pnp, flags, rdir, cr);
+	if (ret == 0 && *vpp) {
+		VOPSTATS_UPDATE(*vpp, lookup);
+		if ((*vpp)->v_path == NULL) {
+			vn_setpath(rootdir, dvp, *vpp, nm, strlen(nm));
+		}
+	}
+
+	return (ret);
 }
 
 static int

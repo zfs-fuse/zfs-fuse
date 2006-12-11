@@ -93,7 +93,7 @@ int zfs_mode_update(struct znode *, uint64_t, dmu_tx_t  *);
 int zfs_setacl(struct znode *, vsecattr_t *, cred_t *);
 void zfs_acl_rele(void *);
 void zfs_ace_byteswap(ace_t *, int);
-#define zfs_zaccess(z,i,c)     (EACCES)
+#define zfs_zaccess(z,i,c)     (0)
 #define zfs_zaccess_rwx(z,m,c) (EACCES)
 /*extern int zfs_zaccess(struct znode *, int, cred_t *);
 extern int zfs_zaccess_rwx(struct znode *, mode_t, cred_t *);*/
