@@ -29,5 +29,9 @@
 
 #define dnlc_remove(v,c) ((void) 0)
 #define dnlc_purge_vfsp(v,c) ((void) 0)
+#define dnlc_lookup(v,c) (NULL)
+#define dnlc_update(v,c,vn) ((void) 0)
+
+#define DNLC_NO_VNODE ((void *) 0x12345678)
 
 #endif

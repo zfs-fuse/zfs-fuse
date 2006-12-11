@@ -25,41 +25,19 @@
  * Use is subject to license terms.
  */
 
-#include <sys/debug.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
+#ifndef _VM_SEG_ENUM_H
+#define _VM_SEG_ENUM_H
 
-static int
-random_get_bytes_common(uint8_t *ptr, size_t len, char *devname)
-{
-	int fd = open(devname, O_RDONLY);
-	size_t resid = len;
-	ssize_t bytes;
+/*
+ * seg_rw gives the access type for a fault operation
+ */
+enum seg_rw {
+	S_OTHER,		/* unknown or not touched */
+	S_READ,			/* read access attempted */
+	S_WRITE,		/* write access attempted */
+	S_EXEC,			/* execution access attempted */
+	S_CREATE,		/* create if page doesn't exist */
+	S_READ_NOCOW		/* read access, don't do a copy on write */
+};
 
-	ASSERT(fd != -1);
-
-	while (resid != 0) {
-		bytes = read(fd, ptr, resid);
-		ASSERT(bytes >= 0);
-		ptr += bytes;
-		resid -= bytes;
-	}
-
-	close(fd);
-
-	return (0);
-}
-
-int
-random_get_bytes(uint8_t *ptr, size_t len)
-{
-	return (random_get_bytes_common(ptr, len, "/dev/random"));
-}
-
-int
-random_get_pseudo_bytes(uint8_t *ptr, size_t len)
-{
-	return (random_get_bytes_common(ptr, len, "/dev/urandom"));
-}
+#endif

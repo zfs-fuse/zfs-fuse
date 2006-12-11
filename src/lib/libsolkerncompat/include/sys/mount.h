@@ -28,7 +28,10 @@
 #define _SOL_SYS_MOUNT_H
 
 /* LINUX */
+#define S_WRITE S_WRITE_MOUNT
 #include_next <sys/mount.h>
+#undef S_WRITE
+
 /*
  * Some old glibc headers don't define BLKGETSIZE64
  * and we don't want to require the kernel headers

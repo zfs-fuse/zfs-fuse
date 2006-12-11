@@ -843,7 +843,6 @@ zfs_time_stamper_locked(znode_t *zp, uint_t flag, dmu_tx_t *tx)
  *  2 - Multiple consecutive updates will be collapsed into a single
  *	znode update by the transaction grouping semantics of the DMU.
  */
-#if 0
 void
 zfs_time_stamper(znode_t *zp, uint_t flag, dmu_tx_t *tx)
 {
@@ -893,6 +892,7 @@ zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx)
  * a file, the pages being "thrown away* don't need to be written out.
  */
 /* ARGSUSED */
+#if 0
 static int
 zfs_no_putpage(vnode_t *vp, page_t *pp, u_offset_t *offp, size_t *lenp,
     int flags, cred_t *cr)
@@ -900,6 +900,7 @@ zfs_no_putpage(vnode_t *vp, page_t *pp, u_offset_t *offp, size_t *lenp,
 	ASSERT(0);
 	return (0);
 }
+#endif
 
 /*
  * Free space in a file.
@@ -1036,6 +1037,9 @@ zfs_freesp(znode_t *zp, uint64_t off, uint64_t len, int flag, boolean_t log)
 	 */
 	rw_enter(&zp->z_map_lock, RW_WRITER);
 	if (off < size && vn_has_cached_data(vp)) {
+		/* ZFSFUSE: not implemented */
+		abort();
+#if 0
 		page_t *pp;
 		uint64_t start = off & PAGEMASK;
 		int poff = off & PAGEOFFSET;
@@ -1051,12 +1055,12 @@ zfs_freesp(znode_t *zp, uint64_t off, uint64_t len, int flag, boolean_t log)
 		error = pvn_vplist_dirty(vp, start, zfs_no_putpage,
 		    B_INVAL | B_TRUNC, NULL);
 		ASSERT(error == 0);
+#endif
 	}
 	rw_exit(&zp->z_map_lock);
 
 	return (0);
 }
-#endif
 
 void
 zfs_create_fs(objset_t *os, cred_t *cr, dmu_tx_t *tx)

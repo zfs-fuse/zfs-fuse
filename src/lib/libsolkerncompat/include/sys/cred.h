@@ -75,14 +75,17 @@ extern cred_t *crdup(cred_t *);
 extern void crdup_to(cred_t *, cred_t *);
 extern cred_t *crgetcred(void);
 extern void crset(struct proc *, cred_t *);
-extern int groupmember(gid_t, const cred_t *);
+#define groupmember(g,c) (0)
+/*extern int groupmember(gid_t, const cred_t *);*/
 extern int supgroupmember(gid_t, const cred_t *);
 extern int hasprocperm(const cred_t *, const cred_t *);
 extern int prochasprocperm(struct proc *, struct proc *, const cred_t *);
 extern int crcmp(const cred_t *, const cred_t *);
 extern cred_t *zone_kcred(void);
 
-extern uid_t crgetuid(const cred_t *);
+/* ZFSFUSE: FIXME
+extern uid_t crgetuid(const cred_t *); */
+#define crgetuid(c) (0)
 extern uid_t crgetruid(const cred_t *);
 extern uid_t crgetsuid(const cred_t *);
 extern gid_t crgetgid(const cred_t *);

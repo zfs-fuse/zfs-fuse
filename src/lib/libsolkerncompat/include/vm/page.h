@@ -25,41 +25,13 @@
  * Use is subject to license terms.
  */
 
-#include <sys/debug.h>
+#ifndef _VM_PAGE_H
+#define _VM_PAGE_H
+
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 
-static int
-random_get_bytes_common(uint8_t *ptr, size_t len, char *devname)
-{
-	int fd = open(devname, O_RDONLY);
-	size_t resid = len;
-	ssize_t bytes;
+typedef struct page {
+	u_offset_t p_offset;
+} page_t;
 
-	ASSERT(fd != -1);
-
-	while (resid != 0) {
-		bytes = read(fd, ptr, resid);
-		ASSERT(bytes >= 0);
-		ptr += bytes;
-		resid -= bytes;
-	}
-
-	close(fd);
-
-	return (0);
-}
-
-int
-random_get_bytes(uint8_t *ptr, size_t len)
-{
-	return (random_get_bytes_common(ptr, len, "/dev/random"));
-}
-
-int
-random_get_pseudo_bytes(uint8_t *ptr, size_t len)
-{
-	return (random_get_bytes_common(ptr, len, "/dev/urandom"));
-}
+#endif

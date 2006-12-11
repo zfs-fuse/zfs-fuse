@@ -45,10 +45,14 @@ extern struct vnode *rootdir;	/* pointer to vnode of root directory */
 
 extern void delay(clock_t ticks);
 
-static inline void ovbcopy(const void *from, void *to, size_t count)
+static inline int fuword8(const void *from, uint8_t *to)
 {
-	memmove(to, from, count);
+	*to = *((uint8_t *) from);
+	return 0;
 }
+
+#define kcopy(from,to,count) memmove(to,from,count)
+#define ovbcopy(from,to,count) memmove(to,from,count)
 
 static inline int copystr(const char *from, char *to, size_t maxlength, size_t *lencopied)
 {

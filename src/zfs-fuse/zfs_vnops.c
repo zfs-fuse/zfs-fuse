@@ -156,7 +156,6 @@
  */
 
 /* ARGSUSED */
-#if 0
 static int
 zfs_open(vnode_t **vpp, int flag, cred_t *cr)
 {
@@ -180,6 +179,8 @@ zfs_close(vnode_t *vp, int flag, int count, offset_t offset, cred_t *cr)
  * Lseek support for finding holes (cmd == _FIO_SEEK_HOLE) and
  * data (cmd == _FIO_SEEK_DATA). "off" is an in/out parameter.
  */
+/* ZFSFUSE: not implemented */
+#if 0
 static int
 zfs_holey(vnode_t *vp, int cmd, offset_t *off)
 {
@@ -218,12 +219,16 @@ zfs_holey(vnode_t *vp, int cmd, offset_t *off)
 	*off = noff;
 	return (error);
 }
+#endif
 
 /* ARGSUSED */
 static int
 zfs_ioctl(vnode_t *vp, int com, intptr_t data, int flag, cred_t *cred,
     int *rvalp)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	offset_t off;
 	int error;
 	zfsvfs_t *zfsvfs;
@@ -258,6 +263,7 @@ zfs_ioctl(vnode_t *vp, int com, intptr_t data, int flag, cred_t *cred,
 		return (0);
 	}
 	return (ENOTTY);
+#endif
 }
 
 /*
@@ -270,6 +276,8 @@ zfs_ioctl(vnode_t *vp, int com, intptr_t data, int flag, cred_t *cred,
  * NOTE: We will always "break up" the IO into PAGESIZE uiomoves when
  *	the file is memory mapped.
  */
+/* ZFSFUSE: not implemented */
+#if 0
 static int
 mappedwrite(vnode_t *vp, uint64_t woff, int nbytes, uio_t *uio, dmu_tx_t *tx)
 {
@@ -317,6 +325,7 @@ mappedwrite(vnode_t *vp, uint64_t woff, int nbytes, uio_t *uio, dmu_tx_t *tx)
 	}
 	return (error);
 }
+#endif
 
 /*
  * When a file is memory mapped, we must keep the IO data synchronized
@@ -328,6 +337,8 @@ mappedwrite(vnode_t *vp, uint64_t woff, int nbytes, uio_t *uio, dmu_tx_t *tx)
  * NOTE: We will always "break up" the IO into PAGESIZE uiomoves when
  *	the file is memory mapped.
  */
+/* ZFSFUSE: not implemented */
+#if 0
 static int
 mappedread(vnode_t *vp, char *addr, int nbytes, uio_t *uio)
 {
@@ -360,6 +371,7 @@ mappedread(vnode_t *vp, char *addr, int nbytes, uio_t *uio)
 	}
 	return (error);
 }
+#endif
 
 uint_t zfs_read_chunk_size = 1024 * 1024; /* Tunable */
 
@@ -384,6 +396,9 @@ uint_t zfs_read_chunk_size = 1024 * 1024; /* Tunable */
 static int
 zfs_read(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	uint64_t	delta;
@@ -495,6 +510,7 @@ out:
 	ZFS_ACCESSTIME_STAMP(zfsvfs, zp);
 	ZFS_EXIT(zfsvfs);
 	return (error);
+#endif
 }
 
 /*
@@ -503,6 +519,8 @@ out:
  * Any error will exit this routine as this is only a best
  * attempt to get the pages resident. This is a copy of ufs_trans_touch().
  */
+/* ZFSFUSE: not used */
+#if 0
 static void
 zfs_prefault_write(ssize_t n, struct uio *uio)
 {
@@ -559,6 +577,7 @@ zfs_prefault_write(ssize_t n, struct uio *uio)
 		iov++;
 	}
 }
+#endif
 
 /*
  * Write the bytes to a file.
@@ -581,6 +600,9 @@ zfs_prefault_write(ssize_t n, struct uio *uio)
 static int
 zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	znode_t		*zp = VTOZ(vp);
 	rlim64_t	limit = uio->uio_llimit;
 	ssize_t		start_resid = uio->uio_resid;
@@ -788,8 +810,6 @@ top:
 		}
 	}
 
-tx_done:
-
 	if (tx_bytes != 0) {
 		/*
 		 * Update the file size if it has changed; account
@@ -825,8 +845,8 @@ no_tx_done:
 
 	ZFS_EXIT(zfsvfs);
 	return (0);
-}
 #endif
+}
 
 void
 zfs_get_done(dmu_buf_t *db, void *vrl)
@@ -931,7 +951,6 @@ out:
 }
 
 /*ARGSUSED*/
-#if 0
 static int
 zfs_access(vnode_t *vp, int mode, int flags, cred_t *cr)
 {
@@ -979,6 +998,10 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 	*vpp = NULL;
 
 	if (flags & LOOKUP_XATTR) {
+		/* ZFSFUSE: not implemented */
+		ZFS_EXIT(zfsvfs);
+		return (EINVAL);
+#if 0
 		/*
 		 * We don't allow recursive attributes..
 		 * Maybe someday we will.
@@ -1003,6 +1026,7 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 
 		ZFS_EXIT(zfsvfs);
 		return (error);
+#endif
 	}
 
 	if (dvp->v_type != VDIR) {
@@ -1024,6 +1048,8 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 		/*
 		 * Convert device special files
 		 */
+/* ZFSFUSE: unneeded? */
+#if 0
 		if (IS_DEVVP(*vpp)) {
 			vnode_t	*svp;
 
@@ -1034,6 +1060,7 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 			else
 				*vpp = svp;
 		}
+#endif
 	}
 
 	ZFS_EXIT(zfsvfs);
@@ -1206,6 +1233,8 @@ out:
 		/*
 		 * If vnode is for a device return a specfs vnode instead.
 		 */
+/* ZFSFUSE: unneeded? */
+#if 0
 		if (IS_DEVVP(*vpp)) {
 			struct vnode *svp;
 
@@ -1216,6 +1245,7 @@ out:
 			}
 			*vpp = svp;
 		}
+#endif
 	}
 
 	ZFS_EXIT(zfsvfs);
@@ -1864,12 +1894,14 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 	vap->va_mode = pzp->zp_mode & MODEMASK;
 	vap->va_uid = zp->z_phys->zp_uid;
 	vap->va_gid = zp->z_phys->zp_gid;
-	vap->va_fsid = zp->z_zfsvfs->z_vfs->vfs_dev;
+	/* ZFSFUSE: not needed */
+	/*vap->va_fsid = zp->z_zfsvfs->z_vfs->vfs_dev;*/
 	vap->va_nodeid = zp->z_id;
 	vap->va_nlink = MIN(pzp->zp_links, UINT32_MAX);	/* nlink_t limit! */
 	vap->va_size = pzp->zp_size;
 	vap->va_rdev = vp->v_rdev;
-	vap->va_seq = zp->z_seq;
+	/* ZFSFUSE: not needed */
+	/*vap->va_seq = zp->z_seq;*/
 
 	ZFS_TIME_DECODE(&vap->va_atime, pzp->zp_atime);
 	ZFS_TIME_DECODE(&vap->va_mtime, pzp->zp_mtime);
@@ -2587,7 +2619,7 @@ top:
 	 * Insert the new object into the directory.
 	 */
 	(void) zfs_link_create(dl, zp, tx, ZNEW);
-out:
+
 	if (error == 0)
 		zfs_log_symlink(zilog, tx, TX_SYMLINK, dzp, zp, name, link);
 
@@ -2621,6 +2653,9 @@ out:
 static int
 zfs_readlink(vnode_t *vp, uio_t *uio, cred_t *cr)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	size_t		bufsz;
@@ -2647,6 +2682,7 @@ zfs_readlink(vnode_t *vp, uio_t *uio, cred_t *cr)
 	ZFS_ACCESSTIME_STAMP(zfsvfs, zp);
 	ZFS_EXIT(zfsvfs);
 	return (error);
+#endif
 }
 
 /*
@@ -2765,6 +2801,8 @@ top:
  * unmounted. It just drops the pages.
  */
 /* ARGSUSED */
+/* ZFSFUSE: not used */
+#if 0
 static int
 zfs_null_putapage(vnode_t *vp, page_t *pp, u_offset_t *offp,
 		size_t *lenp, int flags, cred_t *cr)
@@ -2772,6 +2810,7 @@ zfs_null_putapage(vnode_t *vp, page_t *pp, u_offset_t *offp,
 	pvn_write_done(pp, B_INVAL|B_FORCE|B_ERROR);
 	return (0);
 }
+#endif
 
 /*
  * Push a page out to disk, klustering if possible.
@@ -2792,6 +2831,8 @@ zfs_null_putapage(vnode_t *vp, page_t *pp, u_offset_t *offp,
  * unlocked.
  */
 /* ARGSUSED */
+/* ZFSFUSE: not used */
+#if 0
 static int
 zfs_putapage(vnode_t *vp, page_t *pp, u_offset_t *offp,
 		size_t *lenp, int flags, cred_t *cr)
@@ -2892,6 +2933,7 @@ out:
 
 	return (err);
 }
+#endif
 
 /*
  * Copy the portion of the file indicated from pages into the file.
@@ -2912,6 +2954,9 @@ out:
 static int
 zfs_putpage(vnode_t *vp, offset_t off, size_t len, int flags, cred_t *cr)
 {
+	/* ZFSFUSE: not used */
+	abort();
+#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	page_t		*pp;
@@ -2970,8 +3015,8 @@ out:
 		zil_commit(zfsvfs->z_log, UINT64_MAX, zp->z_id);
 	ZFS_EXIT(zfsvfs);
 	return (error);
-}
 #endif
+}
 
 void
 zfs_inactive(vnode_t *vp, cred_t *cr)
@@ -3042,7 +3087,6 @@ zfs_inactive(vnode_t *vp, cred_t *cr)
  *		EINVAL if new offset invalid
  */
 /* ARGSUSED */
-#if 0
 static int
 zfs_seek(vnode_t *vp, offset_t ooff, offset_t *noffp)
 {
@@ -3059,6 +3103,9 @@ static int
 zfs_frlock(vnode_t *vp, int cmd, flock64_t *bfp, int flag, offset_t offset,
     flk_callback_t *flk_cbp, cred_t *cr)
 {
+	/* ZFSFUSE: not used */
+	abort();
+#if 0
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int error;
@@ -3078,6 +3125,7 @@ zfs_frlock(vnode_t *vp, int cmd, flock64_t *bfp, int flag, offset_t offset,
 	error = fs_frlock(vp, cmd, bfp, flag, offset, flk_cbp, cr);
 	ZFS_EXIT(zfsvfs);
 	return (error);
+#endif
 }
 
 /*
@@ -3085,6 +3133,8 @@ zfs_frlock(vnode_t *vp, int cmd, flock64_t *bfp, int flag, offset_t offset,
  * and fill it with file data.  For efficiency, we may try to fill
  * multiple pages at once (klustering).
  */
+/* ZFSFUSE: not implemented */
+#if 0
 static int
 zfs_fillpage(vnode_t *vp, u_offset_t off, struct seg *seg,
     caddr_t addr, page_t *pl[], size_t plsz, enum seg_rw rw)
@@ -3169,6 +3219,7 @@ out:
 
 	return (0);
 }
+#endif
 
 /*
  * Return pointers to the pages for the file region [off, off + len]
@@ -3202,6 +3253,9 @@ zfs_getpage(vnode_t *vp, offset_t off, size_t len, uint_t *protp,
 	page_t *pl[], size_t plsz, struct seg *seg, caddr_t addr,
 	enum seg_rw rw, cred_t *cr)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	page_t		*pp, **pl0 = pl;
@@ -3315,6 +3369,7 @@ out:
 
 	ZFS_EXIT(zfsvfs);
 	return (err);
+#endif
 }
 
 /*
@@ -3335,6 +3390,9 @@ static int
 zfs_map(vnode_t *vp, offset_t off, struct as *as, caddr_t *addrp,
     size_t len, uchar_t prot, uchar_t maxprot, uint_t flags, cred_t *cr)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	segvn_crargs_t	vn_a;
@@ -3396,6 +3454,7 @@ zfs_map(vnode_t *vp, offset_t off, struct as *as, caddr_t *addrp,
 	as_rangeunlock(as);
 	ZFS_EXIT(zfsvfs);
 	return (error);
+#endif
 }
 
 /* ARGSUSED */
@@ -3403,10 +3462,14 @@ static int
 zfs_addmap(vnode_t *vp, offset_t off, struct as *as, caddr_t addr,
     size_t len, uchar_t prot, uchar_t maxprot, uint_t flags, cred_t *cr)
 {
+	/* ZFSFUSE: not used */
+	abort();
+#if 0
 	uint64_t pages = btopr(len);
 
 	atomic_add_64(&VTOZ(vp)->z_mapcnt, pages);
 	return (0);
+#endif
 }
 
 /*
@@ -3435,6 +3498,9 @@ static int
 zfs_delmap(vnode_t *vp, offset_t off, struct as *as, caddr_t addr,
     size_t len, uint_t prot, uint_t maxprot, uint_t flags, cred_t *cr)
 {
+	/* ZFSFUSE: not used */
+	abort();
+#if 0
 	uint64_t pages = btopr(len);
 
 	ASSERT3U(VTOZ(vp)->z_mapcnt, >=, pages);
@@ -3445,6 +3511,7 @@ zfs_delmap(vnode_t *vp, offset_t off, struct as *as, caddr_t addr,
 		(void) VOP_PUTPAGE(vp, off, len, B_ASYNC, cr);
 
 	return (0);
+#endif
 }
 
 /*
@@ -3471,6 +3538,9 @@ static int
 zfs_space(vnode_t *vp, int cmd, flock64_t *bfp, int flag,
     offset_t offset, cred_t *cr, caller_context_t *ct)
 {
+	/* ZFSFUSE: not used */
+	abort();
+#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	uint64_t	off, len;
@@ -3478,7 +3548,6 @@ zfs_space(vnode_t *vp, int cmd, flock64_t *bfp, int flag,
 
 	ZFS_ENTER(zfsvfs);
 
-top:
 	if (cmd != F_FREESP) {
 		ZFS_EXIT(zfsvfs);
 		return (EINVAL);
@@ -3504,6 +3573,7 @@ top:
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
+#endif
 }
 
 static int
@@ -3559,6 +3629,9 @@ zfs_fid(vnode_t *vp, fid_t *fidp)
 static int
 zfs_pathconf(vnode_t *vp, int cmd, ulong_t *valp, cred_t *cr)
 {
+/* ZFSFUSE: not needed */
+	abort();
+#if 0
 	znode_t		*zp, *xzp;
 	zfsvfs_t	*zfsvfs;
 	zfs_dirlock_t	*dl;
@@ -3606,12 +3679,16 @@ zfs_pathconf(vnode_t *vp, int cmd, ulong_t *valp, cred_t *cr)
 	default:
 		return (fs_pathconf(vp, cmd, valp, cr));
 	}
+#endif
 }
 
 /*ARGSUSED*/
 static int
 zfs_getsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
+/* ZFSFUSE: not needed */
+	abort();
+#if 0
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int error;
@@ -3621,12 +3698,16 @@ zfs_getsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
+#endif
 }
 
 /*ARGSUSED*/
 static int
 zfs_setsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
+/* ZFSFUSE: not needed */
+	abort();
+#if 0
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int error;
@@ -3635,6 +3716,7 @@ zfs_setsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 	error = zfs_setacl(zp, vsecp, cr);
 	ZFS_EXIT(zfsvfs);
 	return (error);
+#endif
 }
 
 /*
@@ -3787,4 +3869,3 @@ const fs_operation_def_t zfs_evnodeops_template[] = {
 	VOPNAME_PATHCONF, zfs_pathconf,
 	NULL, NULL
 };
-#endif

@@ -23,9 +23,11 @@
  * Use is subject to license terms.
  */
 
-#include <stdio.h>
 #include <sys/debug.h>
 #include <sys/types.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <pthread.h>
 
 #include "libsolkerncompat.h"
@@ -37,7 +39,6 @@
 
 #include "fuse.h"
 #include "zfs_operations.h"
-#include "zfs_vfsops.h"
 #include "util.h"
 
 int ioctl_fd = -1;
@@ -47,11 +48,15 @@ pthread_t listener_thread;
 
 int num_filesystems;
 
+
+extern vfsops_t *zfs_vfsops;
+extern int zfs_vfsinit(int fstype, char *name);
+
 int do_init()
 {
 	libsolkerncompat_init();
 
-	zfs_vfsinit(0, NULL);
+	zfs_vfsinit(zfstype, NULL);
 
 	VERIFY(zfs_ioctl_init() == 0);
 
@@ -96,13 +101,16 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	VERIFY(mflag == 0);
 	VERIFY(opt[0] == '\0');
 
-	vfs_t *vfs = calloc(1, sizeof(vfs_t));
+	vfs_t *vfs = kmem_zalloc(sizeof(vfs_t), KM_SLEEP);
 	if(vfs == NULL)
 		return ENOMEM;
 
+	VFS_INIT(vfs, zfs_vfsops, 0);
+	VFS_HOLD(vfs);
+
 	struct mounta uap = {spec, dir, mflag, NULL, opt, strlen(opt)};
 
-	int ret = zfs_mount(vfs, rootdir, &uap, NULL);
+	int ret = VFS_MOUNT(vfs, rootdir, &uap, NULL);
 
 	if(ret != 0)
 		return ret;
@@ -166,13 +174,12 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 int do_umount(vfs_t *vfs)
 {
-	int ret = zfs_umount(vfs, 0, NULL);
+	int ret = VFS_UNMOUNT(vfs, 0, NULL);
 	if(ret != 0)
 		return ret;
 
-	zfs_freevfs(vfs);
-
-	free(vfs);
+	ASSERT(vfs->vfs_count == 1);
+	VFS_RELE(vfs);
 
 	return ret;
 }

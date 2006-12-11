@@ -45,15 +45,23 @@
 #include <sys/kmem.h>
 #include <sys/rwstlock.h>
 #include <sys/vfs.h>
+#include <sys/cmn_err.h>
+#include <sys/atomic.h>
+#include <sys/types.h>
+#include <sys/atomic.h>
+#include <fs/fs_subr.h>
 
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
 #include <umem.h>
+#include <unistd.h>
 
 #include <sys/ioctl.h>
 /* LINUX BLKGETSIZE64 */
 #include <sys/mount.h>
+
+#define VOPSTATS_UPDATE(vp, counter) ((void) 0)
 
 /*
  * Convert stat(2) formats to vnode types and vice versa.  (Knows about
@@ -68,6 +76,153 @@ ushort_t vttoif_tab[] = {
 	0, S_IFREG, S_IFDIR, S_IFBLK, S_IFCHR, S_IFLNK, S_IFIFO,
 	0, 0, S_IFSOCK, 0, 0
 };
+
+/*
+ * Vnode operations vector.
+ */
+
+static const fs_operation_trans_def_t vn_ops_table[] = {
+	VOPNAME_OPEN, offsetof(struct vnodeops, vop_open),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_CLOSE, offsetof(struct vnodeops, vop_close),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_READ, offsetof(struct vnodeops, vop_read),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_WRITE, offsetof(struct vnodeops, vop_write),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_IOCTL, offsetof(struct vnodeops, vop_ioctl),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_SETFL, offsetof(struct vnodeops, vop_setfl),
+	    fs_setfl, fs_nosys,
+
+	VOPNAME_GETATTR, offsetof(struct vnodeops, vop_getattr),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_SETATTR, offsetof(struct vnodeops, vop_setattr),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_ACCESS, offsetof(struct vnodeops, vop_access),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_LOOKUP, offsetof(struct vnodeops, vop_lookup),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_CREATE, offsetof(struct vnodeops, vop_create),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_REMOVE, offsetof(struct vnodeops, vop_remove),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_LINK, offsetof(struct vnodeops, vop_link),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_RENAME, offsetof(struct vnodeops, vop_rename),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_MKDIR, offsetof(struct vnodeops, vop_mkdir),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_RMDIR, offsetof(struct vnodeops, vop_rmdir),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_READDIR, offsetof(struct vnodeops, vop_readdir),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_SYMLINK, offsetof(struct vnodeops, vop_symlink),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_READLINK, offsetof(struct vnodeops, vop_readlink),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_FSYNC, offsetof(struct vnodeops, vop_fsync),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_INACTIVE, offsetof(struct vnodeops, vop_inactive),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_FID, offsetof(struct vnodeops, vop_fid),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_RWLOCK, offsetof(struct vnodeops, vop_rwlock),
+	    fs_rwlock, fs_rwlock,
+
+	VOPNAME_RWUNLOCK, offsetof(struct vnodeops, vop_rwunlock),
+	    (fs_generic_func_p) fs_rwunlock,
+	    (fs_generic_func_p) fs_rwunlock,	/* no errors allowed */
+
+	VOPNAME_SEEK, offsetof(struct vnodeops, vop_seek),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_CMP, offsetof(struct vnodeops, vop_cmp),
+	    fs_cmp, fs_cmp,		/* no errors allowed */
+
+	VOPNAME_FRLOCK, offsetof(struct vnodeops, vop_frlock),
+	    fs_frlock, fs_nosys,
+
+	VOPNAME_SPACE, offsetof(struct vnodeops, vop_space),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_REALVP, offsetof(struct vnodeops, vop_realvp),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_GETPAGE, offsetof(struct vnodeops, vop_getpage),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_PUTPAGE, offsetof(struct vnodeops, vop_putpage),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_MAP, offsetof(struct vnodeops, vop_map),
+	    (fs_generic_func_p) fs_nosys_map,
+	    (fs_generic_func_p) fs_nosys_map,
+
+	VOPNAME_ADDMAP, offsetof(struct vnodeops, vop_addmap),
+	    (fs_generic_func_p) fs_nosys_addmap,
+	    (fs_generic_func_p) fs_nosys_addmap,
+
+	VOPNAME_DELMAP, offsetof(struct vnodeops, vop_delmap),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_POLL, offsetof(struct vnodeops, vop_poll),
+	    (fs_generic_func_p) fs_poll, (fs_generic_func_p) fs_nosys_poll,
+
+	VOPNAME_DUMP, offsetof(struct vnodeops, vop_dump),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_PATHCONF, offsetof(struct vnodeops, vop_pathconf),
+	    fs_pathconf, fs_nosys,
+
+	VOPNAME_PAGEIO, offsetof(struct vnodeops, vop_pageio),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_DUMPCTL, offsetof(struct vnodeops, vop_dumpctl),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_DISPOSE, offsetof(struct vnodeops, vop_dispose),
+	    (fs_generic_func_p) fs_dispose,
+	    (fs_generic_func_p) fs_nodispose,
+
+	VOPNAME_SETSECATTR, offsetof(struct vnodeops, vop_setsecattr),
+	    fs_nosys, fs_nosys,
+
+	VOPNAME_GETSECATTR, offsetof(struct vnodeops, vop_getsecattr),
+	    fs_fab_acl, fs_nosys,
+
+	VOPNAME_SHRLOCK, offsetof(struct vnodeops, vop_shrlock),
+	    fs_shrlock, fs_nosys,
+
+	VOPNAME_VNEVENT, offsetof(struct vnodeops, vop_vnevent),
+	    (fs_generic_func_p) fs_vnevent_nosupport,
+	    (fs_generic_func_p) fs_vnevent_nosupport,
+
+	NULL, 0, NULL, NULL
+};
+
+extern struct vnodeops *root_fvnodeops;
 
 /*
  * vn_vfswlock is used to implement a lock which is logically a writers lock
@@ -128,6 +283,7 @@ vnode_t *vn_alloc(int kmflag)
 
 	if(vp != NULL) {
 		vp->v_path = NULL;
+		vp->v_data = NULL;
 		vn_reinit(vp);
 	}
 
@@ -139,7 +295,6 @@ void vn_reinit(vnode_t *vp)
 	vp->v_vfsp = NULL;
 	vp->v_fd = -1;
 	vp->v_size = 0;
-	vp->v_data = NULL;
 	vp->v_count = 1;
 
 	vn_recycle(vp);
@@ -147,6 +302,13 @@ void vn_reinit(vnode_t *vp)
 
 void vn_recycle(vnode_t *vp)
 {
+	/*
+	 * XXX - This really belongs in vn_reinit(), but we have some issues
+	 * with the counts.  Best to have it here for clean initialization.
+	 */
+	vp->v_rdcnt = 0;
+	vp->v_wrcnt = 0;
+
 	if(vp->v_path != NULL) {
 		free(vp->v_path);
 		vp->v_path = NULL;
@@ -244,9 +406,14 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 	vp->v_type = VNON;
 
-	if(S_ISREG(st.st_mode))
+	if(S_ISREG(st.st_mode)) {
 		vp->v_type = VREG;
-	else if(S_ISDIR(st.st_mode))
+		vn_setops(vp, root_fvnodeops);
+		if (flags & FREAD)
+			atomic_add_32(&((*vpp)->v_rdcnt), 1);
+		if (flags & FWRITE)
+			atomic_add_32(&((*vpp)->v_wrcnt), 1);
+	} else if(S_ISDIR(st.st_mode))
 		vp->v_type = VDIR;
 	else if(S_ISCHR(st.st_mode))
 		vp->v_type = VCHR;
@@ -318,15 +485,14 @@ void vn_rele(vnode_t *vp)
 	if(vp->v_count == 1) {
 		mutex_exit(&vp->v_lock);
 		/* ZFSFUSE: FIXME FIXME */
-// 		zfs_inactive(
+		VOP_INACTIVE(vp, CRED());
 	} else {
 		vp->v_count--;
 		mutex_exit(&vp->v_lock);
 	}
 }
 
-void
-vn_close(vnode_t *vp)
+void vn_close(vnode_t *vp)
 {
 	rwst_destroy(&vp->v_vfsmhlock.ve_lock);
 	zmutex_destroy(&vp->v_lock);
@@ -336,3 +502,176 @@ vn_close(vnode_t *vp)
 		free(vp->v_path);
 	umem_free(vp, sizeof (vnode_t));
 }
+
+int
+vn_make_ops(
+	const char *name,			/* Name of file system */
+	const fs_operation_def_t *templ,	/* Operation specification */
+	vnodeops_t **actual)			/* Return the vnodeops */
+{
+	int unused_ops;
+	int error;
+
+	*actual = (vnodeops_t *)kmem_alloc(sizeof (vnodeops_t), KM_SLEEP);
+
+	(*actual)->vnop_name = name;
+
+	error = fs_build_vector(*actual, &unused_ops, vn_ops_table, templ);
+	if (error) {
+		kmem_free(*actual, sizeof (vnodeops_t));
+	}
+
+#if DEBUG
+	if (unused_ops != 0)
+		cmn_err(CE_WARN, "vn_make_ops: %s: %d operations supplied "
+		    "but not used", name, unused_ops);
+#endif
+
+	return (error);
+}
+
+/*
+ * Free the vnodeops created as a result of vn_make_ops()
+ */
+void
+vn_freevnodeops(vnodeops_t *vnops)
+{
+	kmem_free(vnops, sizeof (vnodeops_t));
+}
+
+/*
+ * Set the operations vector for a vnode.
+ */
+void
+vn_setops(vnode_t *vp, vnodeops_t *vnodeops)
+{
+	ASSERT(vp != NULL);
+	ASSERT(vnodeops != NULL);
+
+	vp->v_op = vnodeops;
+}
+
+int
+vn_is_readonly(vnode_t *vp)
+{
+	return (vp->v_vfsp->vfs_flag & VFS_RDONLY);
+}
+
+int
+fop_close(
+	vnode_t *vp,
+	int flag,
+	int count,
+	offset_t offset,
+	cred_t *cr)
+{
+	int err;
+
+	err = (*(vp)->v_op->vop_close)(vp, flag, count, offset, cr);
+	VOPSTATS_UPDATE(vp, close);
+	/*
+	 * Check passed in count to handle possible dups. Vnode counts are only
+	 * kept on regular files
+	 */
+	if ((vp->v_type == VREG) && (count == 1))  {
+		if (flag & FREAD) {
+			ASSERT(vp->v_rdcnt > 0);
+			atomic_add_32(&(vp->v_rdcnt), -1);
+		}
+		if (flag & FWRITE) {
+			ASSERT(vp->v_wrcnt > 0);
+			atomic_add_32(&(vp->v_wrcnt), -1);
+		}
+	}
+	return (err);
+}
+
+int
+fop_fsync(
+	vnode_t *vp,
+	int syncflag,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_fsync)(vp, syncflag, cr);
+	VOPSTATS_UPDATE(vp, fsync);
+	return (err);
+}
+
+int
+fop_getattr(
+	vnode_t *vp,
+	vattr_t *vap,
+	int flags,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_getattr)(vp, vap, flags, cr);
+	VOPSTATS_UPDATE(vp, getattr);
+	return (err);
+}
+
+void
+fop_inactive(
+	vnode_t *vp,
+	cred_t *cr)
+{
+	/* Need to update stats before vop call since we may lose the vnode */
+	VOPSTATS_UPDATE(vp, inactive);
+	(*(vp)->v_op->vop_inactive)(vp, cr);
+}
+
+int
+fop_putpage(
+	vnode_t *vp,
+	offset_t off,
+	size_t len,
+	int flags,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_putpage)(vp, off, len, flags, cr);
+	VOPSTATS_UPDATE(vp, putpage);
+	return (err);
+}
+
+int
+fop_realvp(
+	vnode_t *vp,
+	vnode_t **vpp)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_realvp)(vp, vpp);
+	VOPSTATS_UPDATE(vp, realvp);
+	return (err);
+}
+
+static int
+root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
+{
+	vap->va_size = vp->v_size;
+	return 0;
+}
+
+static int
+root_fsync(vnode_t *vp, int syncflag, cred_t *cr)
+{
+	return fsync(vp->v_fd);
+}
+
+static int
+root_close(vnode_t *vp, int flag, int count, offset_t offset, cred_t *cr)
+{
+	return close(vp->v_fd);
+}
+
+const fs_operation_def_t root_fvnodeops_template[] = {
+	VOPNAME_GETATTR, root_getattr,
+	VOPNAME_FSYNC, root_fsync,
+	VOPNAME_CLOSE, root_close,
+	NULL, NULL
+};

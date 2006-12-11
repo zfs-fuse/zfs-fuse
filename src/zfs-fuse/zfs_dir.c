@@ -76,7 +76,6 @@
  *
  * NOTE: Always checks for, and rejects, '.' and '..'.
  */
-#if 0
 int
 zfs_dirent_lock(zfs_dirlock_t **dlpp, znode_t *dzp, char *name, znode_t **zpp,
 	int flag)
@@ -235,6 +234,7 @@ zfs_dirent_unlock(zfs_dirlock_t *dl)
  *	the root of a filesystem, then '.zfs' is also treated as a
  *	special pseudo-directory.
  */
+#if 0
 int
 zfs_dirlook(znode_t *dzp, char *name, vnode_t **vpp)
 {

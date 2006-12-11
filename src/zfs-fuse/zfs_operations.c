@@ -33,7 +33,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#include "zfs_vfsops.h"
 #include "util.h"
 
 #define ZFS_MAGIC 0x2f52f5
@@ -172,7 +171,7 @@ static void zfsfuse_statfs(fuse_req_t req)
 
 	struct statvfs64 zfs_stat;
 
-	int ret = zfs_statvfs(vfs, &zfs_stat);
+	int ret = VFS_STATVFS(vfs, &zfs_stat);
 	if(ret != 0) {
 		fuse_reply_err(req, ret);
 		return;

@@ -29,23 +29,29 @@
 
 #include <stdio.h>
 #include <unistd.h>
+#include <strings.h>
 
 #include "vfs.h"
 
 int ncpus;
 uint64_t physmem;
+unsigned long _pagesize;
+unsigned int _pageshift;
 
 void libsolkerncompat_init()
 {
 	/* LINUX */
 	ncpus = sysconf(_SC_NPROCESSORS_CONF);
 	physmem = sysconf(_SC_PHYS_PAGES);
+	_pagesize = sysconf(_SC_PAGESIZE);
+	_pageshift = ffs(_pagesize) - 1;
 
 	VERIFY(ncpus > 0 && physmem > 0);
 
 #ifdef DEBUG
 	printf("ncpus = %i\n", ncpus);
 	printf("physmem = %llu pages (%.2f GB)\n", (unsigned long long) physmem, (double) physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
+	printf("pagesize = %li, pageshift: %i\n", _pagesize, _pageshift);
 #endif
 
 	vfs_init();
