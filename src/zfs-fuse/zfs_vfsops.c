@@ -65,16 +65,15 @@ static kmutex_t	zfs_dev_mtx;
 
 /*extern char zfs_bootpath[BO_MAXOBJNAME];*/
 
-/*static int zfs_mount(vfs_t *vfsp, vnode_t *mvp, struct mounta *uap, cred_t *cr);
+static int zfs_mount(vfs_t *vfsp, vnode_t *mvp, struct mounta *uap, cred_t *cr);
 static int zfs_umount(vfs_t *vfsp, int fflag, cred_t *cr);
 static int zfs_mountroot(vfs_t *vfsp, enum whymountroot);
 static int zfs_root(vfs_t *vfsp, vnode_t **vpp);
 static int zfs_statvfs(vfs_t *vfsp, struct statvfs64 *statp);
 static int zfs_vget(vfs_t *vfsp, vnode_t **vpp, fid_t *fidp);
-static void zfs_freevfs(vfs_t *vfsp);*/
+static void zfs_freevfs(vfs_t *vfsp);
 static void zfs_objset_close(zfsvfs_t *zfsvfs);
 
-#if 0
 static const fs_operation_def_t zfs_vfsops_template[] = {
 	VFSNAME_MOUNT, zfs_mount,
 	VFSNAME_MOUNTROOT, zfs_mountroot,
@@ -87,6 +86,7 @@ static const fs_operation_def_t zfs_vfsops_template[] = {
 	NULL, NULL
 };
 
+#if 0
 static const fs_operation_def_t zfs_vfsops_eio_template[] = {
 	VFSNAME_FREEVFS, (fs_generic_func_p) zfs_freevfs,
 	NULL, NULL
@@ -114,11 +114,15 @@ static mntopts_t zfs_mntopts = {
 	sizeof (mntopts) / sizeof (mntopt_t),
 	mntopts
 };
+#endif
 
 /*ARGSUSED*/
 int
 zfs_sync(vfs_t *vfsp, short flag, cred_t *cr)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	/*
 	 * Data integrity is job one.  We don't want a compromised kernel
 	 * writing to the storage pool, so we never sync during panic.
@@ -157,8 +161,10 @@ zfs_sync(vfs_t *vfsp, short flag, cred_t *cr)
 	}
 
 	return (0);
+#endif
 }
 
+#if 0
 static int
 zfs_create_unique_device(dev_t *dev)
 {
@@ -665,10 +671,14 @@ zfs_unregister_callbacks(zfsvfs_t *zfsvfs)
 		    acl_inherit_changed_cb, zfsvfs) == 0);
 	}
 }
+#endif
 
 static int
 zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 {
+	/* ZFSFUSE: not used */
+	abort();
+#if 0
 	int error = 0;
 	int ret = 0;
 	static int zfsrootdone = 0;
@@ -748,8 +758,8 @@ out:
 	 * ROOT_REMOUNT, or ROOT_UNMOUNT, we do not support it.
 	 */
 	return (ENOTSUP);
-}
 #endif
+}
 
 /*ARGSUSED*/
 int
@@ -885,10 +895,12 @@ zfs_statvfs(vfs_t *vfsp, struct statvfs64 *statp)
 	return (0);
 }
 
-#if 0
 static int
 zfs_root(vfs_t *vfsp, vnode_t **vpp)
 {
+	/* ZFSFUSE: not used */
+	abort();
+#if 0
 	zfsvfs_t *zfsvfs = vfsp->vfs_data;
 	znode_t *rootzp;
 	int error;
@@ -901,8 +913,8 @@ zfs_root(vfs_t *vfsp, vnode_t **vpp)
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
-}
 #endif
+}
 
 /*ARGSUSED*/
 int
@@ -986,10 +998,12 @@ zfs_umount(vfs_t *vfsp, int fflag, cred_t *cr)
 	return (0);
 }
 
-#if 0
 static int
 zfs_vget(vfs_t *vfsp, vnode_t **vpp, fid_t *fidp)
 {
+	/* ZFSFUSE: not used */
+	abort();
+#if 0
 	zfsvfs_t	*zfsvfs = vfsp->vfs_data;
 	znode_t		*zp;
 	uint64_t	object = 0;
@@ -1069,8 +1083,8 @@ zfs_vget(vfs_t *vfsp, vnode_t **vpp, fid_t *fidp)
 	*vpp = ZTOV(zp);
 	ZFS_EXIT(zfsvfs);
 	return (0);
-}
 #endif
+}
 
 static void
 zfs_objset_close(zfsvfs_t *zfsvfs)

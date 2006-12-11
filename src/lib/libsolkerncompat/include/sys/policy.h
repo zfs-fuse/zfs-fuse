@@ -34,4 +34,23 @@
 #define secpolicy_fs_mount(c,vnode,vfs) (0)
 #define secpolicy_fs_unmount(c,vfs) (0)
 
+#define secpolicy_setid_setsticky_clear(v,va,ova,c) (EPERM)
+#define secpolicy_vnode_setid_retain(c,s) (EPERM)
+#define secpolicy_vnode_stky_modify(c) (EPERM)
+#define secpolicy_vnode_setattr(a,b,c,d,e,f,g) (EPERM)
+
+#define secpolicy_basic_link(c) (EPERM)
+
+static inline void
+secpolicy_setid_clear(vattr_t *vap, cred_t *cr)
+{
+	if ((vap->va_mode & (S_ISUID | S_ISGID)) != 0 &&
+	    secpolicy_vnode_setid_retain(cr,
+	    (vap->va_mode & S_ISUID) != 0 &&
+	    (vap->va_mask & AT_UID) != 0 && vap->va_uid == 0) != 0) {
+		vap->va_mask |= AT_MODE;
+		vap->va_mode &= ~(S_ISUID|S_ISGID);
+	}
+}
+
 #endif

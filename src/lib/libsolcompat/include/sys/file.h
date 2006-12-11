@@ -40,4 +40,6 @@
 #define FDSYNC  O_DSYNC
 #define FRSYNC  O_RSYNC
 
+#define FNODSYNC 0x10000 /* fsync pseudo flag */
+
 #endif

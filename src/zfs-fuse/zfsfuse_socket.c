@@ -112,7 +112,12 @@ void zfsfuse_socket_close(int fd)
 
 int zfsfuse_socket_ioctl_write(int fd, int ret)
 {
+#ifdef DEBUG
+	/* Clear valgrind's uninitialized byte(s) warning */
+	zfsfuse_cmd_t cmd = { 0 };
+#else
 	zfsfuse_cmd_t cmd;
+#endif
 
 	cmd.cmd_type = IOCTL_ANS;
 	cmd.cmd_u.ioctl_ans_ret = ret;
@@ -127,7 +132,12 @@ int zfsfuse_socket_ioctl_write(int fd, int ret)
 
 int xcopyin(const void *src, void *dest, size_t size)
 {
+#ifdef DEBUG
+	/* Clear valgrind's uninitialized byte(s) warning */
+	zfsfuse_cmd_t cmd = { 0 };
+#else
 	zfsfuse_cmd_t cmd;
+#endif
 
 	ASSERT(cur_fd >= 0);
 
@@ -148,7 +158,12 @@ int xcopyin(const void *src, void *dest, size_t size)
 
 int xcopyout(const void *src, void *dest, size_t size)
 {
+#ifdef DEBUG
+	/* Clear valgrind's uninitialized byte(s) warning */
+	zfsfuse_cmd_t cmd = { 0 };
+#else
 	zfsfuse_cmd_t cmd;
+#endif
 
 	ASSERT(cur_fd >= 0);
 

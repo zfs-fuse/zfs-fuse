@@ -28,8 +28,34 @@
 #define _SOL_KERN_SYS_PARAM_H
 
 #include <sys/param_aux.h>
-#include <unistd.h>
 
-#define PAGESIZE sysconf(_SC_PAGE_SIZE)
+extern unsigned long _pagesize;
+extern unsigned int _pageshift;
+
+#define PAGESIZE   _pagesize
+#define PAGESHIFT  _pageshift
+#define PAGEOFFSET (PAGESIZE - 1)
+#define PAGEMASK   (~PAGEOFFSET)
+
+#define btop(x)  (((x) >> PAGESHIFT))
+#define btopr(x) ((((x) + PAGEOFFSET) >> PAGESHIFT))
+
+#define MAXLINK 32767 /* max links */
+
+/*
+ * _POSIX_VDISABLE has historically been defined in <sys/param.h> since
+ * an early merge with AT&T source.  It has also historically been defined
+ * in <sys/termios.h>. The POSIX standard, IEEE Std. 1003.1-1988 initially
+ * required the existence of _POSIX_VDISABLE in <sys/termios.h>.
+ * Subsequent versions of the IEEE Standard as well as the X/Open
+ * specifications required that _POSIX_VDISABLE be defined in <unistd.h>
+ * while still allowing for it's existence in other headers.  With the
+ * introduction of XPG6, _POSIX_VDISABLE can only be defined in <unistd.h>.
+ */
+#if !defined(_XPG6) || defined(__EXTENSIONS__)
+#ifndef	_POSIX_VDISABLE
+#define	_POSIX_VDISABLE 0	/* Disable special character functions */
+#endif
+#endif /* !defined(_XPG6) || defined(__EXTENSIONS__) */
 
 #endif

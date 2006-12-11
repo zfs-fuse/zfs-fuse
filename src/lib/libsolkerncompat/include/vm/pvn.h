@@ -28,6 +28,8 @@
 #ifndef _VM_PVN_H
 #define _VM_PVN_H
 
-#define pvn_vplist_dirty(v,o,f,fl,c) ((void) 0)
+#define pvn_vplist_dirty(v,o,f,fl,c) (abort(), 0)
+#define pvn_write_done(p,f) ((void) 0)
+/*#define pvn_write_kluster(v,pp,o,l,vp,vpl,f) (NULL)*/
 
 #endif

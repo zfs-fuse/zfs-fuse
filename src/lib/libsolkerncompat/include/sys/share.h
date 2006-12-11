@@ -19,20 +19,14 @@
  * CDDL HEADER END
  */
 /*
+ * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
  * Copyright 2006 Ricardo Correia.
  * Use is subject to license terms.
  */
 
-#ifndef ZFS_VFSOPS_H
-#define ZFS_VFSOPS_H
+#ifndef _SYS_SHARE_H
+#define _SYS_SHARE_H
 
-#include <sys/vfs.h>
-#include <sys/vnode.h>
-
-int zfs_vfsinit(int fstype, char *name);
-int zfs_mount(vfs_t *vfsp, vnode_t *mvp, struct mounta *uap, cred_t *cr);
-int zfs_umount(vfs_t *vfsp, int fflag, cred_t *cr);
-int zfs_statvfs(vfs_t *vfsp, struct statvfs64 *statp);
-void zfs_freevfs(vfs_t *vfsp);
+#define cleanshares(v,p) ((void) 0)
 
 #endif
