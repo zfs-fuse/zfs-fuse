@@ -42,23 +42,6 @@
 #define ZFS_MAGIC 0x2f52f5
 
 static const char *hello_str = "Hello World!\n";
-static const char *hello_name = "hello";
-
-struct dirbuf {
-    char *p;
-    size_t size;
-};
-
-static void dirbuf_add(struct dirbuf *b, const char *name, fuse_ino_t ino)
-{
-    struct stat stbuf;
-    size_t oldsize = b->size;
-    b->size += fuse_dirent_size(strlen(name));
-    b->p = (char *) realloc(b->p, b->size);
-    memset(&stbuf, 0, sizeof(stbuf));
-    stbuf.st_ino = ino;
-    fuse_add_dirent(b->p + oldsize, name, &stbuf, b->size);
-}
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
 
@@ -69,27 +52,6 @@ static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
         return fuse_reply_buf(req, buf + off, min(bufsize - off, maxsize));
     else
         return fuse_reply_buf(req, NULL, 0);
-}
-
-static void hello_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
-                             off_t off, struct fuse_file_info *fi)
-{
-	fprintf(stderr, "hello_ll_readdir: %li\n", (long) ino);
-
-    (void) fi;
-
-    if (ino != 1)
-        fuse_reply_err(req, ENOTDIR);
-    else {
-        struct dirbuf b;
-
-        memset(&b, 0, sizeof(b));
-        dirbuf_add(&b, ".", 1);
-        dirbuf_add(&b, "..", 1);
-        dirbuf_add(&b, hello_name, 2);
-        reply_buf_limited(req, b.p, b.size, off, size);
-        free(b.p);
-    }
 }
 
 static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
@@ -190,8 +152,6 @@ static int zfsfuse_stat(vnode_t *vp, struct stat *stbuf)
 
 static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
-	fprintf(stderr, "zfsfuse_getattr: %li\n", (long) ino);
-
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -204,8 +164,9 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 		ZFS_EXIT(zfsvfs);
 		return error;
 	}
-
+	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
+	ASSERT(vp != NULL);
 
 	struct stat stbuf;
 	error = zfsfuse_stat(vp, &stbuf);
@@ -221,10 +182,17 @@ out:
 	return error;
 }
 
+static void zfsfuse_getattr_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_getattr(req, real_ino, fi);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
 static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
-	fprintf(stderr, "zfsfuse_lookup: %li, \"%s\"\n", (long) parent, name);
-
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -238,7 +206,9 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 		return error;
 	}
 
+	ASSERT(znode != NULL);
 	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
 	vnode_t *vp = NULL;
 
 	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, NULL);
@@ -282,20 +252,153 @@ static void zfsfuse_lookup_helper(fuse_req_t req, fuse_ino_t parent, const char 
 		fuse_reply_err(req, error);
 }
 
-static void zfsfuse_getattr_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, ino, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *vp = ZTOV(znode);
+	ASSERT(vp != NULL);
+
+	if(vp->v_type != VDIR)
+		error = ENOTDIR;
+
+	if(!error) {
+		fi->fh = (uint64_t) (uintptr_t) vp;
+
+		error = -fuse_reply_open(req, fi);
+	}
+
+	if(error)
+		VN_RELE(vp);
+
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_opendir_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
 	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
 
-	int error = zfsfuse_getattr(req, real_ino, fi);
+	int error = zfsfuse_opendir(req, real_ino, fi);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
+static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	vnode_t *vp = (vnode_t *)(uintptr_t) fi->fh;
+	ASSERT(vp != NULL);
+
+	VN_RELE(vp);
+
+	fuse_reply_err(req, 0);
+}
+
+static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
+{
+	int error;
+
+	vnode_t *vp = (vnode_t *)(uintptr_t) fi->fh;
+	ASSERT(vp != NULL);
+
+	if(vp->v_type != VDIR)
+		return ENOTDIR;
+
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	char *outbuf = malloc(size);
+	if(outbuf == NULL)
+		return ENOMEM;
+
+	ZFS_ENTER(zfsvfs);
+
+	union {
+		char buf[DIRENT64_RECLEN(MAXNAMELEN)];
+		struct dirent64 dirent;
+	} entry;
+
+	struct stat fstat = { 0 };
+
+	iovec_t iovec;
+	uio_t uio;
+	uio.uio_iov = &iovec;
+	uio.uio_iovcnt = 1;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_fmode = 0;
+
+	int eofp = 0;
+
+	int outbuf_off = 0;
+	int outbuf_resid = size;
+
+	off_t next = off;
+
+	for(;;) {
+		iovec.iov_base = entry.buf;
+		iovec.iov_len = sizeof(entry.buf);
+		uio.uio_resid = iovec.iov_len;
+		uio.uio_loffset = next;
+
+		error = VOP_READDIR(vp, &uio, NULL, &eofp);
+		if(error)
+			goto out;
+
+		/* No more directory entries */
+		if(iovec.iov_base == entry.buf)
+			break;
+
+		fstat.st_ino = entry.dirent.d_ino;
+		fstat.st_mode = 0;
+
+		int dsize = fuse_dirent_size(strlen(entry.dirent.d_name));
+		if(dsize > outbuf_resid)
+			break;
+
+		fuse_add_dirent(outbuf + outbuf_off, entry.dirent.d_name, &fstat, entry.dirent.d_off);
+
+		outbuf_off += dsize;
+		outbuf_resid -= dsize;
+		next = entry.dirent.d_off;
+	}
+
+	error = fuse_reply_buf(req, outbuf, outbuf_off);
+out:
+	ZFS_EXIT(zfsvfs);
+	free(outbuf);
+
+	return error;
+}
+
+static void zfsfuse_readdir_helper(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_readdir(req, real_ino, size, off, fi);
 	if(error)
 		fuse_reply_err(req, error);
 }
 
 struct fuse_lowlevel_ops zfs_operations =
 {
-	.readdir    = hello_ll_readdir,
 	.open       = hello_ll_open,
 	.read       = hello_ll_read,
+	.opendir    = zfsfuse_opendir_helper,
+	.readdir    = zfsfuse_readdir_helper,
+	.releasedir = zfsfuse_release,
 	.lookup     = zfsfuse_lookup_helper,
 	.getattr    = zfsfuse_getattr_helper,
 	.statfs     = zfsfuse_statfs,

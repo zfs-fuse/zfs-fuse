@@ -63,6 +63,7 @@
 #include <sys/mount.h>
 
 #define VOPSTATS_UPDATE(vp, counter) ((void) 0)
+#define VOPSTATS_UPDATE_IO(vp, readdir, readdir_bytes, x) ((void) 0)
 
 /*
  * Convert stat(2) formats to vnode types and vice versa.  (Knows about
@@ -745,6 +746,22 @@ fop_lookup(
 	}
 
 	return (ret);
+}
+
+int
+fop_readdir(
+	vnode_t *vp,
+	uio_t *uiop,
+	cred_t *cr,
+	int *eofp)
+{
+	int	err;
+	/* ssize_t	resid_start = uiop->uio_resid; */
+
+	err = (*(vp)->v_op->vop_readdir)(vp, uiop, cr, eofp);
+	VOPSTATS_UPDATE_IO(vp, readdir,
+	    readdir_bytes, (resid_start - uiop->uio_resid));
+	return (err);
 }
 
 static int
