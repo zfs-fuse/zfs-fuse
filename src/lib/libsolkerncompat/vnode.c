@@ -772,6 +772,19 @@ fop_close(
 }
 
 int
+fop_readlink(
+	vnode_t *vp,
+	uio_t *uiop,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_readlink)(vp, uiop, cr);
+	VOPSTATS_UPDATE(vp, readlink);
+	return (err);
+}
+
+int
 fop_fsync(
 	vnode_t *vp,
 	int syncflag,

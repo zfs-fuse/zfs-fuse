@@ -41,6 +41,11 @@
 
 #define ZFS_MAGIC 0x2f52f5
 
+typedef struct file_info {
+	vnode_t *vp;
+	int flags;
+} file_info_t;
+
 static const char *hello_str = "Hello World!\n";
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
@@ -61,7 +66,6 @@ static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 
     (void) fi;
 
-    assert(ino == 2);
     reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
 }
 
@@ -270,8 +274,18 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 
 	ASSERT(old_vp == vp);
 
-	if(!error)
-		fi->fh = (uint64_t) (uintptr_t) vp;
+	if(!error) {
+		file_info_t *info = malloc(sizeof(file_info_t));
+		if(info == NULL) {
+			error = ENOMEM;
+			goto out;
+		}
+
+		info->vp = vp;
+		info->flags = FREAD | FWRITE;
+
+		fi->fh = (uint64_t) (uintptr_t) info;
+	}
 
 out:
 	if(error)
@@ -300,14 +314,13 @@ static int zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 
 	ZFS_ENTER(zfsvfs);
 
-	vnode_t *vp = (vnode_t *)(uintptr_t) fi->fh;
-	ASSERT(vp != NULL);
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+	ASSERT(info->vp != NULL);
 
-	/* XXX: not sure about flags */
-	int error = VOP_CLOSE(vp, FREAD | FWRITE, 1, (offset_t) 0, NULL);
+	int error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, NULL);
+	VERIFY(error == 0);
 
-	/* XXX: errors are ignored by FUSE, so we release it anyway? (??) */
-	VN_RELE(vp);
+	VN_RELE(info->vp);
 	ZFS_EXIT(zfsvfs);
 
 	return error;
@@ -324,7 +337,7 @@ static void zfsfuse_release_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_f
 
 static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
 {
-	vnode_t *vp = (vnode_t *)(uintptr_t) fi->fh;
+	vnode_t *vp = ((file_info_t *)(uintptr_t) fi->fh)->vp;
 	ASSERT(vp != NULL);
 
 	if(vp->v_type != VDIR)
@@ -435,13 +448,25 @@ static int zfsfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *f
 	 * The construct 'flags + FREAD' conveniently maps combinations of
 	 * O_RDONLY, O_WRONLY, and O_RDWR to the corresponding FREAD and FWRITE .
 	 */
-	error = VOP_OPEN(&vp, fi->fh + FREAD, NULL);
+	error = VOP_OPEN(&vp, fi->flags + FREAD, NULL);
 
 	ASSERT(old_vp == vp);
 
-	if(!error)
-		fi->fh = (uint64_t) (uintptr_t) vp;
-	else
+	if(!error) {
+		file_info_t *info = malloc(sizeof(file_info_t));
+		if(info == NULL) {
+			error = ENOMEM;
+			goto out;
+		}
+
+		info->vp = vp;
+		info->flags = fi->flags + FREAD;
+
+		fi->fh = (uint64_t) (uintptr_t) info;
+	}
+
+out:
+	if(error)
 		VN_RELE(vp);
 
 	ZFS_EXIT(zfsvfs);
@@ -461,6 +486,61 @@ static void zfsfuse_open_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, ino, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *vp = ZTOV(znode);
+	ASSERT(vp != NULL);
+
+	char buffer[PATH_MAX];
+
+	iovec_t iovec;
+	uio_t uio;
+	uio.uio_iov = &iovec;
+	uio.uio_iovcnt = 1;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_fmode = 0;
+	iovec.iov_base = buffer;
+	iovec.iov_len = sizeof(buffer);
+	uio.uio_resid = iovec.iov_len;
+	uio.uio_loffset = 0;
+
+	error = VOP_READLINK(vp, &uio, NULL);
+
+	VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
+
+	if(!error) {
+		VERIFY(uio.uio_loffset < PATH_MAX);
+		buffer[uio.uio_loffset] = '\0';
+		error = -fuse_reply_buf(req, buffer, uio.uio_loffset + 1);
+	}
+
+	return error;
+}
+
+static void zfsfuse_readlink_helper(fuse_req_t req, fuse_ino_t ino)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_readlink(req, real_ino);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -471,6 +551,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.releasedir = zfsfuse_release_helper,
 	.lookup     = zfsfuse_lookup_helper,
 	.getattr    = zfsfuse_getattr_helper,
+	.readlink   = zfsfuse_readlink_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
 };

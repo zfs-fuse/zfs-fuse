@@ -135,9 +135,7 @@ typedef enum uio_rw { UIO_READ, UIO_WRITE } uio_rw_t;
 
 #if	defined(_KERNEL)
 
-/* ZFSFUSE: not implemented */
-/*int	uiomove(void *, size_t, enum uio_rw, uio_t *);*/
-#define uiomove(p,s,rw,u) (abort(), 0)
+int	uiomove(void *, size_t, enum uio_rw, uio_t *);
 
 int	ureadc(int, uio_t *);	/* should be errno_t in future */
 int	uwritec(struct uio *);

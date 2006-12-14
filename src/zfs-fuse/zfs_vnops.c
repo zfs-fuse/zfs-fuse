@@ -2649,9 +2649,6 @@ top:
 static int
 zfs_readlink(vnode_t *vp, uio_t *uio, cred_t *cr)
 {
-	/* ZFSFUSE: not implemented */
-	abort();
-#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	size_t		bufsz;
@@ -2678,7 +2675,6 @@ zfs_readlink(vnode_t *vp, uio_t *uio, cred_t *cr)
 	ZFS_ACCESSTIME_STAMP(zfsvfs, zp);
 	ZFS_EXIT(zfsvfs);
 	return (error);
-#endif
 }
 
 /*
