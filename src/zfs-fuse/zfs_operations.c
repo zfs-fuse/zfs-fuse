@@ -54,19 +54,6 @@ static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
         return fuse_reply_buf(req, NULL, 0);
 }
 
-static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
-                         struct fuse_file_info *fi)
-{
-	fprintf(stderr, "hello_ll_open: %li\n", (long) ino);
-
-    if (ino != 2)
-        fuse_reply_err(req, EISDIR);
-    else if ((fi->flags & 3) != O_RDONLY)
-        fuse_reply_err(req, EACCES);
-    else
-        fuse_reply_open(req, fi);
-}
-
 static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
                          off_t off, struct fuse_file_info *fi)
 {
@@ -423,10 +410,62 @@ static void zfsfuse_readdir_helper(fuse_req_t req, fuse_ino_t ino, size_t size, 
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, ino, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *vp = ZTOV(znode);
+	ASSERT(vp != NULL);
+
+	vnode_t *old_vp = vp;
+
+	/*
+	 * The construct 'flags + FREAD' conveniently maps combinations of
+	 * O_RDONLY, O_WRONLY, and O_RDWR to the corresponding FREAD and FWRITE .
+	 */
+	error = VOP_OPEN(&vp, fi->fh + FREAD, NULL);
+
+	ASSERT(old_vp == vp);
+
+	if(!error)
+		fi->fh = (uint64_t) (uintptr_t) vp;
+	else
+		VN_RELE(vp);
+
+	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_open(req, fi);
+
+	return error;
+}
+
+static void zfsfuse_open_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_open(req, real_ino, fi);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
-	.open       = hello_ll_open,
+	.open       = zfsfuse_open_helper,
 	.read       = hello_ll_read,
+	.release    = zfsfuse_release_helper,
 	.opendir    = zfsfuse_opendir_helper,
 	.readdir    = zfsfuse_readdir_helper,
 	.releasedir = zfsfuse_release_helper,
