@@ -164,20 +164,19 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 		ZFS_EXIT(zfsvfs);
 		return error;
 	}
+
 	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
 	struct stat stbuf;
 	error = zfsfuse_stat(vp, &stbuf);
-	if(error)
-		goto out;
 
-	error = -fuse_reply_attr(req, &stbuf, 0.0);
-
-out:
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_attr(req, &stbuf, 0.0);
 
 	return error;
 }
@@ -209,6 +208,7 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	ASSERT(znode != NULL);
 	vnode_t *dvp = ZTOV(znode);
 	ASSERT(dvp != NULL);
+
 	vnode_t *vp = NULL;
 
 	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, NULL);
@@ -221,7 +221,7 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	e.entry_timeout = 0.0;
 
 	if(vp == NULL)
-		goto reply;
+		goto out;
 
 	e.ino = VTOZ(vp)->z_id;
 	if(e.ino == 3)
@@ -230,15 +230,15 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	e.generation = VTOZ(vp)->z_phys->zp_gen;
 
 	error = zfsfuse_stat(vp, &e.attr);
-	VN_RELE(vp);
-	if(error)
-		goto out;
 
-reply:
-	error = -fuse_reply_entry(req, &e);
 out:
+	if(vp != NULL)
+		VN_RELE(vp);
 	VN_RELE(dvp);
 	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_entry(req, &e);
 
 	return error;
 }
@@ -271,19 +271,28 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
-	if(vp->v_type != VDIR)
+	if(vp->v_type != VDIR) {
 		error = ENOTDIR;
-
-	if(!error) {
-		fi->fh = (uint64_t) (uintptr_t) vp;
-
-		error = -fuse_reply_open(req, fi);
+		goto out;
 	}
 
+	vnode_t *old_vp = vp;
+
+	/* XXX: not sure about flags */
+	error = VOP_OPEN(&vp, FREAD | FWRITE, NULL);
+
+	ASSERT(old_vp == vp);
+
+	if(!error)
+		fi->fh = (uint64_t) (uintptr_t) vp;
+
+out:
 	if(error)
 		VN_RELE(vp);
-
 	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_open(req, fi);
 
 	return error;
 }
@@ -297,20 +306,37 @@ static void zfsfuse_opendir_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_f
 		fuse_reply_err(req, error);
 }
 
-static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+static int zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
 	vnode_t *vp = (vnode_t *)(uintptr_t) fi->fh;
 	ASSERT(vp != NULL);
 
-	VN_RELE(vp);
+	/* XXX: not sure about flags */
+	int error = VOP_CLOSE(vp, FREAD | FWRITE, 1, (offset_t) 0, NULL);
 
-	fuse_reply_err(req, 0);
+	/* XXX: errors are ignored by FUSE, so we release it anyway? (??) */
+	VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_release_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_release(req, real_ino, fi);
+	/* Release events always reply_err */
+	fuse_reply_err(req, error);
 }
 
 static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
 {
-	int error;
-
 	vnode_t *vp = (vnode_t *)(uintptr_t) fi->fh;
 	ASSERT(vp != NULL);
 
@@ -347,6 +373,8 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 
 	off_t next = off;
 
+	int error;
+
 	for(;;) {
 		iovec.iov_base = entry.buf;
 		iovec.iov_len = sizeof(entry.buf);
@@ -375,9 +403,12 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 		next = entry.dirent.d_off;
 	}
 
-	error = fuse_reply_buf(req, outbuf, outbuf_off);
 out:
 	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_buf(req, outbuf, outbuf_off);
+
 	free(outbuf);
 
 	return error;
@@ -398,7 +429,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.read       = hello_ll_read,
 	.opendir    = zfsfuse_opendir_helper,
 	.readdir    = zfsfuse_readdir_helper,
-	.releasedir = zfsfuse_release,
+	.releasedir = zfsfuse_release_helper,
 	.lookup     = zfsfuse_lookup_helper,
 	.getattr    = zfsfuse_getattr_helper,
 	.statfs     = zfsfuse_statfs,

@@ -289,6 +289,7 @@ vnode_t *vn_alloc(int kmflag)
 		vn_reinit(vp);
 	}
 
+	fprintf(stderr, "VNode %p alloc'ed\n", vp);
 	return vp;
 }
 
@@ -322,6 +323,45 @@ void vn_free(vnode_t *vp)
 	ASSERT(vp->v_count == 0 || vp->v_count == 1);
 
 	vn_close(vp);
+}
+
+/*
+ * Similar to vn_setpath_str(), this function sets the path of the destination
+ * vnode to the be the same as the source vnode.
+ */
+void
+vn_copypath(struct vnode *src, struct vnode *dst)
+{
+	char *buf;
+	int alloc;
+
+	mutex_enter(&src->v_lock);
+	if (src->v_path == NULL) {
+		mutex_exit(&src->v_lock);
+		return;
+	}
+	alloc = strlen(src->v_path) + 1;
+
+	/* avoid kmem_alloc() with lock held */
+	mutex_exit(&src->v_lock);
+	buf = kmem_alloc(alloc, KM_SLEEP);
+	mutex_enter(&src->v_lock);
+	if (src->v_path == NULL || strlen(src->v_path) + 1 != alloc) {
+		mutex_exit(&src->v_lock);
+		kmem_free(buf, alloc);
+		return;
+	}
+	bcopy(src->v_path, buf, alloc);
+	mutex_exit(&src->v_lock);
+
+	mutex_enter(&dst->v_lock);
+	if (dst->v_path != NULL) {
+		mutex_exit(&dst->v_lock);
+		kmem_free(buf, alloc);
+		return;
+	}
+	dst->v_path = buf;
+	mutex_exit(&dst->v_lock);
 }
 
 /*
@@ -435,6 +475,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 	vp->v_count = 1;
 
+	fprintf(stderr, "VNode %p created at vn_open (%s)\n", *vpp, path);
 	return (0);
 }
 
@@ -481,12 +522,13 @@ vn_rdwr(enum uio_rw uio, vnode_t *vp, caddr_t addr, ssize_t len, offset_t offset
 
 void vn_rele(vnode_t *vp)
 {
-	ASSERT(vp->v_count > 0);
+	if (vp->v_count == 0)
+		cmn_err(CE_PANIC, "vn_rele: vnode ref count 0");
 
 	mutex_enter(&vp->v_lock);
 	if(vp->v_count == 1) {
 		mutex_exit(&vp->v_lock);
-		/* ZFSFUSE: FIXME FIXME */
+		fprintf(stderr, "VNode %p inactive\n", vp);
 		VOP_INACTIVE(vp, CRED());
 	} else {
 		vp->v_count--;
@@ -503,6 +545,7 @@ void vn_close(vnode_t *vp)
 	if(vp->v_path != NULL)
 		free(vp->v_path);
 	umem_free(vp, sizeof (vnode_t));
+	fprintf(stderr, "VNode %p freed\n", vp);
 }
 
 int
@@ -630,6 +673,73 @@ vn_setpath(vnode_t *rootvp, struct vnode *startvp, struct vnode *vp,
 		vp->v_path = rpath;
 		mutex_exit(&vp->v_lock);
 	}
+}
+
+int
+fop_open(
+	vnode_t **vpp,
+	int mode,
+	cred_t *cr)
+{
+	int ret;
+	vnode_t *vp = *vpp;
+
+	VN_HOLD(vp);
+	/*
+	 * Adding to the vnode counts before calling open
+	 * avoids the need for a mutex. It circumvents a race
+	 * condition where a query made on the vnode counts results in a
+	 * false negative. The inquirer goes away believing the file is
+	 * not open when there is an open on the file already under way.
+	 *
+	 * The counts are meant to prevent NFS from granting a delegation
+	 * when it would be dangerous to do so.
+	 *
+	 * The vnode counts are only kept on regular files
+	 */
+	if ((*vpp)->v_type == VREG) {
+		if (mode & FREAD)
+			atomic_add_32(&((*vpp)->v_rdcnt), 1);
+		if (mode & FWRITE)
+			atomic_add_32(&((*vpp)->v_wrcnt), 1);
+	}
+
+	ret = (*(*(vpp))->v_op->vop_open)(vpp, mode, cr);
+
+	if (ret) {
+		/*
+		 * Use the saved vp just in case the vnode ptr got trashed
+		 * by the error.
+		 */
+		VOPSTATS_UPDATE(vp, open);
+		if ((vp->v_type == VREG) && (mode & FREAD))
+			atomic_add_32(&(vp->v_rdcnt), -1);
+		if ((vp->v_type == VREG) && (mode & FWRITE))
+			atomic_add_32(&(vp->v_wrcnt), -1);
+	} else {
+		/*
+		 * Some filesystems will return a different vnode,
+		 * but the same path was still used to open it.
+		 * So if we do change the vnode and need to
+		 * copy over the path, do so here, rather than special
+		 * casing each filesystem. Adjust the vnode counts to
+		 * reflect the vnode switch.
+		 */
+		VOPSTATS_UPDATE(*vpp, open);
+		if (*vpp != vp && *vpp != NULL) {
+			vn_copypath(vp, *vpp);
+			if (((*vpp)->v_type == VREG) && (mode & FREAD))
+				atomic_add_32(&((*vpp)->v_rdcnt), 1);
+			if ((vp->v_type == VREG) && (mode & FREAD))
+				atomic_add_32(&(vp->v_rdcnt), -1);
+			if (((*vpp)->v_type == VREG) && (mode & FWRITE))
+				atomic_add_32(&((*vpp)->v_wrcnt), 1);
+			if ((vp->v_type == VREG) && (mode & FWRITE))
+				atomic_add_32(&(vp->v_wrcnt), -1);
+		}
+	}
+	VN_RELE(vp);
+	return (ret);
 }
 
 int
