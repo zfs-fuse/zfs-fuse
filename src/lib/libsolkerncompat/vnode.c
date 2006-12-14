@@ -448,9 +448,10 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 	vp->v_type = VNON;
 
+	vn_setops(vp, root_fvnodeops);
+
 	if(S_ISREG(st.st_mode)) {
 		vp->v_type = VREG;
-		vn_setops(vp, root_fvnodeops);
 		if (flags & FREAD)
 			atomic_add_32(&((*vpp)->v_rdcnt), 1);
 		if (flags & FWRITE)
