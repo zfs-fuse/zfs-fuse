@@ -337,11 +337,12 @@ mappedwrite(vnode_t *vp, uint64_t woff, int nbytes, uio_t *uio, dmu_tx_t *tx)
  * NOTE: We will always "break up" the IO into PAGESIZE uiomoves when
  *	the file is memory mapped.
  */
-/* ZFSFUSE: not implemented */
-#if 0
 static int
 mappedread(vnode_t *vp, char *addr, int nbytes, uio_t *uio)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	int64_t	start, off, bytes;
 	int len = nbytes;
 	int error = 0;
@@ -370,8 +371,8 @@ mappedread(vnode_t *vp, char *addr, int nbytes, uio_t *uio)
 			break;
 	}
 	return (error);
-}
 #endif
+}
 
 uint_t zfs_read_chunk_size = 1024 * 1024; /* Tunable */
 
@@ -396,9 +397,6 @@ uint_t zfs_read_chunk_size = 1024 * 1024; /* Tunable */
 static int
 zfs_read(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 {
-	/* ZFSFUSE: not implemented */
-	abort();
-#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	uint64_t	delta;
@@ -510,7 +508,6 @@ out:
 	ZFS_ACCESSTIME_STAMP(zfsvfs, zp);
 	ZFS_EXIT(zfsvfs);
 	return (error);
-#endif
 }
 
 /*

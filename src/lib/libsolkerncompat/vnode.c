@@ -772,6 +772,23 @@ fop_close(
 }
 
 int
+fop_read(
+	vnode_t *vp,
+	uio_t *uiop,
+	int ioflag,
+	cred_t *cr,
+	caller_context_t *ct)
+{
+	int	err;
+	/* ssize_t	resid_start = uiop->uio_resid; */
+
+	err = (*(vp)->v_op->vop_read)(vp, uiop, ioflag, cr, ct);
+	VOPSTATS_UPDATE_IO(vp, read,
+	    read_bytes, (resid_start - uiop->uio_resid));
+	return (err);
+}
+
+int
 fop_readlink(
 	vnode_t *vp,
 	uio_t *uiop,

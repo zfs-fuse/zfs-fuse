@@ -46,29 +46,6 @@ typedef struct file_info {
 	int flags;
 } file_info_t;
 
-static const char *hello_str = "Hello World!\n";
-
-#define min(x, y) ((x) < (y) ? (x) : (y))
-
-static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
-                             off_t off, size_t maxsize)
-{
-    if (off < bufsize)
-        return fuse_reply_buf(req, buf + off, min(bufsize - off, maxsize));
-    else
-        return fuse_reply_buf(req, NULL, 0);
-}
-
-static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
-                         off_t off, struct fuse_file_info *fi)
-{
-	fprintf(stderr, "hello_ll_read: %li\n", (long) ino);
-
-    (void) fi;
-
-    reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
-}
-
 static void zfsfuse_destroy(void *userdata)
 {
 	vfs_t *vfs = (vfs_t *) userdata;
@@ -316,6 +293,8 @@ static int zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 
 	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
 	ASSERT(info->vp != NULL);
+	ASSERT(VTOZ(info->vp) != NULL);
+	ASSERT(VTOZ(info->vp)->z_id == ino);
 
 	int error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, NULL);
 	VERIFY(error == 0);
@@ -339,6 +318,8 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 {
 	vnode_t *vp = ((file_info_t *)(uintptr_t) fi->fh)->vp;
 	ASSERT(vp != NULL);
+	ASSERT(VTOZ(vp) != NULL);
+	ASSERT(VTOZ(vp)->z_id == ino);
 
 	if(vp->v_type != VDIR)
 		return ENOTDIR;
@@ -541,10 +522,60 @@ static void zfsfuse_readlink_helper(fuse_req_t req, fuse_ino_t ino)
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
+{
+	vnode_t *vp = ((file_info_t *)(uintptr_t) fi->fh)->vp;
+	ASSERT(vp != NULL);
+	ASSERT(VTOZ(vp) != NULL);
+	ASSERT(VTOZ(vp)->z_id == ino);
+
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	char *outbuf = malloc(size);
+	if(outbuf == NULL)
+		return ENOMEM;
+
+	ZFS_ENTER(zfsvfs);
+
+	iovec_t iovec;
+	uio_t uio;
+	uio.uio_iov = &iovec;
+	uio.uio_iovcnt = 1;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_fmode = 0;
+
+	iovec.iov_base = outbuf;
+	iovec.iov_len = size;
+	uio.uio_resid = iovec.iov_len;
+	uio.uio_loffset = off;
+
+	/* FIXME: check FRSYNC ioflag */
+	int error = VOP_READ(vp, &uio, 0, NULL, NULL);
+
+	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_buf(req, outbuf, uio.uio_loffset - off);
+
+	free(outbuf);
+
+	return error;
+}
+
+static void zfsfuse_read_helper(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_read(req, real_ino, size, off, fi);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
-	.read       = hello_ll_read,
+	.read       = zfsfuse_read_helper,
 	.release    = zfsfuse_release_helper,
 	.opendir    = zfsfuse_opendir_helper,
 	.readdir    = zfsfuse_readdir_helper,
