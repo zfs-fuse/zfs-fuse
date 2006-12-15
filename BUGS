@@ -16,8 +16,7 @@ Reporting bugs
 If you find a bug, please report it in the following page:
 http://developer.berlios.de/bugs/?group_id=6836
 
-If the program aborts/crashes, you should provide the following info in order
-to help me track down the bug:
+You should provide the following info in order to help me track down the bug:
 
   1) The output of the program (including the error message)
   2) If you can, tell me how to reproduce the bug
@@ -36,9 +35,8 @@ filename)
          (gdb) bt full
          (gdb) exit
 
-  4) If zfs-fuse crashes, usually it doesn't leave a core file. You can force
-it to leave a corefile by running 'ulimit -c unlimited', starting zfs-fuse and
-then reproduce the bug. After that you can do step 3) above (of course, replacing
+  4) If you're using the run.sh script (you should) and zfs-fuse crashes, it
+will leave a core file. You should then do step 3) above (of course, replacing
 "./ztest" by "./zfs-fuse")
 
   5) You should also provide the zfs-fuse version you are using. If you are

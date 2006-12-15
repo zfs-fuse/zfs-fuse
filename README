@@ -1,10 +1,8 @@
 ZFS on FUSE/Linux README
 ------------------------
 
-This project is a port of the ZFS filesystem to FUSE/Linux (and in the future,
-FreeBSD), done as part of the Google Summer of Code 2006 initiative.
-
-Currently, it only works on the x86 and amd64 architectures.
+This project is a port of the ZFS filesystem to FUSE/Linux, done as part
+of the Google Summer of Code 2006 initiative.
 
 The project homepage is at http://www.wizy.org/wiki/ZFS_on_FUSE
 
@@ -24,6 +22,8 @@ In order to compile and use zfs-fuse, you need the following:
  * A 2.6.x Linux kernel
 
  * FUSE 2.5.x or greater
+
+Currently, it only works on the x86 and amd64 architectures.
 
 Compiling
 ---------
@@ -49,25 +49,29 @@ If you want to run a few tests, please read the TESTING file.
 Using
 -----
 
-At this moment it is not possible to mount ZFS filesystems, however
-you can already create, change properties and delete ZFS pools and
-filesystems.
+At this moment it is possible to mount ZFS filesystems in read-only
+mode. You can also create, change properties and delete ZFS pools
+and filesystems.
 
 So, if you want to play with zfs-fuse, you must do the following:
 
 1) Create a "/etc/zfs" directory.
 
-This directory is used to store a UNIX local socket, needed for the
-zfs-fuse <-> zpool/zfs communication and a "zpool.cache" file that
-contains the description of all known ZFS pools.
+Usually simply doing 'mkdir /etc/zfs' as root will do the job.
 
-Make sure this directory has appropriate permissions (it must be
-writable by the user who runs the zfs-fuse process and readable/
-executable by the users who run the zpool and zfs commands).
+This directory is used to store a UNIX local socket, needed for the
+zfs-fuse <-> zpool/zfs communication and the "zpool.cache" file that
+contains the description of all known ZFS pools.
 
 2) Start the zfs-fuse process.
 
 This is the main daemon process that must be running at all times.
+
+The recommended way to start it is with the provided 'run.sh' script,
+which will configure 'bash' to generate core files when zfs-fuse
+crashes.
+
+You should be running it with root permissions.
 
 3) Use the zpool and zfs commands to manage pools and filesystems.
 
@@ -82,6 +86,5 @@ vdevs.
 I won't be held responsible if you lose data - either due to mistakes,
 deliberate actions or any bugs in the software!
 
-Note that filesystems won't mount yet (and there are still a few
-unimplemented features, such as EFI labels, etc), so you won't
-be able to read or write files to ZFS filesystems.
+Note that at this time you will only be able to read files, you can't
+change/create files or directories yet.
