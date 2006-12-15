@@ -495,7 +495,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_fmode = 0;
 	iovec.iov_base = buffer;
-	iovec.iov_len = sizeof(buffer);
+	iovec.iov_len = sizeof(buffer) - 1;
 	uio.uio_resid = iovec.iov_len;
 	uio.uio_loffset = 0;
 
@@ -505,7 +505,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	ZFS_EXIT(zfsvfs);
 
 	if(!error) {
-		VERIFY(uio.uio_loffset < PATH_MAX);
+		VERIFY(uio.uio_loffset < sizeof(buffer));
 		buffer[uio.uio_loffset] = '\0';
 		error = -fuse_reply_buf(req, buffer, uio.uio_loffset + 1);
 	}
