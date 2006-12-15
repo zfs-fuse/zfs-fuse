@@ -239,7 +239,7 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 	uint64_t	version = ZPL_VERSION;
 	int		i, error;
 	dmu_object_info_t doi;
-	dmu_objset_stats_t *stats;
+	uint64_t fsid_guid;
 
 	*zpp = NULL;
 
@@ -279,14 +279,11 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 	 * The 8-bit fs type must be put in the low bits of fsid[1]
 	 * because that's where other Solaris filesystems put it.
 	 */
-	stats = kmem_alloc(sizeof (dmu_objset_stats_t), KM_SLEEP);
-	dmu_objset_stats(os, stats);
-	ASSERT((stats->dds_fsid_guid & ~((1ULL<<56)-1)) == 0);
-	zfsvfs->z_vfs->vfs_fsid.val[0] = stats->dds_fsid_guid;
-	zfsvfs->z_vfs->vfs_fsid.val[1] = ((stats->dds_fsid_guid>>32) << 8) |
+	fsid_guid = dmu_objset_fsid_guid(os);
+	ASSERT((fsid_guid & ~((1ULL<<56)-1)) == 0);
+	zfsvfs->z_vfs->vfs_fsid.val[0] = fsid_guid;
+	zfsvfs->z_vfs->vfs_fsid.val[1] = ((fsid_guid>>32) << 8) |
 	    zfsfstype & 0xFF;
-	kmem_free(stats, sizeof (dmu_objset_stats_t));
-	stats = NULL;
 
 	error = zap_lookup(os, MASTER_NODE_OBJ, ZFS_ROOT_OBJ, 8, 1, &zoid);
 	if (error)
@@ -323,6 +320,8 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 	 */
 	list_create(&zfsvfs->z_delete_head.z_znodes,
 	    sizeof (znode_t), offsetof(znode_t, z_list_node));
+	/* Mutex never destroyed. */
+	mutex_init(&zfsvfs->z_delete_head.z_mutex, NULL, MUTEX_DEFAULT, NULL);
 
 	return (0);
 }
@@ -412,6 +411,7 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, uint64_t obj_num, int blksz)
 	zp->z_id = obj_num;
 	zp->z_blksz = blksz;
 	zp->z_seq = 0x7A4653;
+	zp->z_sync_cnt = 0;
 
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	list_insert_tail(&zfsvfs->z_all_znodes, zp);

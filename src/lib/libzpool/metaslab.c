@@ -293,6 +293,7 @@ metaslab_init(metaslab_group_t *mg, space_map_obj_t *smo,
 	metaslab_t *msp;
 
 	msp = kmem_zalloc(sizeof (metaslab_t), KM_SLEEP);
+	mutex_init(&msp->ms_lock, NULL, MUTEX_DEFAULT, NULL);
 
 	msp->ms_smo_syncing = *smo;
 
@@ -355,6 +356,7 @@ metaslab_fini(metaslab_t *msp)
 	}
 
 	mutex_exit(&msp->ms_lock);
+	mutex_destroy(&msp->ms_lock);
 
 	kmem_free(msp, sizeof (metaslab_t));
 }
@@ -702,7 +704,7 @@ metaslab_group_alloc(metaslab_group_t *mg, uint64_t size, uint64_t txg,
  */
 static int
 metaslab_alloc_dva(spa_t *spa, uint64_t psize, dva_t *dva, int d,
-    dva_t *hintdva, uint64_t txg)
+    dva_t *hintdva, uint64_t txg, boolean_t hintdva_avoid)
 {
 	metaslab_group_t *mg, *rotor;
 	metaslab_class_t *mc;
@@ -723,10 +725,10 @@ metaslab_alloc_dva(spa_t *spa, uint64_t psize, dva_t *dva, int d,
 	 * nothing actually breaks if we miss a few updates -- we just won't
 	 * allocate quite as evenly.  It all balances out over time.
 	 *
-	 * If we are doing ditto blocks, try to spread them across consecutive
-	 * vdevs.  If we're forced to reuse a vdev before we've allocated
-	 * all of our ditto blocks, then try and spread them out on that
-	 * vdev as much as possible.  If it turns out to not be possible,
+	 * If we are doing ditto or log blocks, try to spread them across
+	 * consecutive vdevs.  If we're forced to reuse a vdev before we've
+	 * allocated all of our ditto blocks, then try and spread them out on
+	 * that vdev as much as possible.  If it turns out to not be possible,
 	 * gradually lower our standards until anything becomes acceptable.
 	 * Also, allocating on consecutive vdevs (as opposed to random vdevs)
 	 * gives us hope of containing our fault domains to something we're
@@ -741,7 +743,10 @@ metaslab_alloc_dva(spa_t *spa, uint64_t psize, dva_t *dva, int d,
 	 */
 	if (hintdva) {
 		vd = vdev_lookup_top(spa, DVA_GET_VDEV(&hintdva[d]));
-		mg = vd->vdev_mg;
+		if (hintdva_avoid)
+			mg = vd->vdev_mg->mg_next;
+		else
+			mg = vd->vdev_mg;
 	} else if (d != 0) {
 		vd = vdev_lookup_top(spa, DVA_GET_VDEV(&dva[d - 1]));
 		mg = vd->vdev_mg->mg_next;
@@ -916,7 +921,7 @@ metaslab_claim_dva(spa_t *spa, const dva_t *dva, uint64_t txg)
 
 int
 metaslab_alloc(spa_t *spa, uint64_t psize, blkptr_t *bp, int ndvas,
-    uint64_t txg, blkptr_t *hintbp)
+    uint64_t txg, blkptr_t *hintbp, boolean_t hintbp_avoid)
 {
 	dva_t *dva = bp->blk_dva;
 	dva_t *hintdva = hintbp->blk_dva;
@@ -928,7 +933,8 @@ metaslab_alloc(spa_t *spa, uint64_t psize, blkptr_t *bp, int ndvas,
 	ASSERT(hintbp == NULL || ndvas <= BP_GET_NDVAS(hintbp));
 
 	for (d = 0; d < ndvas; d++) {
-		error = metaslab_alloc_dva(spa, psize, dva, d, hintdva, txg);
+		error = metaslab_alloc_dva(spa, psize, dva, d, hintdva,
+		    txg, hintbp_avoid);
 		if (error) {
 			for (d--; d >= 0; d--) {
 				metaslab_free_dva(spa, &dva[d], txg, B_TRUE);

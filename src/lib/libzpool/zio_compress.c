@@ -2,9 +2,8 @@
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
+ * Common Development and Distribution License (the "License").
+ * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -20,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -37,10 +36,11 @@
  */
 
 zio_compress_info_t zio_compress_table[ZIO_COMPRESS_FUNCTIONS] = {
-	NULL,			NULL,			"inherit",
-	NULL,			NULL,			"on",
-	NULL,			NULL,			"uncompressed",
-	lzjb_compress,		lzjb_decompress,	"lzjb",
+	{NULL,			NULL,			"inherit"},
+	{NULL,			NULL,			"on"},
+	{NULL,			NULL,			"uncompressed"},
+	{lzjb_compress,		lzjb_decompress,	"lzjb"},
+	{NULL,			NULL,			"empty"},
 };
 
 uint8_t
@@ -70,7 +70,7 @@ zio_compress_data(int cpfunc, void *src, uint64_t srcsize, void **destp,
 	uint_t allzero;
 
 	ASSERT((uint_t)cpfunc < ZIO_COMPRESS_FUNCTIONS);
-	ASSERT(ci->ci_compress != NULL);
+	ASSERT((uint_t)cpfunc == ZIO_COMPRESS_EMPTY || ci->ci_compress != NULL);
 
 	/*
 	 * If the data is all zeroes, we don't even need to allocate
@@ -91,6 +91,9 @@ zio_compress_data(int cpfunc, void *src, uint64_t srcsize, void **destp,
 		*destbufsizep = 0;
 		return (1);
 	}
+
+	if (cpfunc == ZIO_COMPRESS_EMPTY)
+		return (0);
 
 	/* Compress at least 12.5% */
 	destbufsize = P2ALIGN(srcsize - (srcsize >> 3), SPA_MINBLOCKSIZE);

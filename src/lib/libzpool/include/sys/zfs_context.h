@@ -169,6 +169,11 @@ _NOTE(CONSTCOND) } while (0)
 #define	DTRACE_PROBE3(a, b, c, d, e, f, g)	((void)0)
 #endif	/* DTRACE_PROBE3 */
 
+#ifdef DTRACE_PROBE4
+#undef	DTRACE_PROBE4
+#define	DTRACE_PROBE4(a, b, c, d, e, f, g, h, i)	((void)0)
+#endif	/* DTRACE_PROBE4 */
+
 /*
  * Threads
  */
@@ -178,7 +183,7 @@ typedef struct kthread kthread_t;
 
 #define	thread_create(stk, stksize, func, arg, len, pp, state, pri)	\
 	zk_thread_create(func, arg)
-#define	thread_exit() thr_exit(0)
+#define	thread_exit() thr_exit(NULL)
 
 extern kthread_t *zk_thread_create(void (*func)(), void *arg);
 

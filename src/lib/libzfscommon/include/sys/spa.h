@@ -61,9 +61,9 @@ struct dsl_pool;
 #define	BF64_GET(x, low, len)		BF64_DECODE(x, low, len)
 
 #define	BF32_SET(x, low, len, val)	\
-	((x) ^= BF32_ENCODE((x >> low) ^ val, low, len))
+	((x) ^= BF32_ENCODE((x >> low) ^ (val), low, len))
 #define	BF64_SET(x, low, len, val)	\
-	((x) ^= BF64_ENCODE((x >> low) ^ val, low, len))
+	((x) ^= BF64_ENCODE((x >> low) ^ (val), low, len))
 
 #define	BF32_GET_SB(x, low, len, shift, bias)	\
 	((BF32_GET(x, low, len) + (bias)) << (shift))
@@ -252,6 +252,13 @@ typedef struct blkptr {
 	((dva1)->dva_word[1] == (dva2)->dva_word[1] && \
 	(dva1)->dva_word[0] == (dva2)->dva_word[0])
 
+#define	ZIO_CHECKSUM_EQUAL(zc1, zc2) \
+	(0 == (((zc1).zc_word[0] - (zc2).zc_word[0]) | \
+	((zc1).zc_word[1] - (zc2).zc_word[1]) | \
+	((zc1).zc_word[2] - (zc2).zc_word[2]) | \
+	((zc1).zc_word[3] - (zc2).zc_word[3])))
+
+
 #define	DVA_IS_VALID(dva)	(DVA_GET_ASIZE(dva) != 0)
 
 #define	ZIO_SET_CHECKSUM(zcp, w0, w1, w2, w3)	\
@@ -426,6 +433,13 @@ extern void spa_evict_all(void);
 extern vdev_t *spa_lookup_by_guid(spa_t *spa, uint64_t guid);
 extern boolean_t spa_has_spare(spa_t *, uint64_t guid);
 extern uint64_t bp_get_dasize(spa_t *spa, const blkptr_t *bp);
+
+/* history logging */
+extern void spa_history_create_obj(spa_t *spa, dmu_tx_t *tx);
+extern int spa_history_get(spa_t *spa, uint64_t *offset, uint64_t *len_read,
+    char *his_buf);
+extern int spa_history_log(spa_t *spa, const char *his_buf,
+    uint64_t pool_create);
 
 /* error handling */
 struct zbookmark;

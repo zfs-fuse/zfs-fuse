@@ -34,6 +34,7 @@
 #include <sys/dsl_synctask.h>
 #include <sys/dnode.h>
 #include <sys/dbuf.h>
+#include <sys/zvol.h>
 #include <sys/dmu_tx.h>
 #include <sys/zio_checksum.h>
 #include <sys/zap.h>
@@ -214,6 +215,9 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	list_create(&osi->os_downgraded_dbufs, sizeof (dmu_buf_impl_t),
 	    offsetof(dmu_buf_impl_t, db_link));
 
+	mutex_init(&osi->os_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&osi->os_obj_lock, NULL, MUTEX_DEFAULT, NULL);
+
 	osi->os_meta_dnode = dnode_special_open(osi,
 	    &osi->os_phys->os_meta_dnode, DMU_META_DNODE_OBJECT);
 
@@ -361,6 +365,8 @@ dmu_objset_evict(dsl_dataset_t *ds, void *arg)
 	zil_free(osi->os_zil);
 
 	zio_buf_free(osi->os_phys, sizeof (objset_phys_t));
+	mutex_destroy(&osi->os_lock);
+	mutex_destroy(&osi->os_obj_lock);
 	kmem_free(osi, sizeof (objset_impl_t));
 }
 
@@ -681,7 +687,12 @@ dmu_objset_sync_dnodes(objset_impl_t *os, list_t *list, dmu_tx_t *tx)
 			}
 			dn = next;
 		}
+
+		DTRACE_PROBE1(wait__begin, zio_t *, zio);
 		err = zio_wait(zio);
+		DTRACE_PROBE4(wait__end, zio_t *, zio,
+		    uint64_t, tx->tx_txg, objset_impl_t *, os, int, level);
+
 		ASSERT(err == 0);
 	}
 }
@@ -715,7 +726,6 @@ killer(zio_t *zio, arc_buf_t *abuf, void *arg)
 		    os->os_synctx);
 	}
 }
-
 
 /* called from dsl */
 void
@@ -778,15 +788,38 @@ dmu_objset_sync(objset_impl_t *os, dmu_tx_t *tx)
 }
 
 void
-dmu_objset_stats(objset_t *os, dmu_objset_stats_t *dds)
+dmu_objset_space(objset_t *os, uint64_t *refdbytesp, uint64_t *availbytesp,
+    uint64_t *usedobjsp, uint64_t *availobjsp)
 {
-	if (os->os->os_dsl_dataset != NULL) {
-		dsl_dataset_stats(os->os->os_dsl_dataset, dds);
-	} else {
-		ASSERT(os->os->os_phys->os_type == DMU_OST_META);
-		bzero(dds, sizeof (*dds));
-	}
-	dds->dds_type = os->os->os_phys->os_type;
+	dsl_dataset_space(os->os->os_dsl_dataset, refdbytesp, availbytesp,
+	    usedobjsp, availobjsp);
+}
+
+uint64_t
+dmu_objset_fsid_guid(objset_t *os)
+{
+	return (dsl_dataset_fsid_guid(os->os->os_dsl_dataset));
+}
+
+void
+dmu_objset_fast_stat(objset_t *os, dmu_objset_stats_t *stat)
+{
+	stat->dds_type = os->os->os_phys->os_type;
+	if (os->os->os_dsl_dataset)
+		dsl_dataset_fast_stat(os->os->os_dsl_dataset, stat);
+}
+
+void
+dmu_objset_stats(objset_t *os, nvlist_t *nv)
+{
+	ASSERT(os->os->os_dsl_dataset ||
+	    os->os->os_phys->os_type == DMU_OST_META);
+
+	if (os->os->os_dsl_dataset != NULL)
+		dsl_dataset_stats(os->os->os_dsl_dataset, nv);
+
+	dsl_prop_nvlist_add_uint64(nv, ZFS_PROP_TYPE,
+	    os->os->os_phys->os_type);
 }
 
 int

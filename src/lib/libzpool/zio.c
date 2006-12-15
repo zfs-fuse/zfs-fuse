@@ -112,7 +112,7 @@ zio_init(void)
 
 		if (align != 0) {
 			char name[30];
-			(void) sprintf(name, "zio_buf_%lu", size);
+			(void) sprintf(name, "zio_buf_%lu", (ulong_t)size);
 			zio_buf_cache[c] = kmem_cache_create(name, size,
 			    align, NULL, NULL, NULL, NULL, NULL, KMC_NODEBUG);
 			dprintf("creating cache for size %5lx align %5lx\n",
@@ -258,6 +258,7 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	zio->io_async_stages = ZIO_ASYNC_PIPELINE_STAGES;
 	zio->io_timestamp = lbolt64;
 	zio->io_flags = flags;
+	mutex_init(&zio->io_lock, NULL, MUTEX_DEFAULT, NULL);
 	zio_push_transform(zio, data, size, size);
 
 	if (pio == NULL) {
@@ -313,7 +314,8 @@ zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
 	ASSERT3U(size, ==, BP_GET_LSIZE(bp));
 
 	zio = zio_create(pio, spa, bp->blk_birth, bp, data, size, done, private,
-	    ZIO_TYPE_READ, priority, flags, ZIO_STAGE_OPEN, ZIO_READ_PIPELINE);
+	    ZIO_TYPE_READ, priority, flags | ZIO_FLAG_USER,
+	    ZIO_STAGE_OPEN, ZIO_READ_PIPELINE);
 	zio->io_bookmark = *zb;
 
 	zio->io_logical = zio;
@@ -357,7 +359,7 @@ zio_write(zio_t *pio, spa_t *spa, int checksum, int compress, int ncopies,
 	    compress < ZIO_COMPRESS_FUNCTIONS);
 
 	zio = zio_create(pio, spa, txg, bp, data, size, done, private,
-	    ZIO_TYPE_WRITE, priority, flags,
+	    ZIO_TYPE_WRITE, priority, flags | ZIO_FLAG_USER,
 	    ZIO_STAGE_OPEN, ZIO_WRITE_PIPELINE);
 
 	zio->io_bookmark = *zb;
@@ -394,7 +396,7 @@ zio_rewrite(zio_t *pio, spa_t *spa, int checksum,
 	zio_t *zio;
 
 	zio = zio_create(pio, spa, txg, bp, data, size, done, private,
-	    ZIO_TYPE_WRITE, priority, flags,
+	    ZIO_TYPE_WRITE, priority, flags | ZIO_FLAG_USER,
 	    ZIO_STAGE_OPEN, ZIO_REWRITE_PIPELINE);
 
 	zio->io_bookmark = *zb;
@@ -444,7 +446,7 @@ zio_free(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	}
 
 	zio = zio_create(pio, spa, txg, bp, NULL, 0, done, private,
-	    ZIO_TYPE_FREE, ZIO_PRIORITY_FREE, 0,
+	    ZIO_TYPE_FREE, ZIO_PRIORITY_FREE, ZIO_FLAG_USER,
 	    ZIO_STAGE_OPEN, ZIO_FREE_PIPELINE);
 
 	zio->io_bp = &zio->io_bp_copy;
@@ -653,7 +655,7 @@ zio_wait(zio_t *zio)
 	mutex_exit(&zio->io_lock);
 
 	error = zio->io_error;
-
+	mutex_destroy(&zio->io_lock);
 	kmem_free(zio, sizeof (zio_t));
 
 	return (error);
@@ -894,9 +896,8 @@ zio_write_compress(zio_t *zio)
 	if (bp->blk_birth == zio->io_txg && BP_GET_PSIZE(bp) == csize &&
 	    pass > zio_sync_pass.zp_rewrite) {
 		ASSERT(csize != 0);
-		ASSERT3U(BP_GET_COMPRESS(bp), ==, compress);
-		ASSERT3U(BP_GET_LSIZE(bp), ==, lsize);
-
+		BP_SET_LSIZE(bp, lsize);
+		BP_SET_COMPRESS(bp, compress);
 		zio->io_pipeline = ZIO_REWRITE_PIPELINE;
 	} else {
 		if (bp->blk_birth == zio->io_txg) {
@@ -1146,7 +1147,7 @@ zio_write_allocate_gang_members(zio_t *zio)
 	gsize = SPA_GANGBLOCKSIZE;
 	gbps_left = SPA_GBH_NBLKPTRS;
 
-	error = metaslab_alloc(spa, gsize, bp, gbh_ndvas, txg, NULL);
+	error = metaslab_alloc(spa, gsize, bp, gbh_ndvas, txg, NULL, B_FALSE);
 	if (error == ENOSPC)
 		panic("can't allocate gang block header");
 	ASSERT(error == 0);
@@ -1173,7 +1174,7 @@ zio_write_allocate_gang_members(zio_t *zio)
 
 		while (resid <= maxalloc * gbps_left) {
 			error = metaslab_alloc(spa, maxalloc, gbp, ndvas,
-			    txg, bp);
+			    txg, bp, B_FALSE);
 			if (error == 0)
 				break;
 			ASSERT3U(error, ==, ENOSPC);
@@ -1244,7 +1245,7 @@ zio_dva_allocate(zio_t *zio)
 	ASSERT3U(zio->io_size, ==, BP_GET_PSIZE(bp));
 
 	error = metaslab_alloc(zio->io_spa, zio->io_size, bp, zio->io_ndvas,
-	    zio->io_txg, NULL);
+	    zio->io_txg, NULL, B_FALSE);
 
 	if (error == 0) {
 		bp->blk_birth = zio->io_txg;
@@ -1652,25 +1653,27 @@ zio_next_stage_async(zio_t *zio)
  * Try to allocate an intent log block.  Return 0 on success, errno on failure.
  */
 int
-zio_alloc_blk(spa_t *spa, uint64_t size, blkptr_t *bp, uint64_t txg)
+zio_alloc_blk(spa_t *spa, uint64_t size, blkptr_t *new_bp, blkptr_t *old_bp,
+    uint64_t txg)
 {
 	int error;
 
 	spa_config_enter(spa, RW_READER, FTAG);
 
-	BP_ZERO(bp);
-
-	error = metaslab_alloc(spa, size, bp, 1, txg, NULL);
+	/*
+	 * We were passed the previous log blocks dva_t in bp->blk_dva[0].
+	 */
+	error = metaslab_alloc(spa, size, new_bp, 1, txg, old_bp, B_TRUE);
 
 	if (error == 0) {
-		BP_SET_LSIZE(bp, size);
-		BP_SET_PSIZE(bp, size);
-		BP_SET_COMPRESS(bp, ZIO_COMPRESS_OFF);
-		BP_SET_CHECKSUM(bp, ZIO_CHECKSUM_ZILOG);
-		BP_SET_TYPE(bp, DMU_OT_INTENT_LOG);
-		BP_SET_LEVEL(bp, 0);
-		BP_SET_BYTEORDER(bp, ZFS_HOST_BYTEORDER);
-		bp->blk_birth = txg;
+		BP_SET_LSIZE(new_bp, size);
+		BP_SET_PSIZE(new_bp, size);
+		BP_SET_COMPRESS(new_bp, ZIO_COMPRESS_OFF);
+		BP_SET_CHECKSUM(new_bp, ZIO_CHECKSUM_ZILOG);
+		BP_SET_TYPE(new_bp, DMU_OT_INTENT_LOG);
+		BP_SET_LEVEL(new_bp, 0);
+		BP_SET_BYTEORDER(new_bp, ZFS_HOST_BYTEORDER);
+		new_bp->blk_birth = txg;
 	}
 
 	spa_config_exit(spa, FTAG);

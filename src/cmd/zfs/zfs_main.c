@@ -380,6 +380,7 @@ zfs_do_clone(int argc, char **argv)
 				ret = zfs_share(clone);
 			zfs_close(clone);
 		}
+		zpool_log_history(g_zfs, argc, argv, argv[2], B_FALSE, B_FALSE);
 	}
 
 	zfs_close(zhp);
@@ -411,7 +412,8 @@ zfs_do_create(int argc, char **argv)
 	nvlist_t *props = NULL;
 	uint64_t intval;
 	char *propname;
-	char *propval, *strval;
+	char *propval = NULL;
+	char *strval;
 
 	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0) {
 		(void) fprintf(stderr, gettext("internal error: "
@@ -528,6 +530,11 @@ zfs_do_create(int argc, char **argv)
 	/* pass to libzfs */
 	if (zfs_create(g_zfs, argv[0], type, props) != 0)
 		goto error;
+
+	if (propval != NULL)
+		*(propval - 1) = '=';
+	zpool_log_history(g_zfs, argc + optind, argv - optind, argv[0],
+	    B_FALSE, B_FALSE);
 
 	if ((zhp = zfs_open(g_zfs, argv[0], ZFS_TYPE_ANY)) == NULL)
 		goto error;
@@ -817,6 +824,9 @@ zfs_do_destroy(int argc, char **argv)
 	 */
 	if (destroy_callback(zhp, &cb) != 0)
 		return (1);
+
+	zpool_log_history(g_zfs, argc + optind, argv - optind, argv[0],
+	    B_FALSE, B_FALSE);
 
 	return (0);
 }
@@ -1274,10 +1284,21 @@ zfs_do_get(int argc, char **argv)
  * useful for setting a property on a hierarchy-wide basis, regardless of any
  * local modifications for each dataset.
  */
+typedef struct inherit_cbdata {
+	char		*cb_propname;
+	boolean_t	cb_any_successful;
+} inherit_cbdata_t;
+
 static int
 inherit_callback(zfs_handle_t *zhp, void *data)
 {
-	return (zfs_prop_inherit(zhp, data) != 0);
+	inherit_cbdata_t *cbp = data;
+	int ret;
+
+	ret = zfs_prop_inherit(zhp, cbp->cb_propname);
+	if (ret == 0)
+		cbp->cb_any_successful = B_TRUE;
+	return (ret != 0);
 }
 
 static int
@@ -1286,7 +1307,8 @@ zfs_do_inherit(int argc, char **argv)
 	boolean_t recurse = B_FALSE;
 	int c;
 	zfs_prop_t prop;
-	char *propname;
+	inherit_cbdata_t cb;
+	int ret;
 
 	/* check options */
 	while ((c = getopt(argc, argv, "r")) != -1) {
@@ -1315,36 +1337,45 @@ zfs_do_inherit(int argc, char **argv)
 		usage(B_FALSE);
 	}
 
-	propname = argv[0];
+	cb.cb_propname = argv[0];
 	argc--;
 	argv++;
 
-	if ((prop = zfs_name_to_prop(propname)) != ZFS_PROP_INVAL) {
+	if ((prop = zfs_name_to_prop(cb.cb_propname)) != ZFS_PROP_INVAL) {
 		if (zfs_prop_readonly(prop)) {
 			(void) fprintf(stderr, gettext(
 			    "%s property is read-only\n"),
-			    propname);
+			    cb.cb_propname);
 			return (1);
 		}
 		if (!zfs_prop_inheritable(prop)) {
 			(void) fprintf(stderr, gettext("'%s' property cannot "
-			    "be inherited\n"), propname);
+			    "be inherited\n"), cb.cb_propname);
 			if (prop == ZFS_PROP_QUOTA ||
 			    prop == ZFS_PROP_RESERVATION)
 				(void) fprintf(stderr, gettext("use 'zfs set "
-				    "%s=none' to clear\n"), propname);
+				    "%s=none' to clear\n"), cb.cb_propname);
 			return (1);
 		}
-	} else if (!zfs_prop_user(propname)) {
+	} else if (!zfs_prop_user(cb.cb_propname)) {
 		(void) fprintf(stderr, gettext(
 		    "invalid property '%s'\n"),
-		    propname);
+		    cb.cb_propname);
 		usage(B_FALSE);
 	}
 
-	return (zfs_for_each(argc, argv, recurse,
+	cb.cb_any_successful = B_FALSE;
+
+	ret = zfs_for_each(argc, argv, recurse,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, NULL, NULL,
-	    inherit_callback, propname));
+	    inherit_callback, &cb);
+
+	if (cb.cb_any_successful) {
+		zpool_log_history(g_zfs, argc + optind + 1, argv - optind - 1,
+		    argv[0], B_FALSE, B_FALSE);
+	}
+
+	return (ret);
 }
 
 /*
@@ -1638,6 +1669,9 @@ zfs_do_rename(int argc, char **argv)
 
 	ret = (zfs_rename(zhp, argv[2]) != 0);
 
+	if (!ret)
+		zpool_log_history(g_zfs, argc, argv, argv[2], B_FALSE, B_FALSE);
+
 	zfs_close(zhp);
 	return (ret);
 }
@@ -1677,6 +1711,9 @@ zfs_do_promote(int argc, char **argv)
 		return (1);
 
 	ret = (zfs_promote(zhp) != 0);
+
+	if (!ret)
+		zpool_log_history(g_zfs, argc, argv, argv[1], B_FALSE, B_FALSE);
 
 	zfs_close(zhp);
 	return (ret);
@@ -1845,6 +1882,11 @@ zfs_do_rollback(int argc, char **argv)
 	 */
 	ret = zfs_rollback(zhp, snap, force);
 
+	if (!ret) {
+		zpool_log_history(g_zfs, argc + optind, argv - optind, argv[0],
+		    B_FALSE, B_FALSE);
+	}
+
 out:
 	zfs_close(snap);
 	zfs_close(zhp);
@@ -1863,13 +1905,13 @@ out:
 typedef struct set_cbdata {
 	char		*cb_propname;
 	char		*cb_value;
+	boolean_t	cb_any_successful;
 } set_cbdata_t;
 
 static int
 set_callback(zfs_handle_t *zhp, void *data)
 {
 	set_cbdata_t *cbp = data;
-	int ret = 1;
 
 	if (zfs_prop_set(zhp, cbp->cb_propname, cbp->cb_value) != 0) {
 		switch (libzfs_errno(g_zfs)) {
@@ -1884,15 +1926,15 @@ set_callback(zfs_handle_t *zhp, void *data)
 		}
 		return (1);
 	}
-	ret = 0;
-error:
-	return (ret);
+	cbp->cb_any_successful = B_TRUE;
+	return (0);
 }
 
 static int
 zfs_do_set(int argc, char **argv)
 {
 	set_cbdata_t cb;
+	int ret;
 
 	/* check for options */
 	if (argc > 1 && argv[1][0] == '-') {
@@ -1922,6 +1964,7 @@ zfs_do_set(int argc, char **argv)
 
 	*cb.cb_value = '\0';
 	cb.cb_value++;
+	cb.cb_any_successful = B_FALSE;
 
 	if (*cb.cb_propname == '\0') {
 		(void) fprintf(stderr,
@@ -1929,8 +1972,15 @@ zfs_do_set(int argc, char **argv)
 		usage(B_FALSE);
 	}
 
-	return (zfs_for_each(argc - 2, argv + 2, B_FALSE,
-	    ZFS_TYPE_ANY, NULL, NULL, set_callback, &cb));
+	ret = zfs_for_each(argc - 2, argv + 2, B_FALSE,
+	    ZFS_TYPE_ANY, NULL, NULL, set_callback, &cb);
+
+	if (cb.cb_any_successful) {
+		*(cb.cb_value - 1) = '=';
+		zpool_log_history(g_zfs, argc, argv, argv[2], B_FALSE, B_FALSE);
+	}
+
+	return (ret);
 }
 
 /*
@@ -1975,12 +2025,15 @@ zfs_do_snapshot(int argc, char **argv)
 	ret = zfs_snapshot(g_zfs, argv[0], recursive);
 	if (ret && recursive)
 		(void) fprintf(stderr, gettext("no snapshots were created\n"));
+	if (!ret) {
+		zpool_log_history(g_zfs, argc + optind, argv - optind, argv[0],
+		    B_FALSE, B_FALSE);
+	}
 	return (ret != 0);
-
 }
 
 /*
- * zfs send [-i <fs@snap>] <fs@snap>
+ * zfs send [-i <@snap>] <fs@snap>
  *
  * Send a backup stream to stdout.
  */
@@ -1988,14 +2041,16 @@ static int
 zfs_do_send(int argc, char **argv)
 {
 	char *fromname = NULL;
-	zfs_handle_t *zhp_from = NULL, *zhp_to;
+	char *cp;
+	zfs_handle_t *zhp;
 	int c, err;
-	char fullname[MAXPATHLEN];
 
 	/* check options */
 	while ((c = getopt(argc, argv, ":i:")) != -1) {
 		switch (c) {
 		case 'i':
+			if (fromname)
+				usage(B_FALSE);
 			fromname = optarg;
 			break;
 		case ':':
@@ -2025,44 +2080,36 @@ zfs_do_send(int argc, char **argv)
 
 	if (isatty(STDOUT_FILENO)) {
 		(void) fprintf(stderr,
-		    gettext("Error: Stream can not be written "
-			    "to a terminal.\n"
+		    gettext("Error: Stream can not be written to a terminal.\n"
 			    "You must redirect standard output.\n"));
 		return (1);
 	}
 
-	if ((zhp_to = zfs_open(g_zfs, argv[0], ZFS_TYPE_SNAPSHOT)) == NULL)
+	if ((zhp = zfs_open(g_zfs, argv[0], ZFS_TYPE_SNAPSHOT)) == NULL)
 		return (1);
 
-	if (fromname) {
-
-		/*
-		 * If fromname is an abbreviated snapshot name,
-		 * then reconstruct the name of the parent dataset
-		 */
-		if ((strchr(fromname, '@') == NULL) ||
-		    *fromname == '@') {
-			char *cp;
-			cp = strchr(argv[0], '@');
-			if (strchr(fromname, '@') == NULL)
-				*(++cp) = '\0';
-			else
-				*cp = '\0';
-			(void) strncpy(fullname, argv[0], sizeof (fullname));
-			(void) strlcat(fullname, fromname, sizeof (fullname));
-			fromname = fullname;
+	/*
+	 * If they specified the full path to the snapshot, chop off
+	 * everything except the short name of the snapshot.
+	 */
+	if (fromname && (cp = strchr(fromname, '@')) != NULL) {
+		if (cp != fromname &&
+		    strncmp(argv[0], fromname, cp - fromname + 1)) {
+			(void) fprintf(stderr,
+			    gettext("incremental source must be "
+			    "in same filesystem\n"));
+			usage(B_FALSE);
 		}
-
-		if ((zhp_from = zfs_open(g_zfs, fromname,
-		    ZFS_TYPE_SNAPSHOT)) == NULL)
-			return (1);
+		fromname = cp + 1;
+		if (strchr(fromname, '@') || strchr(fromname, '/')) {
+			(void) fprintf(stderr,
+			    gettext("invalid incremental source\n"));
+			usage(B_FALSE);
+		}
 	}
 
-	err = zfs_send(zhp_to, zhp_from);
-
-	if (zhp_from)
-		zfs_close(zhp_from);
-	zfs_close(zhp_to);
+	err = zfs_send(zhp, fromname);
+	zfs_close(zhp);
 
 	return (err != 0);
 }
@@ -2130,6 +2177,12 @@ zfs_do_receive(int argc, char **argv)
 	}
 
 	err = zfs_receive(g_zfs, argv[0], isprefix, verbose, dryrun, force);
+
+	if (!err) {
+		zpool_log_history(g_zfs, argc + optind, argv - optind, argv[0],
+		    B_FALSE, B_FALSE);
+	}
+
 	return (err != 0);
 }
 
@@ -3014,7 +3067,7 @@ manual_unmount(int argc, char **argv)
 static int
 volcheck(zpool_handle_t *zhp, void *data)
 {
-	int isinit = (int)data;
+	boolean_t isinit = *((boolean_t *)data);
 
 	if (isinit)
 		return (zpool_create_zvol_links(zhp));
@@ -3029,7 +3082,7 @@ volcheck(zpool_handle_t *zhp, void *data)
 static int
 do_volcheck(boolean_t isinit)
 {
-	return (zpool_iter(g_zfs, volcheck, (void *)isinit) ? 1 : 0);
+	return (zpool_iter(g_zfs, volcheck, &isinit) ? 1 : 0);
 }
 
 int
