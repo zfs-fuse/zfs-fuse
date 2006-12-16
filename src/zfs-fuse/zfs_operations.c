@@ -572,6 +572,73 @@ static void zfsfuse_read_helper(fuse_req_t req, fuse_ino_t ino, size_t size, off
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
+
+	vnode_t *vp = NULL;
+
+	vattr_t vattr = { 0 };
+	vattr.va_type = VDIR;
+	vattr.va_mode = mode & PERMMASK;
+	vattr.va_mask = AT_TYPE | AT_MODE;
+
+	error = VOP_MKDIR(dvp, (char *) name, &vattr, &vp, NULL);
+	if(error)
+		goto out;
+
+	ASSERT(vp != NULL);
+
+	struct fuse_entry_param e = { 0 };
+
+	e.attr_timeout = 0.0;
+	e.entry_timeout = 0.0;
+
+	e.ino = VTOZ(vp)->z_id;
+	if(e.ino == 3)
+		e.ino = 1;
+
+	e.generation = VTOZ(vp)->z_phys->zp_gen;
+
+	error = zfsfuse_stat(vp, &e.attr);
+
+out:
+	if(vp != NULL)
+		VN_RELE(vp);
+	VN_RELE(dvp);
+	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_entry(req, &e);
+
+	return error;
+}
+
+static void zfsfuse_mkdir_helper(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
+{
+	fuse_ino_t real_parent = parent == 1 ? 3 : parent;
+
+	int error = zfsfuse_mkdir(req, real_parent, name, mode);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -583,6 +650,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.lookup     = zfsfuse_lookup_helper,
 	.getattr    = zfsfuse_getattr_helper,
 	.readlink   = zfsfuse_readlink_helper,
+	.mkdir      = zfsfuse_mkdir_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
 };
