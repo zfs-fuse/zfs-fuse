@@ -54,7 +54,6 @@
  * which is indexed by the transaction type.
  */
 
-#if 0
 static void
 zfs_init_vattr(vattr_t *vap, uint64_t mask, uint64_t mode,
 	uint64_t uid, uint64_t gid, uint64_t rdev, uint64_t nodeid)
@@ -316,6 +315,9 @@ zfs_replay_setattr(zfsvfs_t *zfsvfs, lr_setattr_t *lr, boolean_t byteswap)
 static int
 zfs_replay_acl(zfsvfs_t *zfsvfs, lr_acl_t *lr, boolean_t byteswap)
 {
+	/* ZFSFUSE: FIXME FIXME! */
+	abort();
+#if 0
 	ace_t *ace = (ace_t *)(lr + 1);	/* ace array follows lr_acl_t */
 	vsecattr_t vsa;
 	znode_t *zp;
@@ -347,6 +349,7 @@ zfs_replay_acl(zfsvfs_t *zfsvfs, lr_acl_t *lr, boolean_t byteswap)
 	VN_RELE(ZTOV(zp));
 
 	return (error);
+#endif
 }
 
 /*
@@ -367,4 +370,3 @@ zil_replay_func_t *zfs_replay_vector[TX_MAX_TYPE] = {
 	zfs_replay_setattr,	/* TX_SETATTR */
 	zfs_replay_acl,		/* TX_ACL */
 };
-#endif

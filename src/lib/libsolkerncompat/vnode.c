@@ -905,6 +905,156 @@ fop_readdir(
 	return (err);
 }
 
+int
+fop_create(
+	vnode_t *dvp,
+	char *name,
+	vattr_t *vap,
+	vcexcl_t excl,
+	int mode,
+	vnode_t **vpp,
+	cred_t *cr,
+	int flag)
+{
+	int ret;
+
+	ret = (*(dvp)->v_op->vop_create)
+				(dvp, name, vap, excl, mode, vpp, cr, flag);
+	if (ret == 0 && *vpp) {
+		VOPSTATS_UPDATE(*vpp, create);
+		if ((*vpp)->v_path == NULL) {
+			vn_setpath(rootdir, dvp, *vpp, name, strlen(name));
+		}
+	}
+
+	return (ret);
+}
+
+int
+fop_mkdir(
+	vnode_t *dvp,
+	char *dirname,
+	vattr_t *vap,
+	vnode_t **vpp,
+	cred_t *cr)
+{
+	int ret;
+
+	ret = (*(dvp)->v_op->vop_mkdir)(dvp, dirname, vap, vpp, cr);
+	if (ret == 0 && *vpp) {
+		VOPSTATS_UPDATE(*vpp, mkdir);
+		if ((*vpp)->v_path == NULL) {
+			vn_setpath(rootdir, dvp, *vpp, dirname,
+			    strlen(dirname));
+		}
+	}
+
+	return (ret);
+}
+
+int
+fop_symlink(
+	vnode_t *dvp,
+	char *linkname,
+	vattr_t *vap,
+	char *target,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(dvp)->v_op->vop_symlink) (dvp, linkname, vap, target, cr);
+	VOPSTATS_UPDATE(dvp, symlink);
+	return (err);
+}
+
+int
+fop_remove(
+	vnode_t *dvp,
+	char *nm,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(dvp)->v_op->vop_remove)(dvp, nm, cr);
+	VOPSTATS_UPDATE(dvp, remove);
+	return (err);
+}
+
+int
+fop_rmdir(
+	vnode_t *dvp,
+	char *nm,
+	vnode_t *cdir,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(dvp)->v_op->vop_rmdir)(dvp, nm, cdir, cr);
+	VOPSTATS_UPDATE(dvp, rmdir);
+	return (err);
+}
+
+int
+fop_link(
+	vnode_t *tdvp,
+	vnode_t *svp,
+	char *tnm,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(tdvp)->v_op->vop_link)(tdvp, svp, tnm, cr);
+	VOPSTATS_UPDATE(tdvp, link);
+	return (err);
+}
+
+int
+fop_rename(
+	vnode_t *sdvp,
+	char *snm,
+	vnode_t *tdvp,
+	char *tnm,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(sdvp)->v_op->vop_rename)(sdvp, snm, tdvp, tnm, cr);
+	VOPSTATS_UPDATE(sdvp, rename);
+	return (err);
+}
+
+int
+fop_space(
+	vnode_t *vp,
+	int cmd,
+	flock64_t *bfp,
+	int flag,
+	offset_t offset,
+	cred_t *cr,
+	caller_context_t *ct)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_space)(vp, cmd, bfp, flag, offset, cr, ct);
+	VOPSTATS_UPDATE(vp, space);
+	return (err);
+}
+
+int
+fop_setattr(
+	vnode_t *vp,
+	vattr_t *vap,
+	int flags,
+	cred_t *cr,
+	caller_context_t *ct)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_setattr)(vp, vap, flags, cr, ct);
+	VOPSTATS_UPDATE(vp, setattr);
+	return (err);
+}
+
 static int
 root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 {

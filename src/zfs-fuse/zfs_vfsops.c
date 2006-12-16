@@ -607,9 +607,8 @@ zfs_domount(vfs_t *vfsp, char *osname, cred_t *cr)
 		/*
 		 * Parse and replay the intent log.
 		 */
-		/* ZFSFUSE: FIXME FIXME FIXME
 		zil_replay(zfsvfs->z_os, zfsvfs, &zfsvfs->z_assign,
-		    zfs_replay_vector, (void (*)(void *))zfs_delete_wait_empty); */
+		    zfs_replay_vector, (void (*)(void *))zfs_delete_wait_empty); 
 
 		if (!zil_disable)
 			zfsvfs->z_log = zil_open(zfsvfs->z_os, zfs_get_data);

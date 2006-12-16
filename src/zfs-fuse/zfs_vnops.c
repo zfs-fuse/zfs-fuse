@@ -3551,9 +3551,6 @@ static int
 zfs_space(vnode_t *vp, int cmd, flock64_t *bfp, int flag,
     offset_t offset, cred_t *cr, caller_context_t *ct)
 {
-	/* ZFSFUSE: not used */
-	abort();
-#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	uint64_t	off, len;
@@ -3586,7 +3583,6 @@ zfs_space(vnode_t *vp, int cmd, flock64_t *bfp, int flag,
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
-#endif
 }
 
 static int

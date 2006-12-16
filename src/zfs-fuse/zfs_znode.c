@@ -349,7 +349,6 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
  * We need an interface that takes a dev32_t in ILP32
  * and expands it to a long dev_t.
  */
-#if 0
 static uint64_t
 zfs_expldev(dev_t dev)
 {
@@ -384,7 +383,6 @@ zfs_cmpldev(uint64_t dev)
 	return (dev);
 #endif
 }
-#endif
 
 /*
  * Construct a new znode/vnode and intialize.
@@ -589,8 +587,7 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, uint64_t *oid, dmu_tx_t *tx, cred_t *cr,
 		flag |= IS_XATTR;
 
 	if (vap->va_type == VBLK || vap->va_type == VCHR) {
-		/* ZFSFUSE: not needed?
-		pzp->zp_rdev = zfs_expldev(vap->va_rdev); */
+		pzp->zp_rdev = zfs_expldev(vap->va_rdev);
 	}
 
 	if (vap->va_type == VDIR) {
