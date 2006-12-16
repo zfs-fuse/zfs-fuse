@@ -54,6 +54,7 @@
  * which is indexed by the transaction type.
  */
 
+#if 0
 static void
 zfs_init_vattr(vattr_t *vap, uint64_t mask, uint64_t mode,
 	uint64_t uid, uint64_t gid, uint64_t rdev, uint64_t nodeid)
@@ -366,3 +367,4 @@ zil_replay_func_t *zfs_replay_vector[TX_MAX_TYPE] = {
 	zfs_replay_setattr,	/* TX_SETATTR */
 	zfs_replay_acl,		/* TX_ACL */
 };
+#endif

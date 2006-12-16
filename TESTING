@@ -1,0 +1,37 @@
+Testing
+-------
+
+Right now, the best way to test zfs-fuse is by creating zpools and filesystems
+in Solaris, and trying to read them in Linux. However, don't use it on
+important data because at this moment zfs-fuse can corrupt your filesystems!
+
+If you can make zfs-fuse misbehave or crash, please read the BUGS file in order
+to report bugs.
+
+ztest
+-----
+If you want to run ztest, you need a directory with about 2 GB free
+(be careful, it uses /tmp by default).
+You should have properly cooled CPU(s) and hard drive(s).
+
+The program, at peak times, will use about 200 threads and +200MB of RAM,
+and it will intensively use your hard disk. The script will run by default
+with nice level 20.
+
+So, if you still want to run the testing program, you should do at least a
+300-second test.
+If you want to help make sure it's stable, you can do a 1 hour (3600-second)
+test.
+
+Testing steps:
+
+  1) cd src/cmd/ztest
+  2) ./runtest.sh -T testing-time-in-seconds [-f /directory/with/2GB/available]
+
+If it's successful, you will receive a "Test successful" message at the end.
+
+Don't forget to remove the ztest.* files in /tmp (or the provided directory)
+after it's finished!
+
+If the program aborts, crashes or otherwise fails, please read the information
+in the BUGS file in order to report bugs.

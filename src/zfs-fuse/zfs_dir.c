@@ -768,6 +768,7 @@ zfs_dirempty(znode_t *dzp)
 	return (dzp->z_phys->zp_size == 2 && dzp->z_dirlocks == 0);
 }
 
+#if 0
 int
 zfs_make_xattrdir(znode_t *zp, vattr_t *vap, vnode_t **xvpp, cred_t *cr)
 {
@@ -901,3 +902,4 @@ zfs_sticky_remove_access(znode_t *zdp, znode_t *zp, cred_t *cr)
 	else
 		return (secpolicy_vnode_remove(cr));
 }
+#endif
