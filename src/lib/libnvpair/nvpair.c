@@ -567,7 +567,7 @@ nvlist_free(nvlist_t *nvl)
 	if (!(priv->nvp_stat & NV_STAT_EMBEDDED))
 		nv_mem_free(priv, nvl, NV_ALIGN(sizeof (nvlist_t)));
 	else
-		nvl->nvl_priv = (uint64_t) (uintptr_t) NULL;
+		nvl->nvl_priv = 0;
 
 	nv_mem_free(priv, priv, sizeof (nvpriv_t));
 }
@@ -1796,7 +1796,7 @@ nvs_operation(nvstream_t *nvs, nvlist_t *nvl, size_t *buflen)
 {
 	int err;
 
-	if (((void *) (uintptr_t) nvl->nvl_priv) == NULL)
+	if (nvl->nvl_priv == 0)
 		return (EFAULT);
 
 	/*

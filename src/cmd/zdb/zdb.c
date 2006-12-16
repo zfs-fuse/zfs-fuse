@@ -389,17 +389,19 @@ dump_spacemap(objset_t *os, space_map_obj_t *smo, space_map_t *sm)
 			(void) printf("\t\t[%4llu] %s: txg %llu, pass %llu\n",
 			    (u_longlong_t)(offset / sizeof (entry)),
 			    ddata[SM_DEBUG_ACTION_DECODE(entry)],
-			    (u_longlong_t) SM_DEBUG_TXG_DECODE(entry),
-			    (u_longlong_t) SM_DEBUG_SYNCPASS_DECODE(entry));
+			    (u_longlong_t)SM_DEBUG_TXG_DECODE(entry),
+			    (u_longlong_t)SM_DEBUG_SYNCPASS_DECODE(entry));
 		} else {
 			(void) printf("\t\t[%4llu]    %c  range:"
 			    " %08llx-%08llx  size: %06llx\n",
 			    (u_longlong_t)(offset / sizeof (entry)),
 			    SM_TYPE_DECODE(entry) == SM_ALLOC ? 'A' : 'F',
-			    (u_longlong_t) ((SM_OFFSET_DECODE(entry) << mapshift) + mapstart),
-			    (u_longlong_t) ((SM_OFFSET_DECODE(entry) << mapshift) + mapstart +
-			    (SM_RUN_DECODE(entry) << mapshift)),
-			    (u_longlong_t) (SM_RUN_DECODE(entry) << mapshift));
+			    (u_longlong_t)((SM_OFFSET_DECODE(entry) <<
+			    mapshift) + mapstart),
+			    (u_longlong_t)((SM_OFFSET_DECODE(entry) <<
+			    mapshift) + mapstart + (SM_RUN_DECODE(entry) <<
+			    mapshift)),
+			    (u_longlong_t)(SM_RUN_DECODE(entry) << mapshift));
 			if (SM_TYPE_DECODE(entry) == SM_ALLOC)
 				alloc += SM_RUN_DECODE(entry) << mapshift;
 			else
@@ -931,6 +933,8 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES] = {
 	dump_uint64,		/* other uint64[]		*/
 	dump_zap,		/* other ZAP			*/
 	dump_zap,		/* persistent error log		*/
+	dump_uint8,		/* SPA history			*/
+	dump_uint64,		/* SPA history offsets		*/
 };
 
 static void
@@ -1016,12 +1020,12 @@ dump_object(objset_t *os, uint64_t object, int verbosity, int *print_header)
 
 		for (;;) {
 			error = dnode_next_offset(dn, B_FALSE, &start, minlvl,
-			    blkfill);
+			    blkfill, 0);
 			if (error)
 				break;
 			end = start;
 			error = dnode_next_offset(dn, B_TRUE, &end, minlvl,
-			    blkfill);
+			    blkfill, 0);
 			nicenum(end - start, segsize);
 			(void) printf("\t\tsegment [%016llx, %016llx)"
 			    " size %5s\n", (u_longlong_t)start,
@@ -1045,6 +1049,7 @@ dump_dir(objset_t *os)
 {
 	dmu_objset_stats_t dds;
 	uint64_t object, object_count;
+	uint64_t refdbytes, usedobjs, scratch;
 	char numbuf[8];
 	char blkbuf[BP_SPRINTF_LEN];
 	char osname[MAXNAMELEN];
@@ -1053,22 +1058,23 @@ dump_dir(objset_t *os)
 	int print_header = 1;
 	int i, error;
 
-	dmu_objset_stats(os, &dds);
+	dmu_objset_fast_stat(os, &dds);
 
 	if (dds.dds_type < DMU_OST_NUMTYPES)
 		type = objset_types[dds.dds_type];
 
 	if (dds.dds_type == DMU_OST_META) {
 		dds.dds_creation_txg = TXG_INITIAL;
-		dds.dds_last_txg = os->os->os_rootbp.blk_birth;
-		dds.dds_objects_used = os->os->os_rootbp.blk_fill;
-		dds.dds_space_refd =
+		usedobjs = os->os->os_rootbp.blk_fill;
+		refdbytes =
 		    os->os->os_spa->spa_dsl_pool->dp_mos_dir->dd_used_bytes;
+	} else {
+		dmu_objset_space(os, &refdbytes, &scratch, &usedobjs, &scratch);
 	}
 
-	ASSERT3U(dds.dds_objects_used, ==, os->os->os_rootbp.blk_fill);
+	ASSERT3U(usedobjs, ==, os->os->os_rootbp.blk_fill);
 
-	nicenum(dds.dds_space_refd, numbuf);
+	nicenum(refdbytes, numbuf);
 
 	if (verbosity >= 4) {
 		(void) strcpy(blkbuf, ", rootbp ");
@@ -1080,14 +1086,11 @@ dump_dir(objset_t *os)
 
 	dmu_objset_name(os, osname);
 
-	(void) printf("Dataset %s [%s], ID %llu, cr_txg %llu, last_txg %llu, "
+	(void) printf("Dataset %s [%s], ID %llu, cr_txg %llu, "
 	    "%s, %llu objects%s\n",
 	    osname, type, (u_longlong_t)dmu_objset_id(os),
 	    (u_longlong_t)dds.dds_creation_txg,
-	    (u_longlong_t)dds.dds_last_txg,
-	    numbuf,
-	    (u_longlong_t)dds.dds_objects_used,
-	    blkbuf);
+	    numbuf, (u_longlong_t)usedobjs, blkbuf);
 
 	dump_intent_log(dmu_objset_zil(os));
 
@@ -1110,12 +1113,12 @@ dump_dir(objset_t *os)
 	object_count = 1;
 
 	object = 0;
-	while ((error = dmu_object_next(os, &object, B_FALSE)) == 0) {
+	while ((error = dmu_object_next(os, &object, B_FALSE, 0)) == 0) {
 		dump_object(os, object, verbosity, &print_header);
 		object_count++;
 	}
 
-	ASSERT3U(object_count, ==, dds.dds_objects_used);
+	ASSERT3U(object_count, ==, usedobjs);
 
 	(void) printf("\n");
 
@@ -1758,14 +1761,17 @@ zdb_print_blkptr(blkptr_t *bp, int flags)
 	 */
 	for (d = 0; d < BP_GET_NDVAS(bp); d++) {
 		(void) printf("\tDVA[%d]: vdev_id %lld / %llx\n", d,
-		    (longlong_t) DVA_GET_VDEV(&dva[d]), (longlong_t) DVA_GET_OFFSET(&dva[d]));
+		    (longlong_t)DVA_GET_VDEV(&dva[d]),
+		    (longlong_t)DVA_GET_OFFSET(&dva[d]));
 		(void) printf("\tDVA[%d]:       GANG: %-5s  GRID:  %04llx\t"
 		    "ASIZE: %llx\n", d,
 		    DVA_GET_GANG(&dva[d]) ? "TRUE" : "FALSE",
-		    (longlong_t) DVA_GET_GRID(&dva[d]), (longlong_t) DVA_GET_ASIZE(&dva[d]));
+		    (longlong_t)DVA_GET_GRID(&dva[d]),
+		    (longlong_t)DVA_GET_ASIZE(&dva[d]));
 		(void) printf("\tDVA[%d]: :%llu:%llx:%llx:%s%s%s%s\n", d,
-		    (u_longlong_t) DVA_GET_VDEV(&dva[d]), (longlong_t) DVA_GET_OFFSET(&dva[d]),
-		    (longlong_t) BP_GET_PSIZE(bp),
+		    (u_longlong_t)DVA_GET_VDEV(&dva[d]),
+		    (longlong_t)DVA_GET_OFFSET(&dva[d]),
+		    (longlong_t)BP_GET_PSIZE(bp),
 		    BP_SHOULD_BYTESWAP(bp) ? "e" : "",
 		    !DVA_GET_GANG(&dva[d]) && BP_GET_LEVEL(bp) != 0 ?
 		    "d" : "",
@@ -1773,12 +1779,12 @@ zdb_print_blkptr(blkptr_t *bp, int flags)
 		    BP_GET_COMPRESS(bp) != 0 ? "d" : "");
 	}
 	(void) printf("\tLSIZE:  %-16llx\t\tPSIZE: %llx\n",
-	    (longlong_t) BP_GET_LSIZE(bp), (longlong_t) BP_GET_PSIZE(bp));
+	    (longlong_t)BP_GET_LSIZE(bp), (longlong_t)BP_GET_PSIZE(bp));
 	(void) printf("\tENDIAN: %6s\t\t\t\t\tTYPE:  %s\n",
 	    BP_GET_BYTEORDER(bp) ? "LITTLE" : "BIG",
 	    dmu_ot[BP_GET_TYPE(bp)].ot_name);
 	(void) printf("\tBIRTH:  %-16llx   LEVEL: %-2llu\tFILL:  %llx\n",
-	    (u_longlong_t)bp->blk_birth, (u_longlong_t) BP_GET_LEVEL(bp),
+	    (u_longlong_t)bp->blk_birth, (u_longlong_t)BP_GET_LEVEL(bp),
 	    (u_longlong_t)bp->blk_fill);
 	(void) printf("\tCKFUNC: %-16s\t\tCOMP:  %s\n",
 	    zio_checksum_table[BP_GET_CHECKSUM(bp)].ci_name,
@@ -1961,7 +1967,7 @@ zdb_read_block(char *thing, spa_t **spap)
 
 	for (s = strtok(flagstr, ":"); s; s = strtok(NULL, ":")) {
 		for (i = 0; flagstr[i]; i++) {
-			int bit = flagbits[(uchar_t) flagstr[i]];
+			int bit = flagbits[(uchar_t)flagstr[i]];
 
 			if (bit == 0) {
 				(void) printf("***Invalid flag: %c\n",
@@ -2059,7 +2065,6 @@ main(int argc, char **argv)
 	int verbose = 0;
 	int error;
 	int flag, set;
-	vdev_knob_t *vk;
 
 	(void) setrlimit(RLIMIT_NOFILE, &rl);
 	(void) enable_extended_FILE_stdio(-1, -1);
@@ -2141,10 +2146,7 @@ main(int argc, char **argv)
 	 * Disable vdev caching.  If we don't do this, live pool traversal
 	 * won't make progress because it will never see disk updates.
 	 */
-	for (vk = vdev_knob_next(NULL); vk != NULL; vk = vdev_knob_next(vk)) {
-		if (strcmp(vk->vk_name, "cache_size") == 0)
-			vk->vk_default = 0;
-	}
+	zfs_vdev_cache_size = 0;
 
 	for (c = 0; c < 256; c++) {
 		if (dump_all && c != 'L' && c != 'l' && c != 'R')

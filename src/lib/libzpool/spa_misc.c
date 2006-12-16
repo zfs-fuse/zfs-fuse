@@ -173,7 +173,7 @@ static avl_tree_t spa_namespace_avl;
 kmutex_t spa_namespace_lock;
 static kcondvar_t spa_namespace_cv;
 static int spa_active_count;
-static int spa_max_replication_override = SPA_DVAS_PER_BP;
+int spa_max_replication_override = SPA_DVAS_PER_BP;
 
 static avl_tree_t spa_spare_avl;
 static kmutex_t spa_spare_lock;
@@ -275,6 +275,15 @@ spa_remove(spa_t *spa)
 
 	refcount_destroy(&spa->spa_refcount);
 	refcount_destroy(&spa->spa_config_lock.scl_count);
+
+	mutex_destroy(&spa->spa_sync_bplist.bpl_lock);
+	mutex_destroy(&spa->spa_config_lock.scl_lock);
+	mutex_destroy(&spa->spa_errlist_lock);
+	mutex_destroy(&spa->spa_errlog_lock);
+	mutex_destroy(&spa->spa_scrub_lock);
+	mutex_destroy(&spa->spa_config_cache_lock);
+	mutex_destroy(&spa->spa_async_lock);
+	mutex_destroy(&spa->spa_history_lock);
 
 	kmem_free(spa, sizeof (spa_t));
 }

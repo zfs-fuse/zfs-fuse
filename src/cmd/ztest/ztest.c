@@ -3328,7 +3328,8 @@ main(int argc, char **argv)
 			}
 			kills++;
 		} else {
-			(void) fprintf(stderr, "something strange happened to child\n");
+			(void) fprintf(stderr, "something strange happened "
+			    "to child\n");
 			exit(4);
 		}
 
