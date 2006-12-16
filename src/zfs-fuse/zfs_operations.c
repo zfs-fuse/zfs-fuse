@@ -130,7 +130,9 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	int error = zfs_zget(zfsvfs, ino, &znode);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
-		return error;
+		/* If the inode we are trying to stat is a recently deleted file(?) or directory,
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
 	}
 
 	ASSERT(znode != NULL);
@@ -232,7 +234,9 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	int error = zfs_zget(zfsvfs, ino, &znode);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
-		return error;
+		/* If the inode we are trying to open is a recently deleted directory,
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
 	}
 
 	ASSERT(znode != NULL);
@@ -638,6 +642,43 @@ static void zfsfuse_mkdir_helper(fuse_req_t req, fuse_ino_t parent, const char *
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
+
+	/* FUSE doesn't care if we remove the current working directory
+	   so we just pass NULL as the cwd parameter (no problem for ZFS) */
+	error = VOP_RMDIR(dvp, (char *) name, NULL, NULL);
+
+	VN_RELE(dvp);
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_rmdir_helper(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	fuse_ino_t real_parent = parent == 1 ? 3 : parent;
+
+	int error = zfsfuse_rmdir(req, real_parent, name);
+	/* rmdir events always reply_err */
+	fuse_reply_err(req, error);
+}
 
 struct fuse_lowlevel_ops zfs_operations =
 {
@@ -651,6 +692,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.getattr    = zfsfuse_getattr_helper,
 	.readlink   = zfsfuse_readlink_helper,
 	.mkdir      = zfsfuse_mkdir_helper,
+	.rmdir      = zfsfuse_rmdir_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
 };

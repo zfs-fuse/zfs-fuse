@@ -99,7 +99,7 @@ void zfs_ace_byteswap(ace_t *, int);
 extern int zfs_zaccess_rwx(struct znode *, mode_t, cred_t *);*/
 extern int zfs_acl_access(struct znode *, int, cred_t *);
 #define zfs_acl_chmod_setattr(z,u,d) (abort(), 0)
-#define zfs_zaccess_delete(z,zn,c) (EACCES)
+#define zfs_zaccess_delete(z,zn,c) (0)
 #define zfs_zaccess_rename(z,zn,z2,zn2,c) (EACCES)
 /*int zfs_acl_chmod_setattr(struct znode *, uint64_t, dmu_tx_t *);
 int zfs_zaccess_delete(struct znode *, struct znode *, cred_t *);
