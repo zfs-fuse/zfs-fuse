@@ -279,14 +279,11 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 	 */
 	/* ZFSFUSE: not needed */
 #if 0
-	stats = kmem_alloc(sizeof (dmu_objset_stats_t), KM_SLEEP);
-	dmu_objset_stats(os, stats);
-	ASSERT((stats->dds_fsid_guid & ~((1ULL<<56)-1)) == 0);
-	zfsvfs->z_vfs->vfs_fsid.val[0] = stats->dds_fsid_guid;
-	zfsvfs->z_vfs->vfs_fsid.val[1] = ((stats->dds_fsid_guid>>32) << 8) |
+	fsid_guid = dmu_objset_fsid_guid(os);
+	ASSERT((fsid_guid & ~((1ULL<<56)-1)) == 0);
+	zfsvfs->z_vfs->vfs_fsid.val[0] = fsid_guid;
+	zfsvfs->z_vfs->vfs_fsid.val[1] = ((fsid_guid>>32) << 8) |
 	    zfsfstype & 0xFF;
-	kmem_free(stats, sizeof (dmu_objset_stats_t));
-	stats = NULL;
 #endif
 
 	error = zap_lookup(os, MASTER_NODE_OBJ, ZFS_ROOT_OBJ, 8, 1, &zoid);
@@ -324,6 +321,8 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 	 */
 	list_create(&zfsvfs->z_delete_head.z_znodes,
 	    sizeof (znode_t), offsetof(znode_t, z_list_node));
+	/* Mutex never destroyed. */
+	mutex_init(&zfsvfs->z_delete_head.z_mutex, NULL, MUTEX_DEFAULT, NULL);
 
 	return (0);
 }
@@ -350,7 +349,6 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
  * We need an interface that takes a dev32_t in ILP32
  * and expands it to a long dev_t.
  */
-#if 0
 static uint64_t
 zfs_expldev(dev_t dev)
 {
@@ -385,7 +383,6 @@ zfs_cmpldev(uint64_t dev)
 	return (dev);
 #endif
 }
-#endif
 
 /*
  * Construct a new znode/vnode and intialize.
@@ -415,6 +412,7 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, uint64_t obj_num, int blksz)
 	zp->z_id = obj_num;
 	zp->z_blksz = blksz;
 	zp->z_seq = 0x7A4653;
+	zp->z_sync_cnt = 0;
 
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	list_insert_tail(&zfsvfs->z_all_znodes, zp);
@@ -589,8 +587,7 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, uint64_t *oid, dmu_tx_t *tx, cred_t *cr,
 		flag |= IS_XATTR;
 
 	if (vap->va_type == VBLK || vap->va_type == VCHR) {
-		/* ZFSFUSE: not needed?
-		pzp->zp_rdev = zfs_expldev(vap->va_rdev); */
+		pzp->zp_rdev = zfs_expldev(vap->va_rdev);
 	}
 
 	if (vap->va_type == VDIR) {

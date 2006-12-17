@@ -158,8 +158,7 @@ static prop_desc_t zfs_prop_table[ZFS_NPROP_ALL] = {
 	{ "createtxg",	prop_type_number,	0,	NULL,	prop_readonly,
 	    ZFS_TYPE_ANY, NULL, NULL, B_FALSE},
 	{ "name",	prop_type_string,	0,	NULL,	prop_readonly,
-	    ZFS_TYPE_ANY,
-	    NULL, "NAME", B_FALSE },
+	    ZFS_TYPE_ANY, NULL, "NAME", B_FALSE },
 };
 
 zfs_proptype_t

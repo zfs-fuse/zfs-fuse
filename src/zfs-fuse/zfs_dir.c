@@ -768,7 +768,6 @@ zfs_dirempty(znode_t *dzp)
 	return (dzp->z_phys->zp_size == 2 && dzp->z_dirlocks == 0);
 }
 
-#if 0
 int
 zfs_make_xattrdir(znode_t *zp, vattr_t *vap, vnode_t **xvpp, cred_t *cr)
 {
@@ -819,6 +818,7 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, vnode_t **xvpp, cred_t *cr)
  *	RETURN:	0 on success
  *		error number on failure
  */
+#if 0
 int
 zfs_get_xattrdir(znode_t *zp, vnode_t **xvpp, cred_t *cr)
 {

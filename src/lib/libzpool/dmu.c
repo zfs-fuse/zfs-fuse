@@ -37,6 +37,7 @@
 #include <sys/dsl_dir.h>
 #include <sys/dsl_pool.h>
 #include <sys/dsl_synctask.h>
+#include <sys/dsl_prop.h>
 #include <sys/dmu_zfetch.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/zap.h>
@@ -75,6 +76,8 @@ const dmu_object_type_info_t dmu_ot[DMU_OT_NUMTYPES] = {
 	{	byteswap_uint64_array,	FALSE,	"other uint64[]"	},
 	{	zap_byteswap,		TRUE,	"other ZAP"		},
 	{	zap_byteswap,		TRUE,	"persistent error log"	},
+	{	byteswap_uint8_array,	TRUE,	"SPA history"		},
+	{	byteswap_uint64_array,	TRUE,	"SPA history offsets"	},
 };
 
 int
@@ -233,7 +236,7 @@ dmu_buf_hold_array_by_dnode(dnode_t *dn, uint64_t offset,
 	return (0);
 }
 
-int
+static int
 dmu_buf_hold_array(objset_t *os, uint64_t object, uint64_t offset,
     uint64_t length, int read, void *tag, int *numbufsp, dmu_buf_t ***dbpp)
 {
@@ -288,6 +291,9 @@ dmu_prefetch(objset_t *os, uint64_t object, uint64_t offset, uint64_t len)
 	dnode_t *dn;
 	uint64_t blkid;
 	int nblks, i, err;
+
+	if (zfs_prefetch_disable)
+		return;
 
 	if (len == 0) {  /* they're interested in the bonus buffer */
 		dn = os->os->os_meta_dnode;
@@ -367,7 +373,6 @@ dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 		bzero((char *)buf + newsz, size - newsz);
 		size = newsz;
 	}
-	dnode_rele(dn, FTAG);
 
 	while (size > 0) {
 		uint64_t mylen = MIN(size, DMU_MAX_ACCESS / 2);
@@ -377,7 +382,7 @@ dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 		 * NB: we could do this block-at-a-time, but it's nice
 		 * to be reading in parallel.
 		 */
-		err = dmu_buf_hold_array(os, object, offset, mylen,
+		err = dmu_buf_hold_array_by_dnode(dn, offset, mylen,
 		    TRUE, FTAG, &numbufs, &dbp);
 		if (err)
 			return (err);
@@ -400,6 +405,7 @@ dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 		}
 		dmu_buf_rele_array(dbp, numbufs, FTAG);
 	}
+	dnode_rele(dn, FTAG);
 	return (0);
 }
 
@@ -761,18 +767,6 @@ dmu_sync(zio_t *pio, dmu_buf_t *db_fake,
 	return (arc_flag == ARC_NOWAIT ? EINPROGRESS : 0);
 }
 
-uint64_t
-dmu_object_max_nonzero_offset(objset_t *os, uint64_t object)
-{
-	dnode_t *dn;
-
-	/* XXX assumes dnode_hold will not get an i/o error */
-	(void) dnode_hold(os->os, object, FTAG, &dn);
-	uint64_t rv = dnode_max_nonzero_offset(dn);
-	dnode_rele(dn, FTAG);
-	return (rv);
-}
-
 int
 dmu_object_set_blocksize(objset_t *os, uint64_t object, uint64_t size, int ibs,
 	dmu_tx_t *tx)
@@ -859,7 +853,7 @@ dmu_offset_next(objset_t *os, uint64_t object, boolean_t hole, uint64_t *off)
 			return (err);
 	}
 
-	err = dnode_next_offset(dn, hole, off, 1, 1);
+	err = dnode_next_offset(dn, hole, off, 1, 1, 0);
 	dnode_rele(dn, FTAG);
 
 	return (err);

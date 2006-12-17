@@ -56,6 +56,7 @@
 #include <sys/sdt.h>
 #include <sys/fs/zfs.h>
 #include <sys/zfs_ctldir.h>
+#include <sys/zvol.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
@@ -435,11 +436,13 @@ zfs_ioc_pool_scrub(zfs_cmd_t *zc)
 	spa_t *spa;
 	int error;
 
-	error = spa_open(zc->zc_name, &spa, FTAG);
-	if (error == 0) {
-		error = spa_scrub(spa, zc->zc_cookie, B_FALSE);
-		spa_close(spa, FTAG);
-	}
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
+		return (error);
+
+	error = spa_scrub(spa, zc->zc_cookie, B_FALSE);
+
+	spa_close(spa, FTAG);
+
 	return (error);
 }
 
@@ -463,11 +466,73 @@ zfs_ioc_pool_upgrade(zfs_cmd_t *zc)
 	spa_t *spa;
 	int error;
 
-	error = spa_open(zc->zc_name, &spa, FTAG);
-	if (error == 0) {
-		spa_upgrade(spa);
-		spa_close(spa, FTAG);
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
+		return (error);
+
+	spa_upgrade(spa);
+
+	spa_close(spa, FTAG);
+
+	return (error);
+}
+
+static int
+zfs_ioc_pool_get_history(zfs_cmd_t *zc)
+{
+	spa_t *spa;
+	char *hist_buf;
+	uint64_t size;
+	int error;
+
+	if ((size = zc->zc_history_len) == 0)
+		return (EINVAL);
+
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
+		return (error);
+
+	hist_buf = kmem_alloc(size, KM_SLEEP);
+	if ((error = spa_history_get(spa, &zc->zc_history_offset,
+	    &zc->zc_history_len, hist_buf)) == 0) {
+		error = xcopyout(hist_buf, (char *)(uintptr_t)zc->zc_history,
+		    zc->zc_history_len);
 	}
+
+	spa_close(spa, FTAG);
+	kmem_free(hist_buf, size);
+	return (error);
+}
+
+static int
+zfs_ioc_pool_log_history(zfs_cmd_t *zc)
+{
+	spa_t *spa;
+	char *history_str = NULL;
+	size_t size;
+	int error;
+
+	size = zc->zc_history_len;
+	if (size == 0 || size > HIS_MAX_RECORD_LEN)
+		return (EINVAL);
+
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
+		return (error);
+
+	/* add one for the NULL delimiter */
+	size++;
+	history_str = kmem_alloc(size, KM_SLEEP);
+	if ((error = xcopyin((void *)(uintptr_t)zc->zc_history, history_str,
+	    size)) != 0) {
+		spa_close(spa, FTAG);
+		kmem_free(history_str, size);
+		return (error);
+	}
+	history_str[size - 1] = '\0';
+
+	error = spa_history_log(spa, history_str, zc->zc_history_offset);
+
+	spa_close(spa, FTAG);
+	kmem_free(history_str, size);
+
 	return (error);
 }
 
@@ -511,8 +576,7 @@ zfs_ioc_vdev_online(zfs_cmd_t *zc)
 	spa_t *spa;
 	int error;
 
-	error = spa_open(zc->zc_name, &spa, FTAG);
-	if (error != 0)
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
 		return (error);
 	error = vdev_online(spa, zc->zc_guid);
 	spa_close(spa, FTAG);
@@ -526,8 +590,7 @@ zfs_ioc_vdev_offline(zfs_cmd_t *zc)
 	int istmp = zc->zc_cookie;
 	int error;
 
-	error = spa_open(zc->zc_name, &spa, FTAG);
-	if (error != 0)
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
 		return (error);
 	error = vdev_offline(spa, zc->zc_guid, istmp);
 	spa_close(spa, FTAG);
@@ -542,8 +605,7 @@ zfs_ioc_vdev_attach(zfs_cmd_t *zc)
 	nvlist_t *config;
 	int error;
 
-	error = spa_open(zc->zc_name, &spa, FTAG);
-	if (error != 0)
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
 		return (error);
 
 	if ((error = get_nvlist(zc, &config)) == 0) {
@@ -561,8 +623,7 @@ zfs_ioc_vdev_detach(zfs_cmd_t *zc)
 	spa_t *spa;
 	int error;
 
-	error = spa_open(zc->zc_name, &spa, FTAG);
-	if (error != 0)
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
 		return (error);
 
 	error = spa_vdev_detach(spa, zc->zc_guid, B_FALSE);
@@ -584,7 +645,6 @@ zfs_ioc_vdev_setpath(zfs_cmd_t *zc)
 		return (error);
 
 	error = spa_vdev_setpath(spa, guid, path);
-
 	spa_close(spa, FTAG);
 	return (error);
 }
@@ -614,16 +674,23 @@ retry:
 		return (error);
 	}
 
-	dmu_objset_stats(os, &zc->zc_objset_stats);
+	dmu_objset_fast_stat(os, &zc->zc_objset_stats);
 
-	if (zc->zc_nvlist_dst != (uint64_t)(uintptr_t) NULL &&
+	if (zc->zc_nvlist_dst != 0 &&
 	    (error = dsl_prop_get_all(os, &nv)) == 0) {
+		dmu_objset_stats(os, nv);
+		/*
+		 * NB: zvol_get_stats() will read the objset contents,
+		 * which we aren't supposed to do with a
+		 * DS_MODE_STANDARD open, because it could be
+		 * inconsistent.  So this is a bit of a workaround...
+		 */
+		if (!zc->zc_objset_stats.dds_inconsistent &&
+		    dmu_objset_type(os) == DMU_OST_ZVOL)
+			VERIFY(zvol_get_stats(os, nv) == 0);
 		error = put_nvlist(zc, nv);
 		nvlist_free(nv);
 	}
-
-	if (!error && zc->zc_objset_stats.dds_type == DMU_OST_ZVOL)
-		error = zvol_get_stats(os, &zc->zc_vol_stats);
 
 	spa_altroot(dmu_objset_spa(os), zc->zc_value, sizeof (zc->zc_value));
 
@@ -740,7 +807,6 @@ zfs_set_prop_nvlist(const char *name, dev_t dev, cred_t *cr, nvlist_t *nvl)
 	zfs_prop_t prop;
 	uint64_t intval;
 	char *strval;
-	const char *unused;
 
 	elem = NULL;
 	while ((elem = nvlist_next_nvpair(nvl, elem)) != NULL) {
@@ -841,6 +907,8 @@ zfs_set_prop_nvlist(const char *name, dev_t dev, cred_t *cr, nvlist_t *nvl)
 				    strval)) != 0)
 					return (error);
 			} else if (nvpair_type(elem) == DATA_TYPE_UINT64) {
+				const char *unused;
+
 				VERIFY(nvpair_value_uint64(elem, &intval) == 0);
 
 				switch (zfs_prop_get_type(prop)) {
@@ -1170,6 +1238,7 @@ zfs_ioc_recvbackup(zfs_cmd_t *zc)
 #if 0
 	file_t *fp;
 	int error, fd;
+	offset_t new_off;
 
 	fd = zc->zc_cookie;
 	fp = getf(fd);
@@ -1178,6 +1247,11 @@ zfs_ioc_recvbackup(zfs_cmd_t *zc)
 	error = dmu_recvbackup(zc->zc_value, &zc->zc_begin_record,
 	    &zc->zc_cookie, (boolean_t)zc->zc_guid, fp->f_vnode,
 	    fp->f_offset);
+
+	new_off = fp->f_offset + zc->zc_cookie;
+	if (VOP_SEEK(fp->f_vnode, fp->f_offset, &new_off) == 0)
+		fp->f_offset = new_off;
+
 	releasef(fd);
 	return (error);
 #endif
@@ -1200,7 +1274,15 @@ zfs_ioc_sendbackup(zfs_cmd_t *zc)
 		return (error);
 
 	if (zc->zc_value[0] != '\0') {
-		error = dmu_objset_open(zc->zc_value, DMU_OST_ANY,
+		char buf[MAXPATHLEN];
+		char *cp;
+
+		(void) strncpy(buf, zc->zc_name, sizeof (buf));
+		cp = strchr(buf, '@');
+		if (cp)
+			*(cp+1) = 0;
+		(void) strncat(buf, zc->zc_value, sizeof (buf));
+		error = dmu_objset_open(buf, DMU_OST_ANY,
 		    DS_MODE_STANDARD | DS_MODE_READONLY, &fromsnap);
 		if (error) {
 			dmu_objset_close(tosnap);
@@ -1362,6 +1444,8 @@ static zfs_ioc_vec_t zfs_ioc_vec[] = {
 	{ zfs_ioc_pool_scrub,		zfs_secpolicy_config,	pool_name },
 	{ zfs_ioc_pool_freeze,		zfs_secpolicy_config,	no_name },
 	{ zfs_ioc_pool_upgrade,		zfs_secpolicy_config,	pool_name },
+	{ zfs_ioc_pool_get_history,	zfs_secpolicy_config,	pool_name },
+	{ zfs_ioc_pool_log_history,	zfs_secpolicy_config,	pool_name },
 	{ zfs_ioc_vdev_add,		zfs_secpolicy_config,	pool_name },
 	{ zfs_ioc_vdev_remove,		zfs_secpolicy_config,	pool_name },
 	{ zfs_ioc_vdev_online,		zfs_secpolicy_config,	pool_name },

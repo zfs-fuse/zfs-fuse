@@ -40,3 +40,4 @@ for file in files:
 env.Execute(SymLink('lib/libsolkerncompat/include/sys/atomic.h', 'lib/libsolcompat/include/atomic.h'))
 env.Execute(SymLink('lib/libsolkerncompat/include/sys/param_aux.h', 'lib/libsolcompat/include/sys/param.h'))
 env.Execute(SymLink('lib/libsolkerncompat/include/sys/time_aux.h', 'lib/libsolcompat/include/sys/time.h'))
+env.Execute(SymLink('lib/libsolkerncompat/include/sys/byteorder.h', 'lib/libsolcompat/include/sys/byteorder.h'))
