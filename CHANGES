@@ -1,3 +1,8 @@
+? - Release 0.3.1
+--------------------------------------------------
+Bug fixes:
+	* Fixed bug #9746 - Compilation error on Fedora Core 6
+
 2006/12/14 - Release 0.3.0
 --------------------------------------------------
 Features:
