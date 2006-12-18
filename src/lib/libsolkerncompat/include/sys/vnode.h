@@ -178,7 +178,26 @@ typedef struct vattr {
 	uint_t       va_seq;     /* sequence number */
 } vattr_t;
 
-typedef int vsecattr_t;
+/*
+ * Structure used on VOP_GETSECATTR and VOP_SETSECATTR operations
+ */
+
+typedef struct vsecattr {
+	uint_t		vsa_mask;	/* See below */
+	int		vsa_aclcnt;	/* ACL entry count */
+	void		*vsa_aclentp;	/* pointer to ACL entries */
+	int		vsa_dfaclcnt;	/* default ACL entry count */
+	void		*vsa_dfaclentp;	/* pointer to default ACL entries */
+} vsecattr_t;
+
+/* vsa_mask values */
+#define VSA_ACL      0x0001
+#define VSA_ACLCNT   0x0002
+#define VSA_DFACL    0x0004
+#define VSA_DFACLCNT 0x0008
+#define VSA_ACE      0x0010
+#define VSA_ACECNT   0x0020
+
 typedef int caller_context_t;
 
 /*
@@ -228,6 +247,11 @@ enum rm { RMFILE, RMDIRECTORY };           /* rm or rmdir (remove) */
 enum symfollow { NO_FOLLOW, FOLLOW };      /* follow symlinks (or not) */
 enum vcexcl { NONEXCL, EXCL };             /* (non)excl create */
 enum create { CRCREAT, CRMKNOD, CRMKDIR }; /* reason for create */
+
+/*
+ * Flags to VOP_SETATTR/VOP_GETATTR.
+ */
+#define ATTR_UTIME 0x01 /* non-default utime(2) request */
 
 /* Vnode Events - Used by VOP_VNEVENT */
 typedef enum vnevent	{

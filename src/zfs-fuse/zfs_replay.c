@@ -315,9 +315,6 @@ zfs_replay_setattr(zfsvfs_t *zfsvfs, lr_setattr_t *lr, boolean_t byteswap)
 static int
 zfs_replay_acl(zfsvfs_t *zfsvfs, lr_acl_t *lr, boolean_t byteswap)
 {
-	/* ZFSFUSE: FIXME FIXME! */
-	abort();
-#if 0
 	ace_t *ace = (ace_t *)(lr + 1);	/* ace array follows lr_acl_t */
 	vsecattr_t vsa;
 	znode_t *zp;
@@ -349,7 +346,6 @@ zfs_replay_acl(zfsvfs_t *zfsvfs, lr_acl_t *lr, boolean_t byteswap)
 	VN_RELE(ZTOV(zp));
 
 	return (error);
-#endif
 }
 
 /*

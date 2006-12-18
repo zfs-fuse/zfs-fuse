@@ -28,29 +28,37 @@
 #ifndef _SYS_POLICY_H
 #define _SYS_POLICY_H
 
+#include <sys/cred.h>
+#include <sys/vnode.h>
+
+enum {
+	PRIV_FILE_CHOWN,
+	PRIV_FILE_CHOWN_SELF
+};
+
+#define HAS_PRIVILEGE(cr, pr) (crgetuid(cr) == 0)
+#define PRIV_POLICY(cred, priv, all, err, reason) (crgetuid(cred) == 0 ? 0 : err)
+
 #define secpolicy_sys_config(c, co) (0)
 #define secpolicy_zfs(c) (0)
 #define secpolicy_zinject(c) (0)
 #define secpolicy_fs_mount(c,vnode,vfs) (0)
 #define secpolicy_fs_unmount(c,vfs) (0)
 
-#define secpolicy_setid_setsticky_clear(v,va,ova,c) (EPERM)
-#define secpolicy_vnode_setid_retain(c,s) (EPERM)
-#define secpolicy_vnode_stky_modify(c) (EPERM)
-#define secpolicy_vnode_setattr(a,b,c,d,e,f,g) (EPERM)
+/* In Linux, anyone can set sticky bit in their files/directories */
+#define secpolicy_vnode_stky_modify(c) (0)
 
-#define secpolicy_basic_link(c) (EPERM)
+#define secpolicy_basic_link(cr) (PRIV_POLICY(cr, PRIV_FILE_LINK_ANY, B_FALSE, EPERM, NULL))
+#define secpolicy_vnode_utime_modify(cr) (PRIV_POLICY(cr, PRIV_FILE_OWNER, B_FALSE, EPERM, "modify file times"))
+#define secpolicy_vnode_remove(cr) (PRIV_POLICY(cr, PRIV_FILE_OWNER, B_FALSE, EACCES, "sticky directory"))
 
-static inline void
-secpolicy_setid_clear(vattr_t *vap, cred_t *cr)
-{
-	if ((vap->va_mode & (S_ISUID | S_ISGID)) != 0 &&
-	    secpolicy_vnode_setid_retain(cr,
-	    (vap->va_mode & S_ISUID) != 0 &&
-	    (vap->va_mask & AT_UID) != 0 && vap->va_uid == 0) != 0) {
-		vap->va_mask |= AT_MODE;
-		vap->va_mode &= ~(S_ISUID|S_ISGID);
-	}
-}
+extern int secpolicy_vnode_setid_retain(const cred_t *cred, boolean_t issuidroot);
+extern void secpolicy_setid_clear(vattr_t *vap, cred_t *cr);
+extern int secpolicy_setid_setsticky_clear(vnode_t *vp, vattr_t *vap, const vattr_t *ovap, cred_t *cr);
+extern int secpolicy_vnode_setattr(cred_t *cr, struct vnode *vp, struct vattr *vap, const struct vattr *ovap, int flags, int unlocked_access(void *, int, cred_t *), void *node);
+extern int secpolicy_vnode_setids_setgids(const cred_t *cred, gid_t gid);
+extern int secpolicy_vnode_setdac(const cred_t *cred, uid_t owner);
+extern int secpolicy_vnode_access(const cred_t *cr, vnode_t *vp, uid_t owner, mode_t mode);
+extern int secpolicy_vnode_create_gid(const cred_t *cred);
 
 #endif

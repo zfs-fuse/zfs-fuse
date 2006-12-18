@@ -3695,9 +3695,6 @@ zfs_pathconf(vnode_t *vp, int cmd, ulong_t *valp, cred_t *cr)
 static int
 zfs_getsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
-/* ZFSFUSE: not needed */
-	abort();
-#if 0
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int error;
@@ -3707,16 +3704,12 @@ zfs_getsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
-#endif
 }
 
 /*ARGSUSED*/
 static int
 zfs_setsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
-/* ZFSFUSE: not needed */
-	abort();
-#if 0
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int error;
@@ -3725,7 +3718,6 @@ zfs_setsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 	error = zfs_setacl(zp, vsecp, cr);
 	ZFS_EXIT(zfsvfs);
 	return (error);
-#endif
 }
 
 /*

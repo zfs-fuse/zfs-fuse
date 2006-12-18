@@ -897,9 +897,6 @@ zfs_statvfs(vfs_t *vfsp, struct statvfs64 *statp)
 static int
 zfs_root(vfs_t *vfsp, vnode_t **vpp)
 {
-	/* ZFSFUSE: not used */
-	abort();
-#if 0
 	zfsvfs_t *zfsvfs = vfsp->vfs_data;
 	znode_t *rootzp;
 	int error;
@@ -912,7 +909,6 @@ zfs_root(vfs_t *vfsp, vnode_t **vpp)
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
-#endif
 }
 
 /*ARGSUSED*/

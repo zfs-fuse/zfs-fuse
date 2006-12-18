@@ -1055,6 +1055,34 @@ fop_setattr(
 	return (err);
 }
 
+int
+fop_setsecattr(
+	vnode_t *vp,
+	vsecattr_t *vsap,
+	int flag,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_setsecattr) (vp, vsap, flag, cr);
+	VOPSTATS_UPDATE(vp, setsecattr);
+	return (err);
+}
+
+int
+fop_getsecattr(
+	vnode_t *vp,
+	vsecattr_t *vsap,
+	int flag,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_getsecattr) (vp, vsap, flag, cr);
+	VOPSTATS_UPDATE(vp, getsecattr);
+	return (err);
+}
+
 static int
 root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 {
