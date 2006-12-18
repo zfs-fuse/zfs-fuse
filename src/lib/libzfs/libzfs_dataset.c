@@ -868,6 +868,9 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 				goto error;
 			}
 			break;
+
+		default:
+			break;
 		}
 
 		/*
@@ -958,6 +961,9 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 					    errbuf);
 					goto error;
 				}
+				break;
+			default:
+				break;
 			}
 		}
 	}
@@ -1546,7 +1552,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 			    localtime_r(&time, &t) == NULL ||
 			    strftime(propbuf, proplen, "%a %b %e %k:%M %Y",
 			    &t) == 0)
-				(void) snprintf(propbuf, proplen, "%llu", val);
+				(void) snprintf(propbuf, proplen, "%llu", (u_longlong_t)val);
 		}
 		break;
 
@@ -3230,6 +3236,7 @@ error:
 int
 zvol_create_link(libzfs_handle_t *hdl, const char *dataset)
 {
+#if 0
 	zfs_cmd_t zc = { 0 };
 	di_devlink_handle_t dhdl;
 
@@ -3270,6 +3277,10 @@ zvol_create_link(libzfs_handle_t *hdl, const char *dataset)
 	}
 
 	return (0);
+#endif
+
+	/* zfs-fuse TODO: implement ZVOLs */
+	abort();
 }
 
 /*

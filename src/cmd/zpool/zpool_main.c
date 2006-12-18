@@ -41,6 +41,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <priv.h>
+#include <zfsfuse.h>
 
 #include <sys/stat.h>
 
@@ -3318,7 +3319,8 @@ main(int argc, char **argv)
 	 */
 	if (strcmp(cmdname, "freeze") == 0 && argc == 3) {
 		char buf[16384];
-		int fd = open(ZFS_DEV, O_RDWR);
+		/* zfs-fuse: zfsfuse_open() connects to the UNIX domain socket */
+		int fd = zfsfuse_open(ZFS_DEV_NAME, O_RDWR);
 		(void) strcpy((void *)buf, argv[2]);
 		return (!!ioctl(fd, ZFS_IOC_POOL_FREEZE, buf));
 	}

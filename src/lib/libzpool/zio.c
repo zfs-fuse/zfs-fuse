@@ -726,7 +726,7 @@ zio_ready(zio_t *zio)
 		zio_notify_parent(zio, ZIO_STAGE_WAIT_CHILDREN_READY,
 		    &pio->io_children_notready);
 
-	if (zio->io_bp)
+	if (zio->io_bp && zio->io_bp != &zio->io_bp_copy)
 		zio->io_bp_copy = *zio->io_bp;
 
 	zio_next_stage(zio);

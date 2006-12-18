@@ -1,0 +1,47 @@
+ZFS on FUSE/Linux
+
+Known Bugs
+----------
+
+- There's a known bug in glibc version 2.3.2 that comes in Debian Stable
+  (sarge) related to conditional variables that causes a deadlock.
+  You can read the details here:
+	http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=261237
+  Currently there's no known workaround (except upgrading glibc).
+  (Bug reported by Eric Hill).
+
+
+Reporting bugs
+--------------
+If you find a bug, please report it in the following page:
+http://developer.berlios.de/bugs/?group_id=6836
+
+You should provide the following info in order to help me track down the bug:
+
+  1) The output of the program (including the error message)
+  2) If you can, tell me how to reproduce the bug
+  3) The output of the following commands:
+       # getconf GNU_LIBPTHREAD_VERSION
+       # /lib/libc.so.6
+       # gcc --version
+       # uname -a
+
+  4) If you are running the runtest.sh script and ztest crashes, it will leave
+a core file in the current directory. You should provide the output of:
+
+       # gdb ./ztest --core core.xxx (replace core.xxx with the correct
+filename)
+         (gdb) bt
+         (gdb) bt full
+         (gdb) exit
+
+  4) If you're using the run.sh script (you should) and zfs-fuse crashes, it
+will leave a core file. You should then do step 3) above (of course, replacing
+"./ztest" by "./zfs-fuse")
+
+  5) You should also provide the zfs-fuse version you are using. If you are
+using Mercurial, you should provide the output of the following command instead:
+
+       # hg identify
+
+Thanks!

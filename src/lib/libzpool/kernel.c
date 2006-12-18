@@ -128,29 +128,43 @@ void
 rw_init(krwlock_t *rwlp, char *name, int type, void *arg)
 {
 	rwlock_init(&rwlp->rw_lock, USYNC_THREAD, NULL);
+	zmutex_init(&rwlp->mutex);
 	rwlp->rw_owner = NULL;
+	rwlp->thr_count = 0;
 }
 
 void
 rw_destroy(krwlock_t *rwlp)
 {
 	rwlock_destroy(&rwlp->rw_lock);
+	zmutex_destroy(&rwlp->mutex);
 	rwlp->rw_owner = (void *)-1UL;
+	rwlp->thr_count = -2;
 }
 
 void
 rw_enter(krwlock_t *rwlp, krw_t rw)
 {
-	ASSERT(!RW_LOCK_HELD(rwlp));
+	//ASSERT(!RW_LOCK_HELD(rwlp));
 	ASSERT(rwlp->rw_owner != (void *)-1UL);
 	ASSERT(rwlp->rw_owner != curthread);
 
-	if (rw == RW_READER)
-		(void) rw_rdlock(&rwlp->rw_lock);
-	else
-		(void) rw_wrlock(&rwlp->rw_lock);
+	if (rw == RW_READER) {
+		VERIFY(rw_rdlock(&rwlp->rw_lock) == 0);
 
-	rwlp->rw_owner = curthread;
+		mutex_enter(&rwlp->mutex);
+		ASSERT(rwlp->thr_count >= 0);
+		rwlp->thr_count++;
+		mutex_exit(&rwlp->mutex);
+		ASSERT(rwlp->rw_owner == NULL);
+	} else {
+		VERIFY(rw_wrlock(&rwlp->rw_lock) == 0);
+
+		ASSERT(rwlp->rw_owner == NULL);
+		ASSERT(rwlp->thr_count == 0);
+		rwlp->thr_count = -1;
+		rwlp->rw_owner = curthread;
+	}
 }
 
 void
@@ -158,7 +172,19 @@ rw_exit(krwlock_t *rwlp)
 {
 	ASSERT(rwlp->rw_owner != (void *)-1UL);
 
-	rwlp->rw_owner = NULL;
+	if(rwlp->rw_owner == curthread) {
+		/* Write locked */
+		ASSERT(rwlp->thr_count == -1);
+		rwlp->thr_count = 0;
+		rwlp->rw_owner = NULL;
+	} else {
+		/* Read locked */
+		ASSERT(rwlp->rw_owner == NULL);
+		mutex_enter(&rwlp->mutex);
+		ASSERT(rwlp->thr_count >= 1);
+		rwlp->thr_count--;
+		mutex_exit(&rwlp->mutex);
+	}
 	(void) rw_unlock(&rwlp->rw_lock);
 }
 
@@ -168,6 +194,7 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
 	int rv;
 
 	ASSERT(rwlp->rw_owner != (void *)-1UL);
+	ASSERT(rwlp->rw_owner != curthread);
 
 	if (rw == RW_READER)
 		rv = rw_tryrdlock(&rwlp->rw_lock);
@@ -175,7 +202,18 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
 		rv = rw_trywrlock(&rwlp->rw_lock);
 
 	if (rv == 0) {
-		rwlp->rw_owner = curthread;
+		if(rw == RW_READER) {
+			mutex_enter(&rwlp->mutex);
+			ASSERT(rwlp->thr_count >= 0);
+			rwlp->thr_count++;
+			mutex_exit(&rwlp->mutex);
+			ASSERT(rwlp->rw_owner == NULL);
+		} else {
+			ASSERT(rwlp->rw_owner == NULL);
+			ASSERT(rwlp->thr_count == 0);
+			rwlp->thr_count = -1;
+			rwlp->rw_owner = curthread;
+		}
 		return (1);
 	}
 
@@ -191,6 +229,15 @@ rw_tryupgrade(krwlock_t *rwlp)
 	return (0);
 }
 
+int rw_lock_held(krwlock_t *rwlp)
+{
+	int ret;
+	mutex_enter(&rwlp->mutex);
+	ret = rwlp->thr_count != 0;
+	mutex_exit(&rwlp->mutex);
+	return ret;
+}
+
 /*
  * =========================================================================
  * condition variables
@@ -200,6 +247,8 @@ rw_tryupgrade(krwlock_t *rwlp)
 void
 cv_init(kcondvar_t *cv, char *name, int type, void *arg)
 {
+	ASSERT(type == CV_DEFAULT);
+
 	VERIFY(cond_init(cv, type, NULL) == 0);
 }
 
@@ -223,27 +272,41 @@ clock_t
 cv_timedwait(kcondvar_t *cv, kmutex_t *mp, clock_t abstime)
 {
 	int error;
-	timestruc_t ts;
+	struct timespec ts;
+	struct timeval tv;
 	clock_t delta;
 
+	ASSERT(abstime > 0);
 top:
 	delta = abstime - lbolt;
+	dprintf("thread %li is at cv_timedwait at %.2f with delta %.2f secs\n", curthread, (double) lbolt / hz, (double) delta / hz);
 	if (delta <= 0)
 		return (-1);
 
-	ts.tv_sec = delta / hz;
-	ts.tv_nsec = (delta % hz) * (NANOSEC / hz);
+	if(gettimeofday(&tv, NULL) != 0)
+		abort();
+
+	ts.tv_sec = tv.tv_sec + delta / hz;
+	ts.tv_nsec = tv.tv_usec * 1000 + (delta % hz) * (NANOSEC / hz);
+	ASSERT(ts.tv_nsec >= 0);
+
+	if(ts.tv_nsec >= NANOSEC) {
+		ts.tv_sec++;
+		ts.tv_nsec -= NANOSEC;
+	}
 
 	ASSERT(mutex_owner(mp) == curthread);
 	mp->m_owner = NULL;
-	error = cond_reltimedwait(cv, &mp->m_lock, &ts);
+	error = pthread_cond_timedwait(cv, &mp->m_lock, &ts);
 	mp->m_owner = curthread;
-
-	if (error == ETIME)
-		return (-1);
 
 	if (error == EINTR)
 		goto top;
+
+	dprintf("thread %li exited cv_timedwait at %.2f (rem = %.2f)\n", curthread, (double) lbolt / hz, (double) (abstime - lbolt) / hz);
+
+	if (error == ETIMEDOUT)
+		return (-1);
 
 	ASSERT(error == 0);
 
@@ -294,6 +357,7 @@ vn_open(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2, int x3)
 	 * for its size.  So -- gag -- we open the block device to get
 	 * its size, and remember it for subsequent VOP_GETATTR().
 	 */
+	/* FIXME: Clean this up */
 	if (strncmp(path, "/dev/", 5) == 0) {
 		char *dsk;
 		fd = open64(path, O_RDONLY);
@@ -499,9 +563,9 @@ __dprintf(const char *file, const char *func, int line, const char *fmt, ...)
 		if (dprintf_find_string("pid"))
 			(void) printf("%d ", getpid());
 		if (dprintf_find_string("tid"))
-			(void) printf("%u ", thr_self());
-		if (dprintf_find_string("cpu"))
-			(void) printf("%u ", getcpuid());
+			(void) printf("%u ", (unsigned int) thr_self());
+/*		if (dprintf_find_string("cpu"))
+			(void) printf("%u ", getcpuid());*/
 		if (dprintf_find_string("time"))
 			(void) printf("%llu ", gethrtime());
 		if (dprintf_find_string("long"))

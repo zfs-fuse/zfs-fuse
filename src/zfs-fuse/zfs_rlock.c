@@ -537,6 +537,7 @@ zfs_range_unlock(rl_t *rl)
  * Asserts the whole file is exclusivly locked and so there's only one
  * entry in the tree.
  */
+#if 0
 void
 zfs_range_reduce(rl_t *rl, uint64_t off, uint64_t len)
 {
@@ -559,7 +560,7 @@ zfs_range_reduce(rl_t *rl, uint64_t off, uint64_t len)
 	if (rl->r_read_wanted)
 		cv_broadcast(&rl->r_rd_cv);
 }
-
+#endif
 /*
  * AVL comparison function used to order range locks
  * Locks are ordered on the start offset of the range.
