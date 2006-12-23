@@ -58,7 +58,10 @@ int zfsfuse_open(const char *pathname, int flags)
 	size = SUN_LEN(&name);
 
 	if(connect(sock, (struct sockaddr *) &name, size) == -1) {
+		int error = errno;
 		perror("connect");
+		if(error == ECONNREFUSED)
+			fprintf(stderr, "Please make sure that the zfs-fuse daemon is running.\n");
 		return -1;
 	}
 

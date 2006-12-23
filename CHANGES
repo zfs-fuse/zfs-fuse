@@ -2,6 +2,9 @@
 --------------------------------------------------
 Bug fixes:
 	* Fixed bug #9746 - Compilation error on Fedora Core 6
+Enhancements:
+	* Display a more useful error message when the zfs-fuse daemon is not running.
+	  Suggestion by rincebrain.
 
 2006/12/14 - Release 0.3.0
 --------------------------------------------------
