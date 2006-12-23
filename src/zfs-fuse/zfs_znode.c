@@ -619,8 +619,7 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, uint64_t *oid, dmu_tx_t *tx, cred_t *cr,
 	pzp->zp_mode = MAKEIMODE(vap->va_type, vap->va_mode);
 	zp = zfs_znode_alloc(zfsvfs, dbp, *oid, 0);
 
-	/* ZFSFUSE: FIXME FIXME */
-	/* zfs_perm_init(zp, dzp, flag, vap, tx, cr); */
+	zfs_perm_init(zp, dzp, flag, vap, tx, cr);
 
 	if (zpp) {
 		kmutex_t *hash_mtx = ZFS_OBJ_MUTEX(zp);
