@@ -91,22 +91,12 @@ struct vdev_cache_entry {
 };
 
 struct vdev_cache {
-	uint64_t	vc_size;
-	uint64_t	vc_bshift;
-	uint64_t	vc_blocksize;
-	uint64_t	vc_max;
 	avl_tree_t	vc_offset_tree;
 	avl_tree_t	vc_lastused_tree;
 	kmutex_t	vc_lock;
 };
 
 struct vdev_queue {
-	uint64_t	vq_min_pending;
-	uint64_t	vq_max_pending;
-	uint64_t	vq_scrub_limit;
-	uint64_t	vq_agg_limit;
-	uint64_t	vq_time_shift;
-	uint64_t	vq_ramp_rate;
 	uint64_t	vq_scrub_count;
 	avl_tree_t	vq_deadline_tree;
 	avl_tree_t	vq_read_tree;
@@ -203,7 +193,8 @@ struct vdev {
 	offsetof(vdev_label_t, vl_uberblock[(n) << VDEV_UBERBLOCK_SHIFT(vd)])
 #define	VDEV_UBERBLOCK_SIZE(vd)		(1ULL << VDEV_UBERBLOCK_SHIFT(vd))
 
-#define	VDEV_BOOT_MAGIC		0x2f5b007b10c	/* ZFS boot block	*/
+/* ZFS boot block */
+#define	VDEV_BOOT_MAGIC		0x2f5b007b10cULL
 #define	VDEV_BOOT_VERSION	1		/* version number	*/
 
 typedef struct vdev_boot_header {
@@ -291,6 +282,11 @@ extern vdev_ops_t vdev_spare_ops;
  */
 extern uint64_t vdev_default_asize(vdev_t *vd, uint64_t psize);
 extern uint64_t vdev_get_rsize(vdev_t *vd);
+
+/*
+ * zdb uses this tunable, so it must be declared here to make lint happy.
+ */
+extern int zfs_vdev_cache_size;
 
 #ifdef	__cplusplus
 }

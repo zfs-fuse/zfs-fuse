@@ -36,6 +36,7 @@
 #include <sys/spa.h>
 #include <sys/processor.h>
 
+
 /*
  * Emulation of kernel services in userland.
  */

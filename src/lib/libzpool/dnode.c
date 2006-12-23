@@ -291,6 +291,17 @@ dnode_destroy(dnode_t *dn)
 {
 	objset_impl_t *os = dn->dn_objset;
 
+#ifdef ZFS_DEBUG
+	int i;
+
+	for (i = 0; i < TXG_SIZE; i++) {
+		ASSERT(!list_link_active(&dn->dn_dirty_link[i]));
+		ASSERT(NULL == list_head(&dn->dn_dirty_dbufs[i]));
+		ASSERT(0 == avl_numnodes(&dn->dn_ranges[i]));
+	}
+	ASSERT(NULL == list_head(&dn->dn_dbufs));
+#endif
+
 	mutex_enter(&os->os_lock);
 	list_remove(&os->os_dnodes, dn);
 	mutex_exit(&os->os_lock);
@@ -384,6 +395,7 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
     dmu_object_type_t bonustype, int bonuslen, dmu_tx_t *tx)
 {
 	int i;
+	dmu_buf_impl_t *db = NULL;
 
 	ASSERT3U(blocksize, >=, SPA_MINBLOCKSIZE);
 	ASSERT3U(blocksize, <=, SPA_MAXBLOCKSIZE);
@@ -414,17 +426,25 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
 
 	/* change blocksize */
 	rw_enter(&dn->dn_struct_rwlock, RW_WRITER);
+	if (blocksize != dn->dn_datablksz &&
+	    (!BP_IS_HOLE(&dn->dn_phys->dn_blkptr[0]) ||
+	    list_head(&dn->dn_dbufs) != NULL)) {
+		db = dbuf_hold(dn, 0, FTAG);
+		dbuf_new_size(db, blocksize, tx);
+	}
 	dnode_setdblksz(dn, blocksize);
 	dnode_setdirty(dn, tx);
 	dn->dn_next_blksz[tx->tx_txg&TXG_MASK] = blocksize;
 	rw_exit(&dn->dn_struct_rwlock);
+	if (db) {
+		dbuf_rele(db, FTAG);
+		db = NULL;
+	}
 
 	/* change type */
 	dn->dn_type = ot;
 
 	if (dn->dn_bonuslen != bonuslen) {
-		dmu_buf_impl_t *db = NULL;
-
 		/* change bonus size */
 		if (bonuslen == 0)
 			bonuslen = 1; /* XXX */
@@ -442,7 +462,6 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
 		db->db.db_size = bonuslen;
 		mutex_exit(&db->db_mtx);
 		dbuf_dirty(db, tx);
-		dbuf_rele(db, FTAG);
 	}
 
 	/* change bonus size and type */
@@ -453,6 +472,13 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
 	dn->dn_checksum = ZIO_CHECKSUM_INHERIT;
 	dn->dn_compress = ZIO_COMPRESS_INHERIT;
 	ASSERT3U(dn->dn_nblkptr, <=, DN_MAX_NBLKPTR);
+
+	/*
+	 * NB: we have to do the dbuf_rele after we've changed the
+	 * dn_bonuslen, for the sake of dbuf_verify().
+	 */
+	if (db)
+		dbuf_rele(db, FTAG);
 
 	dn->dn_allocated_txg = tx->tx_txg;
 	mutex_exit(&dn->dn_mtx);
@@ -795,16 +821,6 @@ dnode_set_blksz(dnode_t *dn, uint64_t size, int ibs, dmu_tx_t *tx)
 fail:
 	rw_exit(&dn->dn_struct_rwlock);
 	return (ENOTSUP);
-}
-
-uint64_t
-dnode_max_nonzero_offset(dnode_t *dn)
-{
-	if (dn->dn_phys->dn_maxblkid == 0 &&
-	    BP_IS_HOLE(&dn->dn_phys->dn_blkptr[0]))
-		return (0);
-	else
-		return ((dn->dn_phys->dn_maxblkid+1) * dn->dn_datablksz);
 }
 
 void
@@ -1176,7 +1192,7 @@ dnode_willuse_space(dnode_t *dn, int64_t space, dmu_tx_t *tx)
 
 static int
 dnode_next_offset_level(dnode_t *dn, boolean_t hole, uint64_t *offset,
-	int lvl, uint64_t blkfill)
+	int lvl, uint64_t blkfill, uint64_t txg)
 {
 	dmu_buf_impl_t *db = NULL;
 	void *data = NULL;
@@ -1208,13 +1224,25 @@ dnode_next_offset_level(dnode_t *dn, boolean_t hole, uint64_t *offset,
 		data = db->db.db_data;
 	}
 
-	if (lvl == 0) {
+	if (db && txg &&
+	    (db->db_blkptr == NULL || db->db_blkptr->blk_birth <= txg)) {
+		error = ESRCH;
+	} else if (lvl == 0) {
 		dnode_phys_t *dnp = data;
 		span = DNODE_SHIFT;
 		ASSERT(dn->dn_type == DMU_OT_DNODE);
 
 		for (i = (*offset >> span) & (blkfill - 1); i < blkfill; i++) {
-			if (!dnp[i].dn_type == hole)
+			boolean_t newcontents = B_TRUE;
+			if (txg) {
+				int j;
+				newcontents = B_FALSE;
+				for (j = 0; j < dnp[i].dn_nblkptr; j++) {
+					if (dnp[i].dn_blkptr[j].blk_birth > txg)
+						newcontents = B_TRUE;
+				}
+			}
+			if (!dnp[i].dn_type == hole && newcontents)
 				break;
 			*offset += 1ULL << span;
 		}
@@ -1234,7 +1262,8 @@ dnode_next_offset_level(dnode_t *dn, boolean_t hole, uint64_t *offset,
 		for (i = (*offset >> span) & ((1ULL << epbs) - 1);
 		    i < epb; i++) {
 			if (bp[i].blk_fill >= minfill &&
-			    bp[i].blk_fill <= maxfill)
+			    bp[i].blk_fill <= maxfill &&
+			    bp[i].blk_birth > txg)
 				break;
 			*offset += 1ULL << span;
 		}
@@ -1254,23 +1283,26 @@ dnode_next_offset_level(dnode_t *dn, boolean_t hole, uint64_t *offset,
  * in an L0 data block; this value is 1 for normal objects,
  * DNODES_PER_BLOCK for the meta dnode, and some fraction of
  * DNODES_PER_BLOCK when searching for sparse regions thereof.
+ *
  * Examples:
  *
- * dnode_next_offset(dn, hole, offset, 1, 1);
+ * dnode_next_offset(dn, hole, offset, 1, 1, 0);
  *	Finds the next hole/data in a file.
  *	Used in dmu_offset_next().
  *
- * dnode_next_offset(mdn, hole, offset, 0, DNODES_PER_BLOCK);
+ * dnode_next_offset(mdn, hole, offset, 0, DNODES_PER_BLOCK, txg);
  *	Finds the next free/allocated dnode an objset's meta-dnode.
+ *	Only finds objects that have new contents since txg (ie.
+ *	bonus buffer changes and content removal are ignored).
  *	Used in dmu_object_next().
  *
- * dnode_next_offset(mdn, TRUE, offset, 2, DNODES_PER_BLOCK >> 2);
+ * dnode_next_offset(mdn, TRUE, offset, 2, DNODES_PER_BLOCK >> 2, 0);
  *	Finds the next L2 meta-dnode bp that's at most 1/4 full.
  *	Used in dmu_object_alloc().
  */
 int
 dnode_next_offset(dnode_t *dn, boolean_t hole, uint64_t *offset,
-    int minlvl, uint64_t blkfill)
+    int minlvl, uint64_t blkfill, uint64_t txg)
 {
 	int lvl, maxlvl;
 	int error = 0;
@@ -1297,13 +1329,16 @@ dnode_next_offset(dnode_t *dn, boolean_t hole, uint64_t *offset,
 	maxlvl = dn->dn_phys->dn_nlevels;
 
 	for (lvl = minlvl; lvl <= maxlvl; lvl++) {
-		error = dnode_next_offset_level(dn, hole, offset, lvl, blkfill);
+		error = dnode_next_offset_level(dn,
+		    hole, offset, lvl, blkfill, txg);
 		if (error != ESRCH)
 			break;
 	}
 
-	while (--lvl >= minlvl && error == 0)
-		error = dnode_next_offset_level(dn, hole, offset, lvl, blkfill);
+	while (--lvl >= minlvl && error == 0) {
+		error = dnode_next_offset_level(dn,
+		    hole, offset, lvl, blkfill, txg);
+	}
 
 	rw_exit(&dn->dn_struct_rwlock);
 

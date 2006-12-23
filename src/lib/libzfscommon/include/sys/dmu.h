@@ -59,6 +59,7 @@ struct drr_begin;
 struct drr_end;
 struct zbookmark;
 struct spa;
+struct nvlist;
 
 typedef struct objset objset_t;
 typedef struct dmu_tx dmu_tx_t;
@@ -103,6 +104,8 @@ typedef enum dmu_object_type {
 	DMU_OT_ZAP_OTHER,		/* ZAP */
 	/* new object types: */
 	DMU_OT_ERROR_LOG,		/* ZAP */
+	DMU_OT_SPA_HISTORY,		/* UINT8 */
+	DMU_OT_SPA_HISTORY_OFFSETS,	/* spa_his_phys_t */
 
 	DMU_OT_NUMTYPES
 } dmu_object_type_t;
@@ -160,9 +163,6 @@ int dmu_snapshots_destroy(char *fsname, char *snapname);
 int dmu_objset_rollback(const char *name);
 int dmu_objset_snapshot(char *fsname, char *snapname, boolean_t recursive);
 int dmu_objset_rename(const char *name, const char *newname);
-void dmu_objset_set_quota(objset_t *os, uint64_t quota);
-uint64_t dmu_objset_get_quota(objset_t *os);
-int dmu_objset_request_reservation(objset_t *os, uint64_t reservation);
 int dmu_objset_find(char *name, int func(char *, void *), void *arg,
     int flags);
 void dmu_objset_byteswap(void *buf, size_t size);
@@ -192,6 +192,7 @@ typedef void dmu_byteswap_func_t(void *buf, size_t size);
 #define	DMU_POOL_ERRLOG_LAST		"errlog_last"
 #define	DMU_POOL_SPARES			"spares"
 #define	DMU_POOL_DEFLATE		"deflate"
+#define	DMU_POOL_HISTORY		"history"
 
 /*
  * Allocate an object from this objset.  The range of object numbers
@@ -237,13 +238,15 @@ int dmu_object_free(objset_t *os, uint64_t object, dmu_tx_t *tx);
  * Find the next allocated or free object.
  *
  * The objectp parameter is in-out.  It will be updated to be the next
- * object which is allocated.
+ * object which is allocated.  Ignore objects which have not been
+ * modified since txg.
  *
  * XXX Can only be called on a objset with no dirty data.
  *
  * Returns 0 on success, or ENOENT if there are no more objects.
  */
-int dmu_object_next(objset_t *os, uint64_t *objectp, boolean_t hole);
+int dmu_object_next(objset_t *os, uint64_t *objectp,
+    boolean_t hole, uint64_t txg);
 
 /*
  * Set the data blocksize for an object.
@@ -322,8 +325,6 @@ uint64_t dmu_buf_refcount(dmu_buf_t *db);
  * with dmu_buf_rele_array.  You can NOT release the hold on each buffer
  * individually with dmu_buf_rele.
  */
-int dmu_buf_hold_array(objset_t *os, uint64_t object, uint64_t offset,
-    uint64_t length, int read, void *tag, int *numbufsp, dmu_buf_t ***dbpp);
 int dmu_buf_hold_array_by_bonus(dmu_buf_t *db, uint64_t offset,
     uint64_t length, int read, void *tag, int *numbufsp, dmu_buf_t ***dbpp);
 void dmu_buf_rele_array(dmu_buf_t **, int numbufs, void *tag);
@@ -359,9 +360,6 @@ void *dmu_buf_update_user(dmu_buf_t *db_fake, void *old_user_ptr,
     void *user_ptr, void *user_data_ptr_ptr,
     dmu_buf_evict_func_t *pageout_func);
 void dmu_evict_user(objset_t *os, dmu_buf_evict_func_t *func);
-
-void dmu_buf_hold_data(dmu_buf_t *db);
-void dmu_buf_rele_data(dmu_buf_t *db);
 
 /*
  * Returns the user_ptr set with dmu_buf_set_user(), or NULL if not set.
@@ -431,6 +429,8 @@ int dmu_write_uio(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 int dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset,
     uint64_t size, struct page *pp, dmu_tx_t *tx);
 
+extern int zfs_prefetch_disable;
+
 /*
  * Asynchronously try to read in the data.
  */
@@ -474,88 +474,47 @@ void dmu_object_info_from_db(dmu_buf_t *db, dmu_object_info_t *doi);
 void dmu_object_size_from_db(dmu_buf_t *db, uint32_t *blksize,
     u_longlong_t *nblk512);
 
-/*
- * Get the maximum nonzero offset in the object (ie. this offset and all
- * offsets following are zero).
- *
- * XXX Perhaps integrate this with dmu_object_info(), although that
- * would then have to bring in the indirect blocks.
- */
-uint64_t dmu_object_max_nonzero_offset(objset_t *os, uint64_t object);
-
 typedef struct dmu_objset_stats {
+	uint64_t dds_num_clones; /* number of clones of this */
+	uint64_t dds_creation_txg;
 	dmu_objset_type_t dds_type;
 	uint8_t dds_is_snapshot;
 	uint8_t dds_inconsistent;
-	uint8_t dds_pad[2];
-
-	uint64_t dds_creation_time;
-	uint64_t dds_creation_txg;
-
 	char dds_clone_of[MAXNAMELEN];
-
-	/* How much data is there in this objset? */
-
-	/*
-	 * Space referenced, taking into account pending writes and
-	 * frees.  Only relavent to filesystems and snapshots (not
-	 * collections).
-	 */
-	uint64_t dds_space_refd;
-
-	/*
-	 * Space "used", taking into account pending writes and frees, and
-	 * children's reservations (in bytes).  This is the amount of
-	 * space that will be freed if this and all dependent items are
-	 * destroyed (eg. child datasets, objsets, and snapshots).  So
-	 * for snapshots, this is the amount of space unique to this
-	 * snapshot.
-	 */
-	uint64_t dds_space_used;
-
-	/*
-	 * Compressed and uncompressed bytes consumed.  Does not take
-	 * into account reservations.  Used for computing compression
-	 * ratio.
-	 */
-	uint64_t dds_compressed_bytes;
-	uint64_t dds_uncompressed_bytes;
-
-	/*
-	 * The ds_fsid_guid is a 56-bit ID that can change to avoid
-	 * collisions.  The ds_guid is a 64-bit ID that will never
-	 * change, so there is a small probability that it will collide.
-	 */
-	uint64_t dds_fsid_guid;
-
-	uint64_t dds_objects_used;	/* number of objects used */
-	uint64_t dds_objects_avail;	/* number of objects available */
-
-	uint64_t dds_num_clones; /* number of clones of this */
-
-	/* The dataset's administratively-set quota, in bytes. */
-	uint64_t dds_quota;
-
-	/* The dataset's administratively-set reservation, in bytes */
-	uint64_t dds_reserved;
-
-	/*
-	 * The amount of additional space that this dataset can consume.
-	 * Takes into account quotas & reservations.
-	 * (Assuming that no other datasets consume it first.)
-	 */
-	uint64_t dds_available;
-
-	/*
-	 * Used for debugging purposes
-	 */
-	uint64_t dds_last_txg;
 } dmu_objset_stats_t;
 
 /*
  * Get stats on a dataset.
  */
-void dmu_objset_stats(objset_t *os, dmu_objset_stats_t *dds);
+void dmu_objset_fast_stat(objset_t *os, dmu_objset_stats_t *stat);
+
+/*
+ * Add entries to the nvlist for all the objset's properties.  See
+ * zfs_prop_table[] and zfs(1m) for details on the properties.
+ */
+void dmu_objset_stats(objset_t *os, struct nvlist *nv);
+
+/*
+ * Get the space usage statistics for statvfs().
+ *
+ * refdbytes is the amount of space "referenced" by this objset.
+ * availbytes is the amount of space available to this objset, taking
+ * into account quotas & reservations, assuming that no other objsets
+ * use the space first.  These values correspond to the 'referenced' and
+ * 'available' properties, described in the zfs(1m) manpage.
+ *
+ * usedobjs and availobjs are the number of objects currently allocated,
+ * and available.
+ */
+void dmu_objset_space(objset_t *os, uint64_t *refdbytesp, uint64_t *availbytesp,
+    uint64_t *usedobjsp, uint64_t *availobjsp);
+
+/*
+ * The fsid_guid is a 56-bit ID that can change to avoid collisions.
+ * (Contrast with the ds_guid which is a 64-bit ID that will never
+ * change, so there is a small probability that it will collide.)
+ */
+uint64_t dmu_objset_fsid_guid(objset_t *os);
 
 int dmu_objset_is_snapshot(objset_t *os);
 

@@ -211,7 +211,6 @@ void dnode_buf_byteswap(void *buf, size_t size);
 void dnode_verify(dnode_t *dn);
 int dnode_set_blksz(dnode_t *dn, uint64_t size, int ibs, dmu_tx_t *tx);
 uint64_t dnode_current_max_length(dnode_t *dn);
-uint64_t dnode_max_nonzero_offset(dnode_t *dn);
 void dnode_free_range(dnode_t *dn, uint64_t off, uint64_t len, dmu_tx_t *tx);
 void dnode_clear_range(dnode_t *dn, uint64_t blkid,
     uint64_t nblks, dmu_tx_t *tx);
@@ -222,7 +221,7 @@ uint64_t dnode_block_freed(dnode_t *dn, uint64_t blkid);
 void dnode_init(void);
 void dnode_fini(void);
 int dnode_next_offset(dnode_t *dn, boolean_t hole, uint64_t *off, int minlvl,
-    uint64_t blkfill);
+    uint64_t blkfill, uint64_t txg);
 int dnode_evict_dbufs(dnode_t *dn, int try);
 
 #ifdef ZFS_DEBUG

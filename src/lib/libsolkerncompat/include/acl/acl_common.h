@@ -20,23 +20,37 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
- * Copyright 2006 Ricardo Correia.
+ * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
-#ifndef _SOL_KERN_SYS_TIME_H
-#define _SOL_KERN_SYS_TIME_H
+#ifndef	_ACL_ACL_UTILS_H
+#define	_ACL_ACL_UTILS_H
 
-#include <sys/time_aux.h>
-#include <sys/debug.h>
 
-typedef struct timespec timestruc_t;
 
-#define gethrestime_sec() time(NULL)
-#define gethrestime(t)    VERIFY(clock_gettime(CLOCK_REALTIME, t) == 0)
 
-#define TIMESTRUC_TO_TIME(ts,ti) *(ti) = (ts).tv_sec
-#define TIME_TO_TIMESTRUC(ti,ts) do { (ts)->tv_sec = (ti); (ts)->tv_nsec = 0; } while(0)
+#include <sys/types.h>
+#include <sys/acl.h>
+#include <sys/stat.h>
 
+#ifdef  __cplusplus
+extern "C" {
 #endif
+
+extern ace_t trivial_acl[6];
+
+extern int acltrivial(const char *);
+extern void adjust_ace_pair(ace_t *pair, mode_t mode);
+extern int ace_trivial(ace_t *acep, int aclcnt);
+void ksort(caddr_t v, int n, int s, int (*f)());
+int cmp2acls(void *a, void *b);
+
+
+
+
+#ifdef  __cplusplus
+}
+#endif
+
+#endif /* _ACL_ACL_UTILS_H */

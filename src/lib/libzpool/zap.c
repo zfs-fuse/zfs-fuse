@@ -62,17 +62,11 @@ fzap_byteswap(void *vbuf, size_t size)
 
 	block_type = *(uint64_t *)vbuf;
 
-	switch (block_type) {
-	case ZBT_LEAF:
-	case BSWAP_64(ZBT_LEAF):
+	if (block_type == ZBT_LEAF || block_type == BSWAP_64(ZBT_LEAF))
 		zap_leaf_byteswap(vbuf, size);
-		return;
-	case ZBT_HEADER:
-	case BSWAP_64(ZBT_HEADER):
-	default:
+	else {
 		/* it's a ptrtbl block */
 		byteswap_uint64_array(vbuf, size);
-		return;
 	}
 }
 

@@ -154,11 +154,15 @@
  *	ZFS_EXIT(zfsvfs);		// finished in zfs
  *	return (error);			// done, report error
  */
-
 /* ARGSUSED */
 static int
 zfs_open(vnode_t **vpp, int flag, cred_t *cr)
 {
+	znode_t	*zp = VTOZ(*vpp);
+
+	/* Keep a count of the synchronous opens in the znode */
+	if (flag & (FSYNC | FDSYNC))
+		atomic_inc_32(&zp->z_sync_cnt);
 	return (0);
 }
 
@@ -166,6 +170,12 @@ zfs_open(vnode_t **vpp, int flag, cred_t *cr)
 static int
 zfs_close(vnode_t *vp, int flag, int count, offset_t offset, cred_t *cr)
 {
+	znode_t	*zp = VTOZ(vp);
+
+	/* Decrement the synchronous opens in the znode */
+	if (flag & (FSYNC | FDSYNC))
+		atomic_dec_32(&zp->z_sync_cnt);
+
 	/*
 	 * Clean up any locks held by this process on the vp.
 	 */
@@ -846,14 +856,17 @@ no_tx_done:
 }
 
 void
-zfs_get_done(dmu_buf_t *db, void *vrl)
+zfs_get_done(dmu_buf_t *db, void *vzgd)
 {
-	rl_t *rl = (rl_t *)vrl;
+	zgd_t *zgd = (zgd_t *)vzgd;
+	rl_t *rl = zgd->zgd_rl;
 	vnode_t *vp = ZTOV(rl->r_zp);
 
-	dmu_buf_rele(db, rl);
+	dmu_buf_rele(db, vzgd);
 	zfs_range_unlock(rl);
 	VN_RELE(vp);
+	zil_add_vdev(zgd->zgd_zilog, DVA_GET_VDEV(BP_IDENTITY(zgd->zgd_bp)));
+	kmem_free(zgd, sizeof (zgd_t));
 }
 
 /*
@@ -868,9 +881,11 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	uint64_t off = lr->lr_offset;
 	dmu_buf_t *db;
 	rl_t *rl;
+	zgd_t *zgd;
 	int dlen = lr->lr_length;  		/* length of user data */
 	int error = 0;
 
+	ASSERT(zio);
 	ASSERT(dlen != 0);
 
 	/*
@@ -926,11 +941,19 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 			error = ENOENT;
 			goto out;
 		}
-		VERIFY(0 == dmu_buf_hold(os, lr->lr_foid, boff, rl, &db));
+		zgd = (zgd_t *)kmem_alloc(sizeof (zgd_t), KM_SLEEP);
+		zgd->zgd_rl = rl;
+		zgd->zgd_zilog = zfsvfs->z_log;
+		zgd->zgd_bp = &lr->lr_blkptr;
+		VERIFY(0 == dmu_buf_hold(os, lr->lr_foid, boff, zgd, &db));
 		ASSERT(boff == db->db_offset);
 		lr->lr_blkoff = off - boff;
 		error = dmu_sync(zio, db, &lr->lr_blkptr,
-		    lr->lr_common.lrc_txg, zio ? zfs_get_done : NULL, rl);
+		    lr->lr_common.lrc_txg, zfs_get_done, zgd);
+		if (error == 0) {
+			zil_add_vdev(zfsvfs->z_log,
+			    DVA_GET_VDEV(BP_IDENTITY(&lr->lr_blkptr)));
+		}
 		/*
 		 * If we get EINPROGRESS, then we need to wait for a
 		 * write IO initiated by dmu_sync() to complete before
@@ -939,7 +962,8 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 		 */
 		if (error == EINPROGRESS)
 			return (0);
-		dmu_buf_rele(db, rl);
+		dmu_buf_rele(db, zgd);
+		kmem_free(zgd, sizeof (zgd_t));
 	}
 out:
 	zfs_range_unlock(rl);
@@ -3527,9 +3551,6 @@ static int
 zfs_space(vnode_t *vp, int cmd, flock64_t *bfp, int flag,
     offset_t offset, cred_t *cr, caller_context_t *ct)
 {
-	/* ZFSFUSE: not used */
-	abort();
-#if 0
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	uint64_t	off, len;
@@ -3562,7 +3583,6 @@ zfs_space(vnode_t *vp, int cmd, flock64_t *bfp, int flag,
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
-#endif
 }
 
 static int
@@ -3675,9 +3695,6 @@ zfs_pathconf(vnode_t *vp, int cmd, ulong_t *valp, cred_t *cr)
 static int
 zfs_getsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
-/* ZFSFUSE: not needed */
-	abort();
-#if 0
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int error;
@@ -3687,16 +3704,12 @@ zfs_getsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
-#endif
 }
 
 /*ARGSUSED*/
 static int
 zfs_setsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 {
-/* ZFSFUSE: not needed */
-	abort();
-#if 0
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int error;
@@ -3705,7 +3718,6 @@ zfs_setsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr)
 	error = zfs_setacl(zp, vsecp, cr);
 	ZFS_EXIT(zfsvfs);
 	return (error);
-#endif
 }
 
 /*

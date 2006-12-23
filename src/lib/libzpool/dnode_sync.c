@@ -62,6 +62,7 @@ dnode_increase_indirection(dnode_t *dn, dmu_tx_t *tx)
 		    db->db.db_size);
 		bcopy(dn->dn_phys->dn_blkptr, db->db.db_data,
 		    sizeof (blkptr_t) * dn->dn_phys->dn_nblkptr);
+		arc_buf_freeze(db->db_buf);
 	}
 
 	dn->dn_phys->dn_nlevels += 1;
@@ -164,8 +165,7 @@ free_verify(dmu_buf_impl_t *db, uint64_t start, uint64_t end, dmu_tx_t *tx)
 
 		/* db_data_old better be zeroed */
 		if (child->db_d.db_data_old[txg & TXG_MASK]) {
-			buf = ((arc_buf_t *)child->db_d.db_data_old
-			    [txg & TXG_MASK])->b_data;
+			buf = child->db_d.db_data_old[txg & TXG_MASK]->b_data;
 			for (j = 0; j < child->db.db_size >> 3; j++) {
 				if (buf[j] != 0) {
 					panic("freed data not zero: "
@@ -238,6 +238,7 @@ free_children(dmu_buf_impl_t *db, uint64_t blkid, uint64_t nblks, int trunc,
 	if (db->db_level == 1) {
 		FREE_VERIFY(db, start, end, tx);
 		free_blocks(dn, bp, end-start+1, tx);
+		arc_buf_freeze(db->db_buf);
 		ASSERT(all || list_link_active(&db->db_dirty_node[txgoff]));
 		return (all);
 	}
@@ -258,6 +259,7 @@ free_children(dmu_buf_impl_t *db, uint64_t blkid, uint64_t nblks, int trunc,
 		}
 		dbuf_rele(subdb, FTAG);
 	}
+	arc_buf_freeze(db->db_buf);
 #ifdef ZFS_DEBUG
 	bp -= (end-start)+1;
 	for (i = start; i <= end; i++, bp++) {
@@ -306,7 +308,8 @@ dnode_sync_free_range(dnode_t *dn, uint64_t blkid, uint64_t nblks, dmu_tx_t *tx)
 			dn->dn_phys->dn_maxblkid = (blkid ? blkid - 1 : 0);
 			ASSERT(off < dn->dn_phys->dn_maxblkid ||
 			    dn->dn_phys->dn_maxblkid == 0 ||
-			    dnode_next_offset(dn, FALSE, &off, 1, 1) == ESRCH);
+			    dnode_next_offset(dn, FALSE, &off,
+			    1, 1, 0) != 0);
 		}
 		return;
 	}
@@ -336,7 +339,7 @@ dnode_sync_free_range(dnode_t *dn, uint64_t blkid, uint64_t nblks, dmu_tx_t *tx)
 		dn->dn_phys->dn_maxblkid = (blkid ? blkid - 1 : 0);
 		ASSERT(off < dn->dn_phys->dn_maxblkid ||
 		    dn->dn_phys->dn_maxblkid == 0 ||
-		    dnode_next_offset(dn, FALSE, &off, 1, 1) == ESRCH);
+		    dnode_next_offset(dn, FALSE, &off, 1, 1, 0) != 0);
 	}
 }
 
@@ -603,17 +606,15 @@ dnode_sync(dnode_t *dn, int level, zio_t *zio, dmu_tx_t *tx)
 		ASSERT3P(list_head(&dn->dn_dirty_dbufs[txgoff]), ==, NULL);
 		ASSERT(dn->dn_free_txg == 0 || dn->dn_free_txg >= tx->tx_txg);
 
-		/* XXX this is expensive. remove once 6343073 is closed. */
 		/* NB: the "off < maxblkid" is to catch overflow */
 		/*
 		 * NB: if blocksize is changing, we could get confused,
 		 * so only bother if there are multiple blocks and thus
 		 * it can't be changing.
 		 */
-		if (!(off < dn->dn_phys->dn_maxblkid ||
+		ASSERT(off < dn->dn_phys->dn_maxblkid ||
 		    dn->dn_phys->dn_maxblkid == 0 ||
-		    dnode_next_offset(dn, FALSE, &off, 1, 1) == ESRCH))
-			panic("data after EOF: off=%llu\n", (u_longlong_t)off);
+		    dnode_next_offset(dn, FALSE, &off, 1, 1, 0) != 0);
 
 		ASSERT(dnp->dn_nlevels > 1 ||
 		    BP_IS_HOLE(&dnp->dn_blkptr[0]) ||

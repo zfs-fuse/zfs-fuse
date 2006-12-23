@@ -93,20 +93,14 @@ int zfs_mode_update(struct znode *, uint64_t, dmu_tx_t  *);
 int zfs_setacl(struct znode *, vsecattr_t *, cred_t *);
 void zfs_acl_rele(void *);
 void zfs_ace_byteswap(ace_t *, int);
-#define zfs_zaccess(z,i,c)     (0)
-#define zfs_zaccess_rwx(z,m,c) (EACCES)
-/*extern int zfs_zaccess(struct znode *, int, cred_t *);
-extern int zfs_zaccess_rwx(struct znode *, mode_t, cred_t *);*/
+extern int zfs_zaccess(struct znode *, int, cred_t *);
+extern int zfs_zaccess_rwx(struct znode *, mode_t, cred_t *);
 extern int zfs_acl_access(struct znode *, int, cred_t *);
-#define zfs_acl_chmod_setattr(z,u,d) (abort(), 0)
-#define zfs_zaccess_delete(z,zn,c) (EACCES)
-#define zfs_zaccess_rename(z,zn,z2,zn2,c) (EACCES)
-/*int zfs_acl_chmod_setattr(struct znode *, uint64_t, dmu_tx_t *);
+int zfs_acl_chmod_setattr(struct znode *, uint64_t, dmu_tx_t *);
 int zfs_zaccess_delete(struct znode *, struct znode *, cred_t *);
 int zfs_zaccess_rename(struct znode *, struct znode *,
-    struct znode *, struct znode *, cred_t *cr);*/
-#define zfs_zaccess_v4_perm(z,i,c) (FALSE)
-/*int zfs_zaccess_v4_perm(struct znode *, int, cred_t *);*/
+    struct znode *, struct znode *, cred_t *cr);
+int zfs_zaccess_v4_perm(struct znode *, int, cred_t *);
 void zfs_acl_free(zfs_acl_t *);
 
 #endif
