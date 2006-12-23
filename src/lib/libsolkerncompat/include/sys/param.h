@@ -42,6 +42,8 @@ extern unsigned int _pageshift;
 
 #define MAXLINK 32767 /* max links */
 
+#define MAXOFF32_T 0x7fffffff
+
 /*
  * _POSIX_VDISABLE has historically been defined in <sys/param.h> since
  * an early merge with AT&T source.  It has also historically been defined

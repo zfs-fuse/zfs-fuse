@@ -462,11 +462,65 @@ static int zfsfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *f
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
+	/* Map flags */
+	int mode, flags;
+
+	if(fi->flags & O_WRONLY) {
+		mode = VWRITE;
+		flags = FWRITE;
+	} else if(fi->flags & O_RDWR) {
+		mode = VREAD | VWRITE;
+		flags = FREAD | FWRITE;
+	} else {
+		mode = VREAD;
+		flags = FREAD;
+	}
+	if(fi->flags & O_SYNC)
+		flags |= FSYNC;
+	if(fi->flags & O_DSYNC)
+		flags |= FDSYNC;
+	if(fi->flags & O_RSYNC)
+		flags |= FRSYNC;
+	if(fi->flags & O_APPEND)
+		flags |= FAPPEND;
+	if(fi->flags & O_LARGEFILE)
+		flags |= FOFFMAX;
+	if(fi->flags & O_NOFOLLOW)
+		flags |= FNOFOLLOW;
+
 	/*
-	 * The construct 'flags + FREAD' conveniently maps combinations of
-	 * O_RDONLY, O_WRONLY, and O_RDWR to the corresponding FREAD and FWRITE .
+	 * Get the attributes to check whether file is large.
+	 * We do this only if the O_LARGEFILE flag is not set and
+	 * only for regular files.
 	 */
-	error = VOP_OPEN(&vp, fi->flags + FREAD, &cred);
+	if (!(flags & FOFFMAX) && (vp->v_type == VREG)) {
+		vattr_t vattr;
+		vattr.va_mask = AT_SIZE;
+		if ((error = VOP_GETATTR(vp, &vattr, 0, &cred)))
+			goto out;
+
+		if (vattr.va_size > (u_offset_t) MAXOFF32_T) {
+			/*
+			 * Large File API - regular open fails
+			 * if FOFFMAX flag is set in file mode
+			 */
+			error = EOVERFLOW;
+			goto out;
+		}
+	}
+
+	/*
+	 * Check permissions.
+	 */
+	if (error = VOP_ACCESS(vp, mode, 0, &cred))
+		goto out;
+
+	if ((flags & FNOFOLLOW) && vp->v_type == VLNK) {
+		error = ELOOP;
+		goto out;
+	}
+
+	error = VOP_OPEN(&vp, flags, &cred);
 
 	ASSERT(old_vp == vp);
 
@@ -478,14 +532,16 @@ static int zfsfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *f
 		}
 
 		info->vp = vp;
-		info->flags = fi->flags + FREAD;
+		info->flags = flags;
 
 		fi->fh = (uint64_t) (uintptr_t) info;
 	}
 
 out:
-	if(error)
+	if(error) {
+		ASSERT(vp->v_count > 0);
 		VN_RELE(vp);
+	}
 
 	ZFS_EXIT(zfsvfs);
 
@@ -566,7 +622,9 @@ static void zfsfuse_readlink_helper(fuse_req_t req, fuse_ino_t ino)
 
 static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
 {
-	vnode_t *vp = ((file_info_t *)(uintptr_t) fi->fh)->vp;
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+
+	vnode_t *vp = info->vp;
 	ASSERT(vp != NULL);
 	ASSERT(VTOZ(vp) != NULL);
 	ASSERT(VTOZ(vp)->z_id == ino);
@@ -595,8 +653,7 @@ static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, 
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	/* FIXME: check FRSYNC ioflag */
-	int error = VOP_READ(vp, &uio, 0, &cred, NULL);
+	int error = VOP_READ(vp, &uio, info->flags, &cred, NULL);
 
 	ZFS_EXIT(zfsvfs);
 

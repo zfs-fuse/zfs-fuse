@@ -1083,6 +1083,20 @@ fop_getsecattr(
 	return (err);
 }
 
+int
+fop_access(
+	vnode_t *vp,
+	int mode,
+	int flags,
+	cred_t *cr)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_access)(vp, mode, flags, cr);
+	VOPSTATS_UPDATE(vp, access);
+	return (err);
+}
+
 static int
 root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 {

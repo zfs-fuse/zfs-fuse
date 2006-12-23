@@ -95,9 +95,9 @@ void do_exit()
 }
 
 #ifdef DEBUG
-#define FUSE_OPTIONS "default_permissions,fsname=%s,allow_other,debug"
+#define FUSE_OPTIONS "fsname=%s,allow_other,debug"
 #else
-#define FUSE_OPTIONS "default_permissions,fsname=%s,allow_other"
+#define FUSE_OPTIONS "fsname=%s,allow_other"
 #endif
 
 int do_mount(char *spec, char *dir, int mflag, char *opt)
