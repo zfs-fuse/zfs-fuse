@@ -123,6 +123,10 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	if(ret != 0)
 		return ret;
 
+#ifdef DEBUG
+	atomic_inc_32(&mounted);;
+#endif
+
 	fprintf(stderr, "mounting %s\n", dir);
 
 	char *fuse_opts;
@@ -176,10 +180,6 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		fuse_unmount(dir);
 		return EIO;
 	}
-
-#ifdef DEBUG
-	atomic_inc_32(&mounted);;
-#endif
 
 	return 0;
 }

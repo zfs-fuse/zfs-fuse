@@ -392,6 +392,7 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 	uio.uio_iovcnt = 1;
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_fmode = 0;
+	uio.uio_llimit = RLIM64_INFINITY;
 
 	int eofp = 0;
 
@@ -594,6 +595,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	info->flags = flags;
 
 	fi->fh = (uint64_t) (uintptr_t) info;
+	fi->direct_io = 1;
 
 	if(flags & FCREAT) {
 		e.attr_timeout = 0.0;
@@ -668,6 +670,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	uio.uio_iovcnt = 1;
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_fmode = 0;
+	uio.uio_llimit = RLIM64_INFINITY;
 	iovec.iov_base = buffer;
 	iovec.iov_len = sizeof(buffer) - 1;
 	uio.uio_resid = iovec.iov_len;
@@ -723,6 +726,7 @@ static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, 
 	uio.uio_iovcnt = 1;
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_fmode = 0;
+	uio.uio_llimit = RLIM64_INFINITY;
 
 	iovec.iov_base = outbuf;
 	iovec.iov_len = size;
@@ -998,10 +1002,60 @@ static void zfsfuse_unlink_helper(fuse_req_t req, fuse_ino_t parent, const char 
 	fuse_reply_err(req, error);
 }
 
+static int zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, struct fuse_file_info *fi)
+{
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+
+	vnode_t *vp = info->vp;
+	ASSERT(vp != NULL);
+	ASSERT(VTOZ(vp) != NULL);
+	ASSERT(VTOZ(vp)->z_id == ino);
+
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	iovec_t iovec;
+	uio_t uio;
+	uio.uio_iov = &iovec;
+	uio.uio_iovcnt = 1;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_fmode = 0;
+	uio.uio_llimit = RLIM64_INFINITY;
+
+	iovec.iov_base = (void *) buf;
+	iovec.iov_len = size;
+	uio.uio_resid = iovec.iov_len;
+	uio.uio_loffset = off;
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	int error = VOP_WRITE(vp, &uio, info->flags, &cred, NULL);
+
+	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_write(req, size - uio.uio_resid);
+
+	return error;
+}
+
+static void zfsfuse_write_helper(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_write(req, real_ino, buf, size, off, fi);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
 	.read       = zfsfuse_read_helper,
+	.write      = zfsfuse_write_helper,
 	.release    = zfsfuse_release_helper,
 	.opendir    = zfsfuse_opendir_helper,
 	.readdir    = zfsfuse_readdir_helper,

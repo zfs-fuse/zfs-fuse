@@ -286,11 +286,12 @@ zfs_ioctl(vnode_t *vp, int com, intptr_t data, int flag, cred_t *cred,
  * NOTE: We will always "break up" the IO into PAGESIZE uiomoves when
  *	the file is memory mapped.
  */
-/* ZFSFUSE: not implemented */
-#if 0
 static int
 mappedwrite(vnode_t *vp, uint64_t woff, int nbytes, uio_t *uio, dmu_tx_t *tx)
 {
+	/* ZFSFUSE: not implemented */
+	abort();
+#if 0
 	znode_t	*zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int64_t	start, off;
@@ -334,8 +335,8 @@ mappedwrite(vnode_t *vp, uint64_t woff, int nbytes, uio_t *uio, dmu_tx_t *tx)
 			break;
 	}
 	return (error);
-}
 #endif
+}
 
 /*
  * When a file is memory mapped, we must keep the IO data synchronized
@@ -607,9 +608,6 @@ zfs_prefault_write(ssize_t n, struct uio *uio)
 static int
 zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 {
-	/* ZFSFUSE: not implemented */
-	abort();
-#if 0
 	znode_t		*zp = VTOZ(vp);
 	rlim64_t	limit = uio->uio_llimit;
 	ssize_t		start_resid = uio->uio_resid;
@@ -640,7 +638,8 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 	 * Pre-fault the pages to ensure slow (eg NFS) pages
 	 * don't hold up txg.
 	 */
-	zfs_prefault_write(n, uio);
+	/* ZFSFUSE: not needed */
+	/* zfs_prefault_write(n, uio); */
 
 	/*
 	 * If in append mode, set the io offset pointer to eof.
@@ -852,7 +851,6 @@ no_tx_done:
 
 	ZFS_EXIT(zfsvfs);
 	return (0);
-#endif
 }
 
 void

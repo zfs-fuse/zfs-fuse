@@ -451,7 +451,7 @@ dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
 }
 
-#if 0
+#ifdef _KERNEL
 int
 dmu_write_uio(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
     uio_t *uio, dmu_tx_t *tx)
@@ -507,6 +507,7 @@ dmu_write_uio(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	return (err);
 }
 
+#if 0
 int
 dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
     page_t *pp, dmu_tx_t *tx)
@@ -564,6 +565,7 @@ dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
 	return (err);
 }
+#endif
 #endif
 
 typedef struct {

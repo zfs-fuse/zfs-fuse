@@ -1097,6 +1097,22 @@ fop_access(
 	return (err);
 }
 
+int
+fop_write(
+	vnode_t *vp,
+	uio_t *uiop,
+	int ioflag,
+	cred_t *cr,
+	caller_context_t *ct)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_write)(vp, uiop, ioflag, cr, ct);
+	VOPSTATS_UPDATE_IO(vp, write,
+	    write_bytes, (resid_start - uiop->uio_resid));
+	return (err);
+}
+
 static int
 root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 {
