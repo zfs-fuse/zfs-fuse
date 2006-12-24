@@ -145,7 +145,7 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	int error = zfs_zget(zfsvfs, ino, &znode);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
-		/* If the inode we are trying to stat was recently deleted
+		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
 		return error == EEXIST ? ENOENT : error;
 	}
@@ -190,7 +190,7 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	int error = zfs_zget(zfsvfs, parent, &znode);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
-		/* If the inode we are trying to stat was recently deleted
+		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
 		return error == EEXIST ? ENOENT : error;
 	}
@@ -257,7 +257,7 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	int error = zfs_zget(zfsvfs, ino, &znode);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
-		/* If the inode we are trying to stat was recently deleted
+		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
 		return error == EEXIST ? ENOENT : error;
 	}
@@ -651,7 +651,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	int error = zfs_zget(zfsvfs, ino, &znode);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
-		/* If the inode we are trying to stat was recently deleted
+		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
 		return error == EEXIST ? ENOENT : error;
 	}
@@ -834,7 +834,7 @@ static int zfsfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	int error = zfs_zget(zfsvfs, parent, &znode);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
-		/* If the inode we are trying to stat was recently deleted
+		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
 		return error == EEXIST ? ENOENT : error;
 	}
@@ -883,7 +883,7 @@ static int zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, in
 		error = zfs_zget(zfsvfs, ino, &znode);
 		if(error) {
 			ZFS_EXIT(zfsvfs);
-			/* If the inode we are trying to stat was recently deleted
+			/* If the inode we are trying to get was recently deleted
 			   dnode_hold_impl will return EEXIST instead of ENOENT */
 			return error == EEXIST ? ENOENT : error;
 		}
@@ -957,6 +957,47 @@ static void zfsfuse_setattr_helper(fuse_req_t req, fuse_ino_t ino, struct stat *
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		/* If the inode we are trying to get was recently deleted
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	error = VOP_REMOVE(dvp, (char *) name, &cred);
+
+	VN_RELE(dvp);
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_unlink_helper(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	fuse_ino_t real_parent = parent == 1 ? 3 : parent;
+
+	int error = zfsfuse_unlink(req, real_parent, name);
+	/* unlink events always reply_err */
+	fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -971,6 +1012,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.mkdir      = zfsfuse_mkdir_helper,
 	.rmdir      = zfsfuse_rmdir_helper,
 	.create     = zfsfuse_create_helper,
+	.unlink     = zfsfuse_unlink_helper,
 	.setattr    = zfsfuse_setattr_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
