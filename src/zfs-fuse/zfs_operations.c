@@ -37,6 +37,7 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include "util.h"
 
@@ -59,7 +60,12 @@ static void zfsfuse_destroy(void *userdata)
 {
 	vfs_t *vfs = (vfs_t *) userdata;
 
-	VERIFY(do_umount(vfs) == 0);
+	struct timespec req;
+	req.tv_sec = 0;
+	req.tv_nsec = 100000000; /* 100 ms */
+
+	while(do_umount(vfs) != 0)
+		nanosleep(&req, NULL);
 }
 
 static void zfsfuse_statfs(fuse_req_t req)
@@ -265,13 +271,19 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 		goto out;
 	}
 
-	vnode_t *old_vp = vp;
-
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
+	/*
+	 * Check permissions.
+	 */
+	if (error = VOP_ACCESS(vp, VREAD | VEXEC, 0, &cred))
+		goto out;
+
+	vnode_t *old_vp = vp;
+
 	/* XXX: not sure about flags */
-	error = VOP_OPEN(&vp, FREAD | FWRITE, &cred);
+	error = VOP_OPEN(&vp, FREAD, &cred);
 
 	ASSERT(old_vp == vp);
 
@@ -283,7 +295,7 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 		}
 
 		info->vp = vp;
-		info->flags = FREAD | FWRITE;
+		info->flags = FREAD;
 
 		fi->fh = (uint64_t) (uintptr_t) info;
 	}
@@ -438,12 +450,48 @@ static void zfsfuse_readdir_helper(fuse_req_t req, fuse_ino_t ino, size_t size, 
 		fuse_reply_err(req, error);
 }
 
-static int zfsfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi, int fflags, mode_t createmode, const char *name)
 {
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
 	ZFS_ENTER(zfsvfs);
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	/* Map flags */
+	int mode, flags;
+
+	if(fflags & O_WRONLY) {
+		mode = VWRITE;
+		flags = FWRITE;
+	} else if(fflags & O_RDWR) {
+		mode = VREAD | VWRITE;
+		flags = FREAD | FWRITE;
+	} else {
+		mode = VREAD;
+		flags = FREAD;
+	}
+
+	if(fflags & O_CREAT)
+		flags |= FCREAT;
+	if(fflags & O_SYNC)
+		flags |= FSYNC;
+	if(fflags & O_DSYNC)
+		flags |= FDSYNC;
+	if(fflags & O_RSYNC)
+		flags |= FRSYNC;
+	if(fflags & O_APPEND)
+		flags |= FAPPEND;
+	if(fflags & O_LARGEFILE)
+		flags |= FOFFMAX;
+	if(fflags & O_NOFOLLOW)
+		flags |= FNOFOLLOW;
+	if(fflags & O_TRUNC)
+		flags |= FTRUNC;
+	if(fflags & O_EXCL)
+		flags |= FEXCL;
 
 	znode_t *znode;
 
@@ -457,36 +505,35 @@ static int zfsfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *f
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
-	vnode_t *old_vp = vp;
+	if (flags & FCREAT) {
+		enum vcexcl excl;
 
-	cred_t cred;
-	zfsfuse_getcred(req, &cred);
+		/*
+		 * Wish to create a file.
+		 */
+		vattr_t vattr;
+		vattr.va_type = VREG;
+		vattr.va_mode = createmode;
+		vattr.va_mask = AT_TYPE|AT_MODE;
+		if (flags & FTRUNC) {
+			vattr.va_size = 0;
+			vattr.va_mask |= AT_SIZE;
+		}
+		if (flags & FEXCL)
+			excl = EXCL;
+		else
+			excl = NONEXCL;
 
-	/* Map flags */
-	int mode, flags;
+		vnode_t *new_vp;
+		/* FIXME: check filesystem boundaries */
+		error = VOP_CREATE(vp, (char *) name, &vattr, excl, mode, &new_vp, &cred, 0);
 
-	if(fi->flags & O_WRONLY) {
-		mode = VWRITE;
-		flags = FWRITE;
-	} else if(fi->flags & O_RDWR) {
-		mode = VREAD | VWRITE;
-		flags = FREAD | FWRITE;
-	} else {
-		mode = VREAD;
-		flags = FREAD;
+		if(error)
+			goto out;
+
+		VN_RELE(vp);
+		vp = new_vp;
 	}
-	if(fi->flags & O_SYNC)
-		flags |= FSYNC;
-	if(fi->flags & O_DSYNC)
-		flags |= FDSYNC;
-	if(fi->flags & O_RSYNC)
-		flags |= FRSYNC;
-	if(fi->flags & O_APPEND)
-		flags |= FAPPEND;
-	if(fi->flags & O_LARGEFILE)
-		flags |= FOFFMAX;
-	if(fi->flags & O_NOFOLLOW)
-		flags |= FNOFOLLOW;
 
 	/*
 	 * Get the attributes to check whether file is large.
@@ -520,21 +567,41 @@ static int zfsfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *f
 		goto out;
 	}
 
+	vnode_t *old_vp = vp;
+
 	error = VOP_OPEN(&vp, flags, &cred);
 
 	ASSERT(old_vp == vp);
 
-	if(!error) {
-		file_info_t *info = malloc(sizeof(file_info_t));
-		if(info == NULL) {
-			error = ENOMEM;
+	if(error)
+		goto out;
+
+	struct fuse_entry_param e = { 0 };
+
+	if(flags & FCREAT) {
+		error = zfsfuse_stat(vp, &e.attr, &cred);
+		if(error)
 			goto out;
-		}
+	}
 
-		info->vp = vp;
-		info->flags = flags;
+	file_info_t *info = malloc(sizeof(file_info_t));
+	if(info == NULL) {
+		error = ENOMEM;
+		goto out;
+	}
 
-		fi->fh = (uint64_t) (uintptr_t) info;
+	info->vp = vp;
+	info->flags = flags;
+
+	fi->fh = (uint64_t) (uintptr_t) info;
+
+	if(flags & FCREAT) {
+		e.attr_timeout = 0.0;
+		e.entry_timeout = 0.0;
+		e.ino = VTOZ(vp)->z_id;
+		if(e.ino == 3)
+			e.ino = 1;
+		e.generation = VTOZ(vp)->z_phys->zp_gen;
 	}
 
 out:
@@ -545,9 +612,12 @@ out:
 
 	ZFS_EXIT(zfsvfs);
 
-	if(!error)
-		error = -fuse_reply_open(req, fi);
-
+	if(!error) {
+		if(!(flags & FCREAT))
+			error = -fuse_reply_open(req, fi);
+		else
+			error = -fuse_reply_create(req, &e, fi);
+	}
 	return error;
 }
 
@@ -555,7 +625,16 @@ static void zfsfuse_open_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file
 {
 	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
 
-	int error = zfsfuse_open(req, real_ino, fi);
+	int error = zfsfuse_opencreate(req, real_ino, fi, fi->flags, 0, NULL);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
+static void zfsfuse_create_helper(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_parent = parent == 1 ? 3 : parent;
+
+	int error = zfsfuse_opencreate(req, real_parent, fi, fi->flags | O_CREAT, mode, name);
 	if(error)
 		fuse_reply_err(req, error);
 }
@@ -891,6 +970,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.readlink   = zfsfuse_readlink_helper,
 	.mkdir      = zfsfuse_mkdir_helper,
 	.rmdir      = zfsfuse_rmdir_helper,
+	.create     = zfsfuse_create_helper,
 	.setattr    = zfsfuse_setattr_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,

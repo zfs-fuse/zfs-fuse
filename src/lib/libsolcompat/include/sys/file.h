@@ -39,6 +39,7 @@
 #define FSYNC   O_SYNC
 #define FDSYNC  O_DSYNC
 #define FRSYNC  O_RSYNC
+#define FEXCL   O_EXCL
 
 #define FNODSYNC  0x10000 /* fsync pseudo flag */
 #define FNOFOLLOW 0x20000 /* don't follow symlinks */

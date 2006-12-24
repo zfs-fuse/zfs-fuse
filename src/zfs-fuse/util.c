@@ -100,6 +100,10 @@ void do_exit()
 #define FUSE_OPTIONS "fsname=%s,allow_other"
 #endif
 
+#ifdef DEBUG
+uint32_t mounted = 0;
+#endif
+
 int do_mount(char *spec, char *dir, int mflag, char *opt)
 {
 	VERIFY(mflag == 0);
@@ -173,6 +177,10 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		return EIO;
 	}
 
+#ifdef DEBUG
+	atomic_inc_32(&mounted);;
+#endif
+
 	return 0;
 }
 
@@ -184,6 +192,10 @@ int do_umount(vfs_t *vfs)
 
 	ASSERT(vfs->vfs_count == 1);
 	VFS_RELE(vfs);
+
+#ifdef DEBUG
+	fprintf(stderr, "mounted filesystems: %i\n", atomic_dec_32_nv(&mounted));
+#endif
 
 	return ret;
 }
