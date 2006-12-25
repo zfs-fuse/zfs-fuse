@@ -64,8 +64,14 @@ static void zfsfuse_destroy(void *userdata)
 	req.tv_sec = 0;
 	req.tv_nsec = 100000000; /* 100 ms */
 
+#ifdef DEBUG
+	fprintf(stderr, "Calling do_umount()...\n");
+#endif
 	while(do_umount(vfs) != 0)
 		nanosleep(&req, NULL);
+#ifdef DEBUG
+	fprintf(stderr, "do_umount() done\n");
+#endif
 }
 
 static void zfsfuse_statfs(fuse_req_t req)
@@ -1218,6 +1224,8 @@ static int zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, f
 		return error;
 	}
 
+	ASSERT(p_znode != NULL);
+
 	error = zfs_zget(zfsvfs, newparent, &np_znode);
 	if(error) {
 		VN_RELE(ZTOV(p_znode));
@@ -1225,8 +1233,8 @@ static int zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, f
 		return error;
 	}
 
-	ASSERT(p_znode != NULL);
 	ASSERT(np_znode != NULL);
+
 	vnode_t *p_vp = ZTOV(p_znode);
 	vnode_t *np_vp = ZTOV(np_znode);
 	ASSERT(p_vp != NULL);
@@ -1290,6 +1298,88 @@ static void zfsfuse_fsync_helper(fuse_req_t req, fuse_ino_t ino, int datasync, s
 	fuse_reply_err(req, error);
 }
 
+static int zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, const char *newname)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *td_znode, *s_znode;
+
+	int error = zfs_zget(zfsvfs, ino, &s_znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(s_znode != NULL);
+
+	error = zfs_zget(zfsvfs, newparent, &td_znode);
+	if(error) {
+		VN_RELE(ZTOV(s_znode));
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	vnode_t *svp = ZTOV(s_znode);
+	vnode_t *tdvp = ZTOV(td_znode);
+	ASSERT(svp != NULL);
+	ASSERT(tdvp != NULL);
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	error = VOP_LINK(tdvp, svp, (char *) newname, &cred);
+
+	vnode_t *vp = NULL;
+
+	if(error)
+		goto out;
+
+	error = VOP_LOOKUP(tdvp, (char *) newname, &vp, NULL, 0, NULL, &cred);
+	if(error)
+		goto out;
+
+	ASSERT(vp != NULL);
+
+	struct fuse_entry_param e = { 0 };
+
+	e.attr_timeout = 0.0;
+	e.entry_timeout = 0.0;
+
+	e.ino = VTOZ(vp)->z_id;
+	if(e.ino == 3)
+		e.ino = 1;
+
+	e.generation = VTOZ(vp)->z_phys->zp_gen;
+
+	error = zfsfuse_stat(vp, &e.attr, &cred);
+
+out:
+	if(vp != NULL)
+		VN_RELE(vp);
+	VN_RELE(tdvp);
+	VN_RELE(svp);
+
+	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_entry(req, &e);
+
+	return error;
+}
+
+static void zfsfuse_link_helper(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, const char *newname)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+	fuse_ino_t real_newparent = newparent == 1 ? 3 : newparent;
+
+	int error = zfsfuse_link(req, real_ino, real_newparent, newname);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -1308,6 +1398,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.unlink     = zfsfuse_unlink_helper,
 	.mknod      = zfsfuse_mknod_helper,
 	.symlink    = zfsfuse_symlink_helper,
+	.link       = zfsfuse_link_helper,
 	.rename     = zfsfuse_rename_helper,
 	.setattr    = zfsfuse_setattr_helper,
 	.fsync      = zfsfuse_fsync_helper,
