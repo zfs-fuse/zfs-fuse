@@ -1256,6 +1256,40 @@ static void zfsfuse_rename_helper(fuse_req_t req, fuse_ino_t parent, const char 
 	fuse_reply_err(req, error);
 }
 
+static int zfsfuse_fsync(fuse_req_t req, fuse_ino_t ino, int datasync, struct fuse_file_info *fi)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+	ASSERT(info->vp != NULL);
+	ASSERT(VTOZ(info->vp) != NULL);
+	ASSERT(VTOZ(info->vp)->z_id == ino);
+
+	vnode_t *vp = info->vp;
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	int error = VOP_FSYNC(vp, datasync ? FDSYNC : FSYNC, &cred);
+
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_fsync_helper(fuse_req_t req, fuse_ino_t ino, int datasync, struct fuse_file_info *fi)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_fsync(req, real_ino, datasync, fi);
+
+	/* fsync events always reply_err */
+	fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -1276,6 +1310,8 @@ struct fuse_lowlevel_ops zfs_operations =
 	.symlink    = zfsfuse_symlink_helper,
 	.rename     = zfsfuse_rename_helper,
 	.setattr    = zfsfuse_setattr_helper,
+	.fsync      = zfsfuse_fsync_helper,
+	.fsyncdir   = zfsfuse_fsync_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
 };
