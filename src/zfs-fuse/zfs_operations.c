@@ -1380,6 +1380,55 @@ static void zfsfuse_link_helper(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newpa
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_access(fuse_req_t req, fuse_ino_t ino, int mask)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, ino, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *vp = ZTOV(znode);
+	ASSERT(vp != NULL);
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	int mode = 0;
+	if(mask & R_OK)
+		mode |= VREAD;
+	if(mask & W_OK)
+		mode |= VWRITE;
+	if(mask & X_OK)
+		mode |= VEXEC;
+
+	error = VOP_ACCESS(vp, mode, 0, &cred);
+
+	VN_RELE(vp);
+
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_access_helper(fuse_req_t req, fuse_ino_t ino, int mask)
+{
+	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
+
+	int error = zfsfuse_access(req, real_ino, mask);
+
+	/* access events always reply_err */
+	fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -1403,6 +1452,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.setattr    = zfsfuse_setattr_helper,
 	.fsync      = zfsfuse_fsync_helper,
 	.fsyncdir   = zfsfuse_fsync_helper,
+	.access     = zfsfuse_access_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
 };
