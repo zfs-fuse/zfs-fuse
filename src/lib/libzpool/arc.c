@@ -153,7 +153,7 @@ static int arc_dead;
  * These tunables are for performance analysis.
  */
 uint64_t zfs_arc_max = 100<<20;
-uint64_t zfs_arc_min = 64<<20;
+uint64_t zfs_arc_min = 64<<20 + 1;
 
 /*
  * Note that buffers can be on one of 5 states:

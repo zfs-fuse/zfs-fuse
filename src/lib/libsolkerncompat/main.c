@@ -55,7 +55,7 @@ void libsolkerncompat_init()
 	printf("ncpus = %i\n", ncpus);
 	printf("physmem = %llu pages (%.2f GB)\n", (unsigned long long) physmem, (double) physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 	printf("pagesize = %li, pageshift: %i\n", _pagesize, _pageshift);
-	printf("pwd_buflen = %li, grp_buflen = %li\n", pwd_buflen, grp_buflen);
+	printf("pwd_buflen = %li, grp_buflen = %li\n\n", pwd_buflen, grp_buflen);
 #endif
 
 	vfs_init();
