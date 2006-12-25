@@ -504,12 +504,17 @@ vn_rdwr(enum uio_rw uio, vnode_t *vp, caddr_t addr, ssize_t len, offset_t offset
 {
 	ssize_t iolen;
 
-	if (uio == UIO_READ)
+	if (uio == UIO_READ) {
 		iolen = pread64(vp->v_fd, addr, len, offset);
-	else
+		if(iolen == -1)
+			perror("pread64");
+	} else {
 		iolen = pwrite64(vp->v_fd, addr, len, offset);
+		if(iolen == -1)
+			perror("pwrite64");
+	}
 
-	if(iolen < len)
+	if(iolen != len)
 		fprintf(stderr, "%s: len: %lli iolen: %lli offset: %lli file: %s\n", uio == UIO_READ ? "UIO_READ" : "UIO_WRITE", (longlong_t) len, (longlong_t) iolen, (longlong_t) offset, vp->v_path);
 
 	if (iolen == -1)

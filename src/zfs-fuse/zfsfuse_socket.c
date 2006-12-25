@@ -139,7 +139,8 @@ int xcopyin(const void *src, void *dest, size_t size)
 	zfsfuse_cmd_t cmd;
 #endif
 
-	ASSERT(cur_fd >= 0);
+	/* This should catch stray xcopyin()s in the code.. */
+	VERIFY(cur_fd >= 0);
 
 	cmd.cmd_type = COPYIN_REQ;
 	cmd.cmd_u.copy_req.ptr = (uint64_t)(uintptr_t) src;
@@ -165,7 +166,8 @@ int xcopyout(const void *src, void *dest, size_t size)
 	zfsfuse_cmd_t cmd;
 #endif
 
-	ASSERT(cur_fd >= 0);
+	/* This should catch stray xcopyout()s in the code.. */
+	VERIFY(cur_fd >= 0);
 
 	cmd.cmd_type = COPYOUT_REQ;
 	cmd.cmd_u.copy_req.ptr = (uint64_t)(uintptr_t) dest;
