@@ -30,14 +30,31 @@
 #include <errno.h>
 #include <unistd.h>	
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <fcntl.h>
 
 #include <sys/fs/zfs.h>
 
 #include "zfsfuse_socket.h"
 
+#define LOCKDIR "/var/lock/zfs"
+#define LOCKFILE LOCKDIR "/zfs_lock"
+
 int cur_fd = -1;
+
+static int zfsfuse_do_locking()
+{
+	/* Ignores errors since the directory might already exist */
+	mkdir(LOCKDIR, 0700);
+
+	int lock_fd = creat(LOCKFILE, S_IRUSR | S_IWUSR);
+	if(lock_fd == -1)
+		return -1;
+
+	return lockf(lock_fd, F_TLOCK, 0);
+}
 
 int zfsfuse_socket_create()
 {
@@ -45,6 +62,11 @@ int zfsfuse_socket_create()
 
 	int sock;
 	size_t size;
+
+	if(zfsfuse_do_locking() != 0) {
+		fprintf(stderr, "\nError locking " LOCKFILE "\nMake sure there isn't another zfs-fuse process running\n");
+		return -1;
+	}
 
 	/* Create the socket. */
 	sock = socket(PF_LOCAL, SOCK_STREAM, 0);
