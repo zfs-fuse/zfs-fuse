@@ -80,7 +80,7 @@ int groupmember(gid_t gid, const cred_t *cr)
 	error = getgrgid_r(gid, &gbuf, grp_buf, grp_buflen, &gbufp);
 	if(error) {
 		/* We'll reuse grp_buf */
-		if(strerror_r(error, grp_buf, grp_buflen))
+		if(strerror_r(error, grp_buf, grp_buflen) == 0)
 			fprintf(stderr, "getgrgid_r(): %s\n", grp_buf);
 		else
 			perror("strerror_r");
@@ -101,7 +101,7 @@ int groupmember(gid_t gid, const cred_t *cr)
 	error = getpwuid_r(cr->cr_uid, &pwbuf, pwd_buf, pwd_buflen, &pwbufp);
 	if(error) {
 		/* We'll reuse grp_buf, since we no longer need it */
-		if(strerror_r(error, grp_buf, grp_buflen))
+		if(strerror_r(error, grp_buf, grp_buflen) == 0)
 			fprintf(stderr, "getpwuid_r(): %s\n", grp_buf);
 		else
 			perror("strerror_r");
