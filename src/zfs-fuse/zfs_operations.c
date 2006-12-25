@@ -1128,6 +1128,81 @@ static void zfsfuse_mknod_helper(fuse_req_t req, fuse_ino_t parent, const char *
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent, const char *name)
+{
+/*static int
+zfs_symlink(vnode_t *dvp, char *name, vattr_t *vap, char *link, cred_t *cr)*/
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	vattr_t vattr;
+	vattr.va_type = VLNK;
+	vattr.va_mode = 0777;
+	vattr.va_mask = AT_TYPE | AT_MODE;
+
+	error = VOP_SYMLINK(dvp, (char *) name, &vattr, (char *) link, &cred);
+
+	vnode_t *vp = NULL;
+
+	if(error)
+		goto out;
+
+	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred);
+	if(error)
+		goto out;
+
+	struct fuse_entry_param e = { 0 };
+
+	e.attr_timeout = 0.0;
+	e.entry_timeout = 0.0;
+
+	e.ino = VTOZ(vp)->z_id;
+	if(e.ino == 3)
+		e.ino = 1;
+
+	e.generation = VTOZ(vp)->z_phys->zp_gen;
+
+	error = zfsfuse_stat(vp, &e.attr, &cred);
+
+out:
+	if(vp != NULL)
+		VN_RELE(vp);
+	VN_RELE(dvp);
+
+	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_entry(req, &e);
+
+	return error;
+}
+
+static void zfsfuse_symlink_helper(fuse_req_t req, const char *link, fuse_ino_t parent, const char *name)
+{
+	fuse_ino_t real_parent = parent == 1 ? 3 : parent;
+
+	int error = zfsfuse_symlink(req, link, real_parent, name);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -1145,6 +1220,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.create     = zfsfuse_create_helper,
 	.unlink     = zfsfuse_unlink_helper,
 	.mknod      = zfsfuse_mknod_helper,
+	.symlink    = zfsfuse_symlink_helper,
 	.setattr    = zfsfuse_setattr_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
