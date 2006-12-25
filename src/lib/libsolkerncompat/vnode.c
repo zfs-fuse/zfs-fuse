@@ -289,7 +289,7 @@ vnode_t *vn_alloc(int kmflag)
 		vn_reinit(vp);
 	}
 
-	fprintf(stderr, "VNode %p alloc'ed\n", vp);
+	/*fprintf(stderr, "VNode %p alloc'ed\n", vp);*/
 	return vp;
 }
 
@@ -476,7 +476,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 	vp->v_count = 1;
 
-	fprintf(stderr, "VNode %p created at vn_open (%s)\n", *vpp, path);
+	/*fprintf(stderr, "VNode %p created at vn_open (%s)\n", *vpp, path);*/
 	return (0);
 }
 
@@ -529,7 +529,7 @@ void vn_rele(vnode_t *vp)
 	mutex_enter(&vp->v_lock);
 	if(vp->v_count == 1) {
 		mutex_exit(&vp->v_lock);
-		fprintf(stderr, "VNode %p inactive\n", vp);
+		/* fprintf(stderr, "VNode %p inactive\n", vp); */
 		VOP_INACTIVE(vp, CRED());
 	} else {
 		vp->v_count--;
@@ -546,7 +546,7 @@ void vn_close(vnode_t *vp)
 	if(vp->v_path != NULL)
 		free(vp->v_path);
 	umem_free(vp, sizeof (vnode_t));
-	fprintf(stderr, "VNode %p freed\n", vp);
+	/* fprintf(stderr, "VNode %p freed\n", vp); */
 }
 
 int
@@ -1123,6 +1123,7 @@ root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 static int
 root_fsync(vnode_t *vp, int syncflag, cred_t *cr)
 {
+	/* fprintf(stderr, "fsync!: %i\n", vp->v_fd); */
 	return fsync(vp->v_fd);
 }
 

@@ -94,11 +94,7 @@ void do_exit()
 	libsolkerncompat_exit();
 }
 
-#ifdef DEBUG
-#define FUSE_OPTIONS "fsname=%s,allow_other,debug"
-#else
 #define FUSE_OPTIONS "fsname=%s,allow_other"
-#endif
 
 #ifdef DEBUG
 uint32_t mounted = 0;
