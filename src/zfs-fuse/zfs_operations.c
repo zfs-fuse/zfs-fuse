@@ -1130,8 +1130,6 @@ static void zfsfuse_mknod_helper(fuse_req_t req, fuse_ino_t parent, const char *
 
 static int zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent, const char *name)
 {
-/*static int
-zfs_symlink(vnode_t *dvp, char *name, vattr_t *vap, char *link, cred_t *cr)*/
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1168,6 +1166,8 @@ zfs_symlink(vnode_t *dvp, char *name, vattr_t *vap, char *link, cred_t *cr)*/
 	if(error)
 		goto out;
 
+	ASSERT(vp != NULL);
+
 	struct fuse_entry_param e = { 0 };
 
 	e.attr_timeout = 0.0;
@@ -1203,6 +1203,59 @@ static void zfsfuse_symlink_helper(fuse_req_t req, const char *link, fuse_ino_t 
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, fuse_ino_t newparent, const char *newname)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *p_znode, *np_znode;
+
+	int error = zfs_zget(zfsvfs, parent, &p_znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	error = zfs_zget(zfsvfs, newparent, &np_znode);
+	if(error) {
+		VN_RELE(ZTOV(p_znode));
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(p_znode != NULL);
+	ASSERT(np_znode != NULL);
+	vnode_t *p_vp = ZTOV(p_znode);
+	vnode_t *np_vp = ZTOV(np_znode);
+	ASSERT(p_vp != NULL);
+	ASSERT(np_vp != NULL);
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	error = VOP_RENAME(p_vp, (char *) name, np_vp, (char *) newname, &cred);
+
+	VN_RELE(p_vp);
+	VN_RELE(np_vp);
+
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+static void zfsfuse_rename_helper(fuse_req_t req, fuse_ino_t parent, const char *name, fuse_ino_t newparent, const char *newname)
+{
+	fuse_ino_t real_parent = parent == 1 ? 3 : parent;
+	fuse_ino_t real_newparent = newparent == 1 ? 3 : newparent;
+
+	int error = zfsfuse_rename(req, real_parent, name, real_newparent, newname);
+
+	/* rename events always reply_err */
+	fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -1221,6 +1274,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.unlink     = zfsfuse_unlink_helper,
 	.mknod      = zfsfuse_mknod_helper,
 	.symlink    = zfsfuse_symlink_helper,
+	.rename     = zfsfuse_rename_helper,
 	.setattr    = zfsfuse_setattr_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
