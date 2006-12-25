@@ -114,6 +114,13 @@ typedef enum vtype {
 #define CREATE_XATTR_DIR 0x04 /* Create extended attr dir */
 
 /*
+ * Flags for VOP_RWLOCK/VOP_RWUNLOCK
+ * VOP_RWLOCK will return the flag that was actually set, or -1 if none.
+ */
+#define V_WRITELOCK_TRUE  (1) /* Request write-lock on the vnode */
+#define V_WRITELOCK_FALSE (0) /* Request read-lock on the vnode */
+
+/*
  *  Modes.  Some values same as S_xxx entries from stat.h for convenience.
  */
 #define VSUID    04000 /* set user id on execution */

@@ -38,7 +38,8 @@
 #include <pthread.h>
 #include <unistd.h>
 
-static struct vfs st_rootvfs = {};
+struct vfs st_rootvfs = {};
+
 static vnode_t st_rootdir = {
 	.v_fd = -1,
 	.v_type = VDIR,

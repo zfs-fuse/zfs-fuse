@@ -62,7 +62,7 @@ extern int ngroups_max;
 /*
  * kcred is used when you need all privileges.
  */
-#define kcred NULL
+extern struct cred *kcred;
 
 extern void cred_init(void);
 extern void crhold(cred_t *);

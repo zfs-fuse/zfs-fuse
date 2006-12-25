@@ -65,6 +65,11 @@
 #define VOPSTATS_UPDATE(vp, counter) ((void) 0)
 #define VOPSTATS_UPDATE_IO(vp, readdir, readdir_bytes, x) ((void) 0)
 
+/* Determine if this vnode is a file that is read-only */
+#define ISROFILE(vp) \
+	((vp)->v_type != VCHR && (vp)->v_type != VBLK && \
+	    (vp)->v_type != VFIFO && vn_is_readonly(vp))
+
 /*
  * Convert stat(2) formats to vnode types and vice versa.  (Knows about
  * numerical order of S_IFMT and vnode types.)
@@ -475,6 +480,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 	rwst_init(&vp->v_vfsmhlock.ve_lock, NULL, RW_DEFAULT, NULL);
 
 	vp->v_count = 1;
+	vp->v_vfsp = rootvfs;
 
 	/*fprintf(stderr, "VNode %p created at vn_open (%s)\n", *vpp, path);*/
 	return (0);
@@ -497,33 +503,60 @@ vn_openat(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum 
 	return (ret);
 }
 
-/*ARGSUSED*/
+/*
+ * Read or write a vnode.  Called from kernel code.
+ */
 int
-vn_rdwr(enum uio_rw uio, vnode_t *vp, caddr_t addr, ssize_t len, offset_t offset,
-	enum uio_seg x1, int x2, rlim64_t x3, cred_t *x4, ssize_t *residp)
+vn_rdwr(
+	enum uio_rw rw,
+	struct vnode *vp,
+	caddr_t base,
+	ssize_t len,
+	offset_t offset,
+	enum uio_seg seg,
+	int ioflag,
+	rlim64_t ulimit,	/* meaningful only if rw is UIO_WRITE */
+	cred_t *cr,
+	ssize_t *residp)
 {
-	ssize_t iolen;
+	struct uio uio;
+	struct iovec iov;
+	int error;
 
-	if (uio == UIO_READ) {
-		iolen = pread64(vp->v_fd, addr, len, offset);
-		if(iolen == -1)
-			perror("pread64");
-	} else {
-		iolen = pwrite64(vp->v_fd, addr, len, offset);
-		if(iolen == -1)
-			perror("pwrite64");
-	}
+	if (rw == UIO_WRITE && ISROFILE(vp))
+		return (EROFS);
 
-	if(iolen != len)
-		fprintf(stderr, "%s: len: %lli iolen: %lli offset: %lli file: %s\n", uio == UIO_READ ? "UIO_READ" : "UIO_WRITE", (longlong_t) len, (longlong_t) iolen, (longlong_t) offset, vp->v_path);
-
-	if (iolen == -1)
-		return (errno);
-	if (residp)
-		*residp = len - iolen;
-	else if (iolen != len)
+	if (len < 0)
 		return (EIO);
-	return (0);
+
+	iov.iov_base = base;
+	iov.iov_len = len;
+	uio.uio_iov = &iov;
+	uio.uio_iovcnt = 1;
+	uio.uio_loffset = offset;
+	uio.uio_segflg = (short)seg;
+	uio.uio_resid = len;
+	uio.uio_llimit = ulimit;
+
+	(void) VOP_RWLOCK(vp,
+		rw == UIO_WRITE ? V_WRITELOCK_TRUE : V_WRITELOCK_FALSE, NULL);
+	if (rw == UIO_WRITE) {
+		uio.uio_fmode = FWRITE;
+		uio.uio_extflg = UIO_COPY_DEFAULT;
+		error = VOP_WRITE(vp, &uio, ioflag, cr, NULL);
+	} else {
+		uio.uio_fmode = FREAD;
+		uio.uio_extflg = UIO_COPY_CACHED;
+		error = VOP_READ(vp, &uio, ioflag, cr, NULL);
+	}
+	VOP_RWUNLOCK(vp, rw == UIO_WRITE ? V_WRITELOCK_TRUE : V_WRITELOCK_FALSE,
+									NULL);
+	if (residp)
+		*residp = uio.uio_resid;
+	else if (uio.uio_resid)
+		error = EIO;
+
+	return (error);
 }
 
 void vn_rele(vnode_t *vp)
@@ -1118,9 +1151,33 @@ fop_write(
 	return (err);
 }
 
+int
+fop_rwlock(
+	vnode_t *vp,
+	int write_lock,
+	caller_context_t *ct)
+{
+	int	ret;
+
+	ret = ((*(vp)->v_op->vop_rwlock)(vp, write_lock, ct));
+	VOPSTATS_UPDATE(vp, rwlock);
+	return (ret);
+}
+
+void
+fop_rwunlock(
+	vnode_t *vp,
+	int write_lock,
+	caller_context_t *ct)
+{
+	(*(vp)->v_op->vop_rwunlock)(vp, write_lock, ct);
+	VOPSTATS_UPDATE(vp, rwunlock);
+}
+
 static int
 root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 {
+	VERIFY(vp->v_fd != -1);
 	vap->va_size = vp->v_size;
 	return 0;
 }
@@ -1128,6 +1185,7 @@ root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 static int
 root_fsync(vnode_t *vp, int syncflag, cred_t *cr)
 {
+	VERIFY(vp->v_fd != -1);
 	/* fprintf(stderr, "fsync!: %i\n", vp->v_fd); */
 	return fsync(vp->v_fd);
 }
@@ -1135,12 +1193,63 @@ root_fsync(vnode_t *vp, int syncflag, cred_t *cr)
 static int
 root_close(vnode_t *vp, int flag, int count, offset_t offset, cred_t *cr)
 {
+	VERIFY(vp->v_fd != -1);
 	return close(vp->v_fd);
+}
+
+static int
+root_read(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *ct)
+{
+	VERIFY(vp->v_fd != -1);
+
+	int error = 0;
+
+	ssize_t iolen = pread64(vp->v_fd, uiop->uio_iov->iov_base, uiop->uio_iov->iov_len, uiop->uio_loffset);
+	if(iolen == -1) {
+		error = errno;
+		perror("pread64");
+	}
+
+	if(iolen != uiop->uio_iov->iov_len)
+		fprintf(stderr, "root_read(): len: %lli iolen: %lli offset: %lli file: %s\n", (longlong_t) uiop->uio_iov->iov_len, (longlong_t) iolen, (longlong_t) uiop->uio_loffset, vp->v_path);
+
+	if(error)
+		return error;
+
+	uiop->uio_resid -= iolen;
+
+	return 0;
+}
+
+static int
+root_write(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *ct)
+{
+	VERIFY(vp->v_fd != -1);
+
+	int error = 0;
+
+	ssize_t iolen = pwrite64(vp->v_fd, uiop->uio_iov->iov_base, uiop->uio_iov->iov_len, uiop->uio_loffset);
+	if(iolen == -1) {
+		error = errno;
+		perror("pwrite64");
+	}
+
+	if(iolen != uiop->uio_iov->iov_len)
+		fprintf(stderr, "root_write(): len: %lli iolen: %lli offset: %lli file: %s\n", (longlong_t) uiop->uio_iov->iov_len, (longlong_t) iolen, (longlong_t) uiop->uio_loffset, vp->v_path);
+
+	if(error)
+		return error;
+
+	uiop->uio_resid -= iolen;
+
+	return 0;
 }
 
 const fs_operation_def_t root_fvnodeops_template[] = {
 	VOPNAME_GETATTR, root_getattr,
 	VOPNAME_FSYNC, root_fsync,
 	VOPNAME_CLOSE, root_close,
+	VOPNAME_READ, root_read,
+	VOPNAME_WRITE, root_write,
 	NULL, NULL
 };

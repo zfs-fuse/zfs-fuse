@@ -25,6 +25,7 @@
 
 #include <sys/debug.h>
 #include <sys/types.h>
+#include <sys/cred.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -114,7 +115,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	struct mounta uap = {spec, dir, mflag, NULL, opt, strlen(opt)};
 
-	int ret = VFS_MOUNT(vfs, rootdir, &uap, NULL);
+	int ret = VFS_MOUNT(vfs, rootdir, &uap, kcred);
 
 	if(ret != 0)
 		return ret;
@@ -182,7 +183,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 int do_umount(vfs_t *vfs)
 {
-	int ret = VFS_UNMOUNT(vfs, 0, NULL);
+	int ret = VFS_UNMOUNT(vfs, 0, kcred);
 	if(ret != 0)
 		return ret;
 

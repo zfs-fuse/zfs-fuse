@@ -40,6 +40,9 @@
 long pwd_buflen = 0;
 long grp_buflen = 0;
 
+cred_t st_kcred = { 0 };
+cred_t *kcred = &st_kcred;
+
 uid_t crgetuid(const cred_t *cr)
 {
 	return cr->cr_uid;
