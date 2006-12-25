@@ -30,6 +30,15 @@
 #include <sys/policy.h>
 #include <sys/stat.h>
 #include <sys/errno.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <pwd.h>
+#include <grp.h>
+#include <errno.h>
+#include <string.h>
+
+long pwd_buflen = 0;
+long grp_buflen = 0;
 
 uid_t crgetuid(const cred_t *cr)
 {
@@ -46,13 +55,82 @@ int groupmember(gid_t gid, const cred_t *cr)
 	if(gid == cr->cr_gid)
 		return 1;
 
-	/*
-	 * ZFSFUSE: FIXME: there should be a check here to see if
-	 * the user belongs to the group "gid", but FUSE doesn't
-	 * provide the necessary info
-	 */
+	/* This whole thing is very expensive, FUSE should provide the list of groups the user belongs to.. */
 
-	return 0;
+	char *pwd_buf = NULL;
+	char *grp_buf = NULL;
+	int error = 0;
+
+	pwd_buf = malloc(pwd_buflen);
+	if(pwd_buf == NULL) {
+		fprintf(stderr, "groupmember(): pwd_buf memory allocation failed\n");
+		error = 1;
+		goto out;
+	}
+
+	grp_buf = malloc(grp_buflen);
+	if(grp_buf == NULL) {
+		fprintf(stderr, "groupmember(): grp_buf memory allocation failed\n");
+		error = 1;
+		goto out;
+	}
+
+	struct group gbuf, *gbufp;
+
+	error = getgrgid_r(gid, &gbuf, grp_buf, grp_buflen, &gbufp);
+	if(error) {
+		/* We'll reuse grp_buf */
+		if(strerror_r(error, grp_buf, grp_buflen))
+			fprintf(stderr, "getgrgid_r(): %s\n", grp_buf);
+		else
+			perror("strerror_r");
+
+		goto out;
+	}
+
+	/* gid no longer exists? */
+	if(gbufp == NULL) {
+		error = 1;
+		goto out;
+	}
+
+	VERIFY(gbufp == &gbuf);
+
+	struct passwd pwbuf, *pwbufp;
+
+	error = getpwuid_r(cr->cr_uid, &pwbuf, pwd_buf, pwd_buflen, &pwbufp);
+	if(error) {
+		/* We'll reuse grp_buf, since we no longer need it */
+		if(strerror_r(error, grp_buf, grp_buflen))
+			fprintf(stderr, "getpwuid_r(): %s\n", grp_buf);
+		else
+			perror("strerror_r");
+
+		goto out;
+	}
+
+	/* uid no longer exists? */
+	if(pwbufp == NULL) {
+		error = 1;
+		goto out;
+	}
+
+	VERIFY(pwbufp == &pwbuf);
+
+	for(int i = 0; gbuf.gr_mem[i] != NULL; i++)
+		if(strcmp(gbuf.gr_mem[i], pwbuf.pw_name) == 0)
+			goto out;
+
+	error = 1;
+
+out:
+	if(pwd_buf != NULL)
+		free(pwd_buf);
+	if(grp_buf != NULL)
+		free(grp_buf);
+
+	/* If error == 0 then the user belongs to the group */
+	return error ? 0 : 1;
 }
 
 /*

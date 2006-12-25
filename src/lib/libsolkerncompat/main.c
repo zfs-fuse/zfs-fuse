@@ -26,6 +26,7 @@
 
 #include <sys/types.h>
 #include <sys/debug.h>
+#include <sys/policy.h>
 
 #include <stdio.h>
 #include <unistd.h>
@@ -45,6 +46,8 @@ void libsolkerncompat_init()
 	physmem = sysconf(_SC_PHYS_PAGES);
 	_pagesize = sysconf(_SC_PAGESIZE);
 	_pageshift = ffs(_pagesize) - 1;
+	pwd_buflen = sysconf(_SC_GETPW_R_SIZE_MAX);
+	grp_buflen = sysconf(_SC_GETGR_R_SIZE_MAX);
 
 	VERIFY(ncpus > 0 && physmem > 0);
 
@@ -52,6 +55,7 @@ void libsolkerncompat_init()
 	printf("ncpus = %i\n", ncpus);
 	printf("physmem = %llu pages (%.2f GB)\n", (unsigned long long) physmem, (double) physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 	printf("pagesize = %li, pageshift: %i\n", _pagesize, _pageshift);
+	printf("pwd_buflen = %li, grp_buflen = %li\n", pwd_buflen, grp_buflen);
 #endif
 
 	vfs_init();

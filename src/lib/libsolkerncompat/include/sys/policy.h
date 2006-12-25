@@ -36,6 +36,9 @@ enum {
 	PRIV_FILE_CHOWN_SELF
 };
 
+extern long pwd_buflen;
+extern long grp_buflen;
+
 #define HAS_PRIVILEGE(cr, pr) (crgetuid(cr) == 0)
 #define PRIV_POLICY(cred, priv, all, err, reason) (crgetuid(cred) == 0 ? 0 : err)
 
