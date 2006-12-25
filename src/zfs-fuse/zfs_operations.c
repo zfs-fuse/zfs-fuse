@@ -1051,6 +1051,83 @@ static void zfsfuse_write_helper(fuse_req_t req, fuse_ino_t ino, const char *buf
 		fuse_reply_err(req, error);
 }
 
+static int zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, dev_t rdev)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent, &znode);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		return error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	vattr_t vattr;
+	vattr.va_type = IFTOVT(mode);
+	vattr.va_mode = mode & PERMMASK;
+	vattr.va_mask = AT_TYPE | AT_MODE;
+
+	if(mode & (S_IFCHR | S_IFBLK)) {
+		vattr.va_rdev = rdev;
+		vattr.va_mask |= AT_RDEV;
+	}
+
+	vnode_t *vp = NULL;
+
+	/* FIXME: check filesystem boundaries */
+	error = VOP_CREATE(dvp, (char *) name, &vattr, EXCL, 0, &vp, &cred, 0);
+
+	VN_RELE(dvp);
+
+	if(error)
+		goto out;
+
+	ASSERT(vp != NULL);
+
+	struct fuse_entry_param e = { 0 };
+
+	e.attr_timeout = 0.0;
+	e.entry_timeout = 0.0;
+
+	e.ino = VTOZ(vp)->z_id;
+	if(e.ino == 3)
+		e.ino = 1;
+
+	e.generation = VTOZ(vp)->z_phys->zp_gen;
+
+	error = zfsfuse_stat(vp, &e.attr, &cred);
+
+out:
+	if(vp != NULL)
+		VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		error = -fuse_reply_entry(req, &e);
+
+	return error;
+}
+
+static void zfsfuse_mknod_helper(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, dev_t rdev)
+{
+	fuse_ino_t real_parent = parent == 1 ? 3 : parent;
+
+	int error = zfsfuse_mknod(req, real_parent, name, mode, rdev);
+	if(error)
+		fuse_reply_err(req, error);
+}
+
 struct fuse_lowlevel_ops zfs_operations =
 {
 	.open       = zfsfuse_open_helper,
@@ -1067,6 +1144,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.rmdir      = zfsfuse_rmdir_helper,
 	.create     = zfsfuse_create_helper,
 	.unlink     = zfsfuse_unlink_helper,
+	.mknod      = zfsfuse_mknod_helper,
 	.setattr    = zfsfuse_setattr_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,

@@ -435,8 +435,7 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, uint64_t obj_num, int blksz)
 		break;
 	case VBLK:
 	case VCHR:
-		/* ZFSFUSE: FIXME */
-		/* vp->v_rdev = zfs_cmpldev(zp->z_phys->zp_rdev); */
+		vp->v_rdev = zfs_cmpldev(zp->z_phys->zp_rdev);
 		/*FALLTHROUGH*/
 	case VFIFO:
 	case VSOCK:
