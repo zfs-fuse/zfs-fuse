@@ -76,6 +76,9 @@ int zfsfuse_socket_create()
 		return -1;
 	}
 
+	/* Try to create the directory, ignore errors */
+	mkdir(ZPOOL_CACHE_DIR, 0700);
+
 	/* Bind a name to the socket. */
 	name.sun_family = AF_LOCAL;
 	strncpy(name.sun_path, ZFS_DEV_NAME, sizeof(name.sun_path));

@@ -297,7 +297,7 @@ typedef struct vdev_stat {
  * ZFSFUSE: Renamed ZFS_DEV to ZFS_DEV_NAME in order to
  * catch all occurrences of this symbol.
  */
-#define ZFS_DEV_NAME "/etc/zfs/zfs_socket"
+#define ZFS_DEV_NAME ZPOOL_CACHE_DIR "/zfs_socket"
 
 /*
  * zvol paths.  Irritatingly, the devfsadm interfaces want all these
