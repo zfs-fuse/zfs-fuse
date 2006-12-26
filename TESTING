@@ -1,15 +1,6 @@
 Testing
 -------
 
-Right now, the best way to test zfs-fuse is by creating zpools and filesystems
-in Solaris, and trying to read them in Linux. However, don't use it on
-important data because at this moment zfs-fuse can corrupt your filesystems!
-
-If you can make zfs-fuse misbehave or crash, please read the BUGS file in order
-to report bugs.
-
-ztest
------
 If you want to run ztest, you need a directory with about 2 GB free
 (be careful, it uses /tmp by default).
 You should have properly cooled CPU(s) and hard drive(s).

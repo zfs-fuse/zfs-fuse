@@ -1,6 +1,11 @@
 import os, sys, re
 
-install_dir = '/usr/local/sbin'
+# Accepted parameters (and defaults):
+#
+#   install_dir=/usr/local/sbin - directory where the install target copies the binaries
+#   debug=1 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
+
+install_dir = ARGUMENTS.get('install_dir', '/usr/local/sbin')
 
 env = Environment()
 

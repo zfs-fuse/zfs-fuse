@@ -6,85 +6,32 @@ of the Google Summer of Code 2006 initiative.
 
 The project homepage is at http://www.wizy.org/wiki/ZFS_on_FUSE
 
-Prerequisites
--------------
+Status
+------
+See the STATUS file for status information.
 
-In order to compile and use zfs-fuse, you need the following:
+Compiling / Installing
+----------------------
 
- * SCons (packaged in most distributions)
-   Website: http://www.scons.org
-
- * glibc version 2.3.3 or up with NPTL enabled.
-   You can check if it's enabled with the following command:
-
-   getconf GNU_LIBPTHREAD_VERSION
-
- * A 2.6.x Linux kernel
-
- * FUSE 2.5.x or greater
-
-Currently, it only works on the x86 and amd64 architectures.
-
-Compiling
----------
-
-If you don't have SCons yet, do the usual 'sudo apt-get install scons',
-'emerge scons' or 'yum install scons'.
-
-To compile follow these steps:
-
-  1) cd src
-  2) scons
-
-That's it!
-
-If the compilation fails, please report a bug in the following URL:
-http://developer.berlios.de/bugs/?group_id=6836
-
-Testing
--------
-
-If you want to run a few tests, please read the TESTING file.
+Please read the INSTALL file for instructions.
 
 Using
 -----
 
-At this moment it is possible to mount ZFS filesystems in read-only
-mode. You can also create, change properties and delete ZFS pools
-and filesystems.
+This is an alpha release, so it might corrupt your files.
+You should backup all your data first.
 
-So, if you want to play with zfs-fuse, you must do the following:
+1) Start the run.sh script in src/zfs-fuse.
 
-1) Create a "/etc/zfs" directory.
-
-Usually simply doing 'mkdir /etc/zfs' as root will do the job.
-
-This directory is used to store a UNIX local socket, needed for the
-zfs-fuse <-> zpool/zfs communication and the "zpool.cache" file that
-contains the description of all known ZFS pools.
-
-2) Start the zfs-fuse process.
-
-This is the main daemon process that must be running at all times.
-
-The recommended way to start it is with the provided 'run.sh' script,
-which will configure 'bash' to generate core files when zfs-fuse
-crashes.
-
+This will start the main zfs-fuse daemon process that must be running
+at all times.
 You should be running it with root permissions.
 
-3) Use the zpool and zfs commands to manage pools and filesystems.
+Currently it will use up to 100 MB of RAM (not configurable yet).
 
-You should backup all your data first.
+2) Use the zpool and zfs commands to manage pools and filesystems.
 
 You can learn about these commands at the OpenSolaris ZFS community
 site: http://www.opensolaris.org/os/community/zfs/
 
-Be careful when specifying disks/partitions (as opposed to files) as
-vdevs.
-
-I won't be held responsible if you lose data - either due to mistakes,
-deliberate actions or any bugs in the software!
-
-Note that at this time you will only be able to read files, you can't
-change/create files or directories yet.
+If you find a bug, please report it. See the BUGS file for instructions.
