@@ -352,7 +352,8 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 static uint64_t
 zfs_expldev(dev_t dev)
 {
-#ifndef _LP64
+/* ZFSFUSE: dev_t is always 64 bits in linux */
+#if 0
 	major_t major = (major_t)dev >> NBITSMINOR32 & MAXMAJ32;
 	return (((uint64_t)major << NBITSMINOR64) |
 	    ((minor_t)dev & MAXMIN32));
@@ -371,7 +372,8 @@ zfs_expldev(dev_t dev)
 dev_t
 zfs_cmpldev(uint64_t dev)
 {
-#ifndef _LP64
+/* ZFSFUSE: dev_t is always 64 bits in linux */
+#if 0
 	minor_t minor = (minor_t)dev & MAXMIN64;
 	major_t major = (major_t)(dev >> NBITSMINOR64) & MAXMAJ64;
 
