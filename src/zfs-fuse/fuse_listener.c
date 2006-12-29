@@ -28,9 +28,12 @@
 #include <unistd.h>
 #include <sys/poll.h>
 #include <sys/debug.h>
+#include <sys/types.h>
 #include <errno.h>
 
 #include "fuse.h"
+
+boolean_t exit_fuse_listener = B_FALSE;
 
 int newfs_fd[2];
 
@@ -96,6 +99,8 @@ int fd_read_loop(int fd, void *buf, int bytes)
 			return -1;
 
 		if(ret == -1) {
+			if(errno == EINTR)
+				continue;
 			perror("read");
 			return -1;
 		}
@@ -121,8 +126,8 @@ int zfsfuse_listener_loop()
 	char *buf = NULL;
 	size_t bufsize = 0;
 
-	for(;;) {
-		int ret = poll(fds, nfds, -1);
+	while(!exit_fuse_listener) {
+		int ret = poll(fds, nfds, 1000);
 		if(ret == 0 || (ret == -1 && errno == EINTR))
 			continue;
 
@@ -173,9 +178,9 @@ int zfsfuse_listener_loop()
 					free(mntpoint);
 					continue;
 				}
-
+#ifdef DEBUG
 				fprintf(stderr, "Adding filesystem %i at mntpoint %s\n", nfds, mntpoint);
-
+#endif
 				fsinfo[nfds] = fs;
 				mountpoints[nfds] = mntpoint;
 
@@ -197,7 +202,9 @@ int zfsfuse_listener_loop()
 					fuse_session_process(fsinfo[i].se, buf, res, fsinfo[i].ch);
 
 				if(res == -1 || fuse_session_exited(fsinfo[i].se)) {
+#ifdef DEBUG
 					fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
+#endif
 					fuse_session_reset(fsinfo[i].se);
 					fuse_session_destroy(fsinfo[i].se);
 					close(fds[i].fd);
@@ -221,6 +228,20 @@ int zfsfuse_listener_loop()
 			write_ptr++;
 		}
 		nfds = write_ptr;
+	}
+
+#ifdef DEBUG
+	fprintf(stderr, "Exiting...\n");
+#endif
+
+	for(int i = 1; i < nfds; i++) {
+		if(fds[i].fd == -1)
+			continue;
+
+		fuse_session_exit(fsinfo[i].se);
+		fuse_session_reset(fsinfo[i].se);
+		fuse_unmount(mountpoints[i]);
+		fuse_session_destroy(fsinfo[i].se);
 	}
 
 	if(buf != NULL)

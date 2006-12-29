@@ -120,13 +120,12 @@ static mntopts_t zfs_mntopts = {
 int
 zfs_sync(vfs_t *vfsp, short flag, cred_t *cr)
 {
-	/* ZFSFUSE: not implemented */
-	abort();
-#if 0
 	/*
 	 * Data integrity is job one.  We don't want a compromised kernel
 	 * writing to the storage pool, so we never sync during panic.
 	 */
+/* ZFSFUSE: not used/needed */
+#if 0
 	if (panicstr)
 		return (0);
 
@@ -138,6 +137,7 @@ zfs_sync(vfs_t *vfsp, short flag, cred_t *cr)
 	 */
 	if (flag & SYNC_ATTR)
 		return (0);
+#endif
 
 	if (vfsp != NULL) {
 		/*
@@ -161,7 +161,6 @@ zfs_sync(vfs_t *vfsp, short flag, cred_t *cr)
 	}
 
 	return (0);
-#endif
 }
 
 #if 0

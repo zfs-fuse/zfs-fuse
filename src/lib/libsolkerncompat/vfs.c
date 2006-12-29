@@ -259,6 +259,12 @@ fsop_freefs(vfs_t *vfsp)
 	(*(vfsp)->vfs_op->vfs_freevfs)(vfsp);
 }
 
+int
+fsop_sync(vfs_t *vfsp, short flag, cred_t *cr)
+{
+	return (*(vfsp)->vfs_op->vfs_sync)(vfsp, flag, cr);
+}
+
 /*
  * File system initialization.  vfs_setfsops() must be called from a file
  * system's init routine.

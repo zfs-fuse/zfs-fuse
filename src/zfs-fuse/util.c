@@ -24,6 +24,7 @@
  */
 
 #include <sys/debug.h>
+#include <sys/mount.h>
 #include <sys/types.h>
 #include <sys/cred.h>
 #include <stdio.h>
@@ -122,13 +123,13 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 #ifdef DEBUG
 	atomic_inc_32(&mounted);;
-#endif
 
 	fprintf(stderr, "mounting %s\n", dir);
+#endif
 
 	char *fuse_opts;
 	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec) == -1) {
-		VERIFY(do_umount(vfs) == 0);
+		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return ENOMEM;
 	}
 
@@ -139,7 +140,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	   fuse_opt_add_arg(&args, fuse_opts) == -1) {
 		fuse_opt_free_args(&args);
 		free(fuse_opts);
-		VERIFY(do_umount(vfs) == 0);
+		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return ENOMEM;
 	}
 	free(fuse_opts);
@@ -147,7 +148,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	int fd = fuse_mount(dir, &args);
 
 	if(fd == -1) {
-		VERIFY(do_umount(vfs) == 0);
+		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return EIO;
 	}
 
@@ -155,7 +156,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	fuse_opt_free_args(&args);
 
 	if(se == NULL) {
-		VERIFY(do_umount(vfs) == 0); /* ZFSFUSE: FIXME?? */
+		VERIFY(do_umount(vfs, 0) == B_FALSE); /* ZFSFUSE: FIXME?? */
 		close(fd);
 		fuse_unmount(dir);
 		return EIO;
@@ -181,18 +182,20 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	return 0;
 }
 
-int do_umount(vfs_t *vfs)
+int do_umount(vfs_t *vfs, boolean_t force)
 {
-	int ret = VFS_UNMOUNT(vfs, 0, kcred);
+	VFS_SYNC(vfs, 0, kcred);
+
+	int ret = VFS_UNMOUNT(vfs, force ? MS_FORCE : 0, kcred);
 	if(ret != 0)
 		return ret;
 
-	ASSERT(vfs->vfs_count == 1);
+	ASSERT(force || vfs->vfs_count == 1);
 	VFS_RELE(vfs);
 
 #ifdef DEBUG
 	fprintf(stderr, "mounted filesystems: %i\n", atomic_dec_32_nv(&mounted));
 #endif
 
-	return ret;
+	return 0;
 }

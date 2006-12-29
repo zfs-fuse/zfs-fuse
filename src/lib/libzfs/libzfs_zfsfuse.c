@@ -85,6 +85,8 @@ int zfsfuse_ioctl_read_loop(int fd, void *buf, int bytes)
 			return -1;
 		}
 		if(ret == -1) {
+			if(errno == EINTR)
+				continue;
 // 			perror("recvfrom");
 			return -1;
 		}

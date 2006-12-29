@@ -74,7 +74,9 @@ int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 		spec[speclen] = '\0';
 		dir[dirlen] = '\0';
 		opt[optlen] = '\0';
+#ifdef DEBUG
 		fprintf(stderr, "mount request: \"%s\", \"%s\", \"%i\", \"%s\"\n", spec, dir, cmd->cmd_u.mount_req.mflag, opt);
+#endif
 		uint32_t ret = do_mount(spec, dir, cmd->cmd_u.mount_req.mflag, opt);
 		if(write(sock, &ret, sizeof(uint32_t)) != sizeof(uint32_t))
 			error = B_TRUE;

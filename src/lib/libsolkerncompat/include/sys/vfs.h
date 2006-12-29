@@ -189,11 +189,13 @@ extern int  fsop_mount(vfs_t *, vnode_t *, struct mounta *, cred_t *);
 extern int  fsop_unmount(vfs_t *, int, cred_t *);
 extern int  fsop_statfs(vfs_t *, statvfs64_t *);
 extern void fsop_freefs(vfs_t *);
+extern int  fsop_sync(vfs_t *, short, cred_t *);
 
 #define VFS_MOUNT(vfsp, mvp, uap, cr) fsop_mount(vfsp, mvp, uap, cr)
 #define VFS_UNMOUNT(vfsp, flag, cr)   fsop_unmount(vfsp, flag, cr)
 #define VFS_STATVFS(vfsp, sp)         fsop_statfs(vfsp, sp)
 #define VFS_FREEVFS(vfsp)             fsop_freefs(vfsp)
+#define VFS_SYNC(vfsp, flag, cr)      fsop_sync(vfsp, flag, cr)
 
 #define VFSNAME_MOUNT     "mount"
 #define VFSNAME_UNMOUNT   "unmount"

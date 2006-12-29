@@ -119,7 +119,8 @@ int zfsfuse_socket_read_loop(int fd, void *buf, int bytes)
 			return -1;
 
 		if(ret == -1) {
-			perror("recvfrom");
+			if(errno == EINTR)
+				continue;
 			return -1;
 		}
 		read_bytes += ret;
@@ -147,10 +148,8 @@ int zfsfuse_socket_ioctl_write(int fd, int ret)
 	cmd.cmd_type = IOCTL_ANS;
 	cmd.cmd_u.ioctl_ans_ret = ret;
 
-	if(write(fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t)) {
-		perror("write");
+	if(write(fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t))
 		return -1;
-	}
 
 	return 0;
 }
@@ -171,13 +170,11 @@ int xcopyin(const void *src, void *dest, size_t size)
 	cmd.cmd_u.copy_req.ptr = (uint64_t)(uintptr_t) src;
 	cmd.cmd_u.copy_req.size = size;
 
-	if(write(cur_fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t)) {
-		perror("write");
-		return -1;
-	}
+	if(write(cur_fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t))
+		return EFAULT;
 
 	if(zfsfuse_socket_read_loop(cur_fd, dest, size) != 0)
-		return -1;
+		return EFAULT;
 
 	return 0;
 }
@@ -198,15 +195,11 @@ int xcopyout(const void *src, void *dest, size_t size)
 	cmd.cmd_u.copy_req.ptr = (uint64_t)(uintptr_t) dest;
 	cmd.cmd_u.copy_req.size = size;
 
-	if(write(cur_fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t)) {
-		perror("write");
-		return -1;
-	}
+	if(write(cur_fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t))
+		return EFAULT;
 
-	if(write(cur_fd, src, size) != size) {
-		perror("write");
-		return -1;
-	}
+	if(write(cur_fd, src, size) != size)
+		return EFAULT;
 
 	return 0;
 }

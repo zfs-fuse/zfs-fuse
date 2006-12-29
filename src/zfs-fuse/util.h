@@ -32,6 +32,6 @@
 extern int do_init();
 extern void do_exit();
 extern int do_mount(char *spec, char *dir, int mflag, char *opt);
-extern int do_umount(vfs_t *vfs);
+extern int do_umount(vfs_t *vfs, boolean_t force);
 
 #endif

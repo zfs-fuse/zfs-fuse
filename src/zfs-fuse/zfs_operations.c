@@ -40,6 +40,7 @@
 #include <time.h>
 
 #include "util.h"
+#include "fuse_listener.h"
 
 #define ZFS_MAGIC 0x2f52f5
 
@@ -67,7 +68,12 @@ static void zfsfuse_destroy(void *userdata)
 #ifdef DEBUG
 	fprintf(stderr, "Calling do_umount()...\n");
 #endif
-	while(do_umount(vfs) != 0)
+	/*
+	 * If exit_fuse_listener is true, then we received a signal
+	 * and we're terminating the process. Therefore we need to
+	 * force unmount since there could still be opened files
+	 */
+	while(do_umount(vfs, exit_fuse_listener) != 0)
 		nanosleep(&req, NULL);
 #ifdef DEBUG
 	fprintf(stderr, "do_umount() done\n");

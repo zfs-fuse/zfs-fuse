@@ -26,7 +26,10 @@
 #ifndef ZFSFUSE_LISTENER_H
 #define ZFSFUSE_LISTENER_H
 
+#include <sys/types.h>
 #include "fuse.h"
+
+extern boolean_t exit_fuse_listener;
 
 extern int zfsfuse_listener_init();
 extern int zfsfuse_listener_loop();
