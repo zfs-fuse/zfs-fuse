@@ -64,7 +64,7 @@ int zfsfuse_socket_create()
 	size_t size;
 
 	if(zfsfuse_do_locking() != 0) {
-		fprintf(stderr, "Error locking " LOCKFILE "\nMake sure there isn't another zfs-fuse process running\n");
+		fprintf(stderr, "Error locking " LOCKFILE "\nMake sure there isn't another zfs-fuse process running and that you have appropriate permissions\n");
 		return -1;
 	}
 
