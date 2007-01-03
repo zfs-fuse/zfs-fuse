@@ -242,6 +242,8 @@ int zfsfuse_listener_loop()
 		fuse_session_reset(fsinfo[i].se);
 		fuse_unmount(mountpoints[i]);
 		fuse_session_destroy(fsinfo[i].se);
+
+		free(mountpoints[i]);
 	}
 
 	if(buf != NULL)
