@@ -258,16 +258,25 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 static int
 unmount_one(libzfs_handle_t *hdl, const char *mountpoint, int flags)
 {
-	ASSERT(flags == 0);
+	ASSERT((flags & ~MS_FORCE) == 0);
+
 	char *cmd;
-	if(asprintf(&cmd, "fusermount -u %s", mountpoint) == -1) {
+	int res_print;
+
+	if(flags & MS_FORCE)
+		res_print = asprintf(&cmd, "umount -l %s", mountpoint);
+	else
+		res_print = asprintf(&cmd, "umount %s", mountpoint);
+
+	if(res_print == -1) {
 		zfs_error_aux(hdl, strerror(ENOMEM));
 		goto error;
 	}
+
 	int ret = system(cmd);
 	free(cmd);
 	if (ret != 0) {
-		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "fusermount failed"));
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "umount failed"));
 		goto error;
 	}
 

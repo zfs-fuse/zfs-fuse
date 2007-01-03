@@ -3,6 +3,7 @@
 Bug fixes:
 	* Bug #9834 - Terminating zfs-fuse didn't unmount filesystems.
 	* Bug #9835 - zfs-fuse would exit when killing zfs or zpool with ctrl-c.
+	* Bug #9841 - zpool export fails with -f force option. Bug reported and fixed by philwozza.
 	* Fixed bug where files bigger than 2 GB couldn't be opened on 64-bit platforms.
 
 2006/12/26 - Release 0.4.0_alpha1
