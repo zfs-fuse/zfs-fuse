@@ -118,8 +118,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	int ret;
 	if ((ret = VFS_MOUNT(vfs, rootdir, &uap, kcred)) != 0) {
-		ASSERT(vfs->vfs_count == 1);
-		VFS_RELE(vfs);
+		kmem_free(vfs, sizeof(vfs_t));
 		return ret;
 	}
 
