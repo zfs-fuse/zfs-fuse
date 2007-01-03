@@ -116,10 +116,12 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	struct mounta uap = {spec, dir, mflag, NULL, opt, strlen(opt)};
 
-	int ret = VFS_MOUNT(vfs, rootdir, &uap, kcred);
-
-	if(ret != 0)
+	int ret;
+	if ((ret = VFS_MOUNT(vfs, rootdir, &uap, kcred)) != 0) {
+		ASSERT(vfs->vfs_count == 1);
+		VFS_RELE(vfs);
 		return ret;
+	}
 
 #ifdef DEBUG
 	atomic_inc_32(&mounted);;
