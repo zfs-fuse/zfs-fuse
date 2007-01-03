@@ -191,8 +191,14 @@ int zfsfuse_listener_loop()
 			} else {
 				/* Handle request */
 
-				if(fsinfo[i].bufsize > bufsize)
-					buf = realloc(buf, fsinfo[i].bufsize);
+				if(fsinfo[i].bufsize > bufsize) {
+					char *new_buf = realloc(buf, fsinfo[i].bufsize);
+					if (new_buf == NULL) {
+						fprintf(stderr, "Warning: out of memory!\n");
+						continue;
+					}
+					buf = new_buf;
+				}
 
 				int res = fuse_chan_receive(fsinfo[i].ch, buf, fsinfo[i].bufsize);
 				if(res == 0)
