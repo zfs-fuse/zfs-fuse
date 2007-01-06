@@ -1,0 +1,37 @@
+ZFS on FUSE/Linux README
+------------------------
+
+This project is a port of the ZFS filesystem to FUSE/Linux, done as part
+of the Google Summer of Code 2006 initiative.
+
+The project homepage is at http://www.wizy.org/wiki/ZFS_on_FUSE
+
+Status
+------
+See the STATUS file for status information.
+
+Compiling / Installing
+----------------------
+
+Please read the INSTALL file for instructions.
+
+Using
+-----
+
+This is an alpha release, so it might corrupt your files.
+You should backup all your data first.
+
+1) Start the run.sh script in src/zfs-fuse.
+
+This will start the main zfs-fuse daemon process that must be running
+at all times.
+You should be running it with root permissions.
+
+Currently it will use up to 100 MB of RAM (not configurable yet).
+
+2) Use the zpool and zfs commands to manage pools and filesystems.
+
+You can learn about these commands at the OpenSolaris ZFS community
+site: http://www.opensolaris.org/os/community/zfs/
+
+If you find a bug, please report it. See the BUGS file for instructions.

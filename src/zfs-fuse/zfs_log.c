@@ -249,8 +249,9 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	}
 	itx = zil_itx_create(txtype, sizeof (*lr) + dlen);
 	if (write_state == WR_COPIED) {
-		err = xcopyin(uio->uio_iov->iov_base - len,
-		    (char *)itx + offsetof(itx_t, itx_lr) + sizeof (*lr), len);
+		/* ZFSFUSE: replaced xcopyin by memmove (see zfsfuse_socket.c) */
+		memmove((char *)itx + offsetof(itx_t, itx_lr) + sizeof (*lr), uio->uio_iov->iov_base - len, len);
+		err = 0;
 		/*
 		 * xcopyin shouldn't error as we've already successfully
 		 * copied it to a dmu buffer. However if it does we'll get

@@ -1,0 +1,37 @@
+ZFS on FUSE/Linux
+
+Reporting bugs
+--------------
+If you find a bug, please report it in the following page:
+http://developer.berlios.de/bugs/?group_id=6836
+
+You should provide the following info in order to help me track down the bug:
+
+  1) The problem you're encountering (if it's a compilation failure, please
+provide the output of gcc)
+  2) How to reproduce it
+  3) The distribution you're using (and its version), OR the output of:
+       # getconf GNU_LIBPTHREAD_VERSION
+       # /lib/libc.so.6
+       # gcc --version
+       # uname -a
+
+  4) If you are running the runtest.sh script and ztest crashes, it will leave
+a core file in the current directory. You should provide the output of:
+
+       # gdb ./ztest --core core.xxx (replace core.xxx with the correct
+filename)
+         (gdb) bt
+         (gdb) bt full
+         (gdb) exit
+
+  5) If you're using the run.sh script (you should) and zfs-fuse crashes, it
+will leave a core file. You should then do step 4) above (of course, replacing
+"./ztest" by "./zfs-fuse")
+
+  6) You should also provide the zfs-fuse version you are using. If you are
+using Mercurial, you should provide the output of the following command instead:
+
+       # hg identify
+
+Thanks!

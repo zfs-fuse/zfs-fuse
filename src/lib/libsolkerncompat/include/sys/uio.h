@@ -37,8 +37,8 @@
  * contributors.
  */
 
-#ifndef _SYS_UIO_H
-#define	_SYS_UIO_H
+#ifndef _SOL_SYS_UIO_H
+#define _SOL_SYS_UIO_H
 
 
 
@@ -57,6 +57,11 @@ extern "C" {
  * structure to reflect what was done.
  */
 
+/* struct iovec is defined in glibc's sys/uio.h */
+#include_next <sys/uio.h>
+typedef struct iovec iovec_t;
+
+#if 0
 #if	defined(_XPG4_2)
 typedef struct iovec {
 	void	*iov_base;
@@ -83,6 +88,7 @@ typedef	struct iovec32 {
 } iovec32_t;
 
 #endif	/* _SYSCALL32 */
+#endif
 
 #if 	!defined(_XPG4_2) || defined(__EXTENSIONS__)
 /*
@@ -136,6 +142,7 @@ typedef enum uio_rw { UIO_READ, UIO_WRITE } uio_rw_t;
 #if	defined(_KERNEL)
 
 int	uiomove(void *, size_t, enum uio_rw, uio_t *);
+
 int	ureadc(int, uio_t *);	/* should be errno_t in future */
 int	uwritec(struct uio *);
 void	uioskip(uio_t *, size_t);

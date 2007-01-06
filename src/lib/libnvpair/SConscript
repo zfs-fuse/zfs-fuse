@@ -1,0 +1,6 @@
+Import('env')
+
+objects = Split('libnvpair.c nvpair.c nvpair_alloc_fixed.c nvpair_alloc_system.c')
+cpppath = Split('./include #lib/libsolcompat/include')
+
+env.StaticLibrary('libnvpair', objects, CPPPATH = env['CPPPATH'] + cpppath)

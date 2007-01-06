@@ -1389,6 +1389,9 @@ set_path(zpool_handle_t *zhp, nvlist_t *nv, const char *path)
  * If 'zhp' is NULL, then this is an exported pool, and we don't need to do any
  * of these checks.
  */
+/*
+ * zfs-fuse FIXME: Handle this properly
+ */
 char *
 zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv)
 {

@@ -293,7 +293,11 @@ typedef struct vdev_stat {
 } vdev_stat_t;
 
 #define	ZFS_DRIVER	"zfs"
-#define	ZFS_DEV		"/dev/zfs"
+/*
+ * ZFSFUSE: Renamed ZFS_DEV to ZFS_DEV_NAME in order to
+ * catch all occurrences of this symbol.
+ */
+#define ZFS_DEV_NAME ZPOOL_CACHE_DIR "/zfs_socket"
 
 /*
  * zvol paths.  Irritatingly, the devfsadm interfaces want all these

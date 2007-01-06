@@ -230,7 +230,8 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 	}
 
 	/* perform the mount */
-	if (mount(zfs_get_name(zhp), mountpoint, MS_OPTIONSTR | flags,
+	/* ZFSFUSE */
+	if (zfsfuse_mount(hdl, zfs_get_name(zhp), mountpoint, MS_OPTIONSTR | flags,
 	    MNTTYPE_ZFS, NULL, 0, mntopts, sizeof (mntopts)) != 0) {
 		/*
 		 * Generic errors are nasty, but there are just way too many
@@ -257,14 +258,33 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 static int
 unmount_one(libzfs_handle_t *hdl, const char *mountpoint, int flags)
 {
-	if (umount2(mountpoint, flags) != 0) {
-		zfs_error_aux(hdl, strerror(errno));
-		return (zfs_error(hdl, EZFS_UMOUNTFAILED,
-		    dgettext(TEXT_DOMAIN, "cannot unmount '%s'"),
-		    mountpoint));
+	ASSERT((flags & ~MS_FORCE) == 0);
+
+	char *cmd;
+	int res_print;
+
+	if(flags & MS_FORCE)
+		res_print = asprintf(&cmd, "umount -l %s", mountpoint);
+	else
+		res_print = asprintf(&cmd, "umount %s", mountpoint);
+
+	if(res_print == -1) {
+		zfs_error_aux(hdl, strerror(ENOMEM));
+		goto error;
+	}
+
+	int ret = system(cmd);
+	free(cmd);
+	if (ret != 0) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "umount failed"));
+		goto error;
 	}
 
 	return (0);
+error:
+	return (zfs_error(hdl, EZFS_UMOUNTFAILED,
+	    dgettext(TEXT_DOMAIN, "cannot unmount '%s'"),
+	    mountpoint));
 }
 
 /*
@@ -349,8 +369,8 @@ zfs_share(zfs_handle_t *zhp)
 {
 	char mountpoint[ZFS_MAXPROPLEN];
 	char shareopts[ZFS_MAXPROPLEN];
-	char buf[MAXPATHLEN];
-	FILE *fp;
+	/*char buf[MAXPATHLEN];*/
+	/*FILE *fp;*/
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
 
 	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint), NULL))
@@ -362,6 +382,13 @@ zfs_share(zfs_handle_t *zhp)
 	    strcmp(shareopts, "off") == 0)
 		return (0);
 
+	/* ZFSFUSE: not implemented */
+	zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "feature not implemented yet"));
+	return zfs_error(hdl, EZFS_SHAREFAILED,
+	                 dgettext(TEXT_DOMAIN, "cannot share '%s'"),
+	                 zfs_get_name(zhp));
+
+#if 0
 	/*
 	 * If the 'zoned' property is set, then zfs_is_mountable() will have
 	 * already bailed out if we are in the global zone.  But local
@@ -412,6 +439,7 @@ zfs_share(zfs_handle_t *zhp)
 	verify(pclose(fp) == 0);
 
 	return (0);
+#endif
 }
 
 /*
