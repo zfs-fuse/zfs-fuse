@@ -250,10 +250,6 @@ fs_pathconf(vnode_t *vp, int cmd, ulong_t *valp, cred_t *cr)
 		val = (ulong_t)-1;    /* large file support */
 		break;
 
-	case _PC_ACL_ENABLED:
-		val = 0;
-		break;
-
 	default:
 		error = EINVAL;
 		break;
