@@ -369,8 +369,8 @@ zfs_share(zfs_handle_t *zhp)
 {
 	char mountpoint[ZFS_MAXPROPLEN];
 	char shareopts[ZFS_MAXPROPLEN];
-	char buf[MAXPATHLEN];
-	FILE *fp;
+	/*char buf[MAXPATHLEN];*/
+	/*FILE *fp;*/
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
 
 	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint), NULL))
@@ -382,6 +382,13 @@ zfs_share(zfs_handle_t *zhp)
 	    strcmp(shareopts, "off") == 0)
 		return (0);
 
+	/* ZFSFUSE: not implemented */
+	zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "feature not implemented yet"));
+	return zfs_error(hdl, EZFS_SHAREFAILED,
+	                 dgettext(TEXT_DOMAIN, "cannot share '%s'"),
+	                 zfs_get_name(zhp));
+
+#if 0
 	/*
 	 * If the 'zoned' property is set, then zfs_is_mountable() will have
 	 * already bailed out if we are in the global zone.  But local
@@ -432,6 +439,7 @@ zfs_share(zfs_handle_t *zhp)
 	verify(pclose(fp) == 0);
 
 	return (0);
+#endif
 }
 
 /*
