@@ -601,3 +601,7 @@
 	SET_SIZE(membar_consumer)
 
 #endif	/* !_KERNEL */
+
+#ifdef __ELF__
+.section .note.GNU-stack,"",%progbits
+#endif

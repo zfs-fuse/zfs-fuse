@@ -696,3 +696,7 @@
 	SET_SIZE(membar_enter)
 
 #endif	/* !_KERNEL */
+
+#ifdef __ELF__
+.section .note.GNU-stack,"",%progbits
+#endif
