@@ -607,6 +607,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	info->flags = flags;
 
 	fi->fh = (uint64_t) (uintptr_t) info;
+	fi->keep_cache = 1;
 
 	if(flags & FCREAT) {
 		e.attr_timeout = 0.0;

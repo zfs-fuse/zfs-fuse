@@ -25,8 +25,6 @@ next alpha or so).
 100 MB of RAM (0.4.0).
 - Nested pools -- creating a pool on a file stored on another
 pool (probably 0.4.0).
-- Kernel caching - reads/writes currently always
-involve a round-trip to the zfs-fuse daemon (probably 0.4.0).
 - ACLs and extended attributes (0.5.0). ACLs created in Solaris
 should be enforced.
 - The .zfs control directory is not working, so you can't
