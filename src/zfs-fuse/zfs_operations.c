@@ -607,7 +607,6 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	info->flags = flags;
 
 	fi->fh = (uint64_t) (uintptr_t) info;
-	fi->direct_io = 1;
 
 	if(flags & FCREAT) {
 		e.attr_timeout = 0.0;
@@ -1048,8 +1047,11 @@ static int zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t
 
 	ZFS_EXIT(zfsvfs);
 
-	if(!error)
+	if(!error) {
+		/* When not using direct_io, we must always write 'size' bytes */
+		VERIFY(uio.uio_resid == 0);
 		error = -fuse_reply_write(req, size - uio.uio_resid);
+	}
 
 	return error;
 }
