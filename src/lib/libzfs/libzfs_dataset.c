@@ -18,8 +18,9 @@
  *
  * CDDL HEADER END
  */
+
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -403,7 +404,7 @@ zfs_open(libzfs_handle_t *hdl, const char *path, int types)
 	 */
 	errno = 0;
 	if ((zhp = make_dataset_handle(hdl, path)) == NULL) {
-		(void) zfs_standard_error(hdl, errno, errbuf, path);
+		(void) zfs_standard_error(hdl, errno, errbuf);
 		return (NULL);
 	}
 
@@ -562,7 +563,7 @@ prop_parse_boolean(libzfs_handle_t *hdl, nvpair_t *elem, uint64_t *val)
 	case DATA_TYPE_STRING:
 		{
 			char *value;
-			VERIFY(nvpair_value_string(elem, &value) == 0);
+			verify(nvpair_value_string(elem, &value) == 0);
 
 			if (strcmp(value, "on") == 0) {
 				ret = 1;
@@ -579,7 +580,7 @@ prop_parse_boolean(libzfs_handle_t *hdl, nvpair_t *elem, uint64_t *val)
 
 	case DATA_TYPE_UINT64:
 		{
-			VERIFY(nvpair_value_uint64(elem, &ret) == 0);
+			verify(nvpair_value_uint64(elem, &ret) == 0);
 			if (ret > 1) {
 				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 				    "'%s' must be a boolean value"),
@@ -592,7 +593,7 @@ prop_parse_boolean(libzfs_handle_t *hdl, nvpair_t *elem, uint64_t *val)
 	case DATA_TYPE_BOOLEAN_VALUE:
 		{
 			boolean_t value;
-			VERIFY(nvpair_value_boolean_value(elem, &value) == 0);
+			verify(nvpair_value_boolean_value(elem, &value) == 0);
 			ret = value;
 			break;
 		}
@@ -855,6 +856,19 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 			}
 			break;
 
+		case ZFS_PROP_SHAREISCSI:
+			if (strcmp(strval, "off") != 0 &&
+			    strcmp(strval, "on") != 0 &&
+			    strcmp(strval, "type=disk") != 0) {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "'%s' must be 'on', 'off', or 'type=disk'"),
+				    propname);
+				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+				goto error;
+			}
+
+			break;
+
 		case ZFS_PROP_MOUNTPOINT:
 			if (strcmp(strval, ZFS_MOUNTPOINT_NONE) == 0 ||
 			    strcmp(strval, ZFS_MOUNTPOINT_LEGACY) == 0)
@@ -867,23 +881,22 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
 				goto error;
 			}
-			break;
-		}
+			/*FALLTHRU*/
 
-		/*
-		 * For the mountpoint and sharenfs properties, check if it can
-		 * be set in a global/non-global zone based on the zoned
-		 * property value:
-		 *
-		 *		global zone	    non-global zone
-		 * -----------------------------------------------------
-		 * zoned=on	mountpoint (no)	    mountpoint (yes)
-		 *		sharenfs (no)	    sharenfs (no)
-		 *
-		 * zoned=off	mountpoint (yes)	N/A
-		 *		sharenfs (yes)
-		 */
-		if (prop == ZFS_PROP_MOUNTPOINT || prop == ZFS_PROP_SHARENFS) {
+		case ZFS_PROP_SHARENFS:
+			/*
+			 * For the mountpoint and sharenfs properties, check if
+			 * it can be set in a global/non-global zone based on
+			 * the zoned property value:
+			 *
+			 *		global zone	    non-global zone
+			 * --------------------------------------------------
+			 * zoned=on	mountpoint (no)	    mountpoint (yes)
+			 *		sharenfs (no)	    sharenfs (no)
+			 *
+			 * zoned=off	mountpoint (yes)	N/A
+			 *		sharenfs (yes)
+			 */
 			if (zoned) {
 				if (getzoneid() == GLOBAL_ZONEID) {
 					zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
@@ -912,6 +925,8 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 				(void) zfs_error(hdl, EZFS_ZONED, errbuf);
 				goto error;
 			}
+
+			break;
 		}
 
 		/*
@@ -958,6 +973,7 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 					    errbuf);
 					goto error;
 				}
+				break;
 			}
 		}
 	}
@@ -1286,8 +1302,42 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zfs_source_t *src,
     char **source, uint64_t *val)
 {
 	struct mnttab mnt;
+	char *mntopt_on = NULL;
+	char *mntopt_off = NULL;
 
 	*source = NULL;
+
+	switch (prop) {
+	case ZFS_PROP_ATIME:
+		mntopt_on = MNTOPT_ATIME;
+		mntopt_off = MNTOPT_NOATIME;
+		break;
+
+	case ZFS_PROP_DEVICES:
+		mntopt_on = MNTOPT_DEVICES;
+		mntopt_off = MNTOPT_NODEVICES;
+		break;
+
+	case ZFS_PROP_EXEC:
+		mntopt_on = MNTOPT_EXEC;
+		mntopt_off = MNTOPT_NOEXEC;
+		break;
+
+	case ZFS_PROP_READONLY:
+		mntopt_on = MNTOPT_RO;
+		mntopt_off = MNTOPT_RW;
+		break;
+
+	case ZFS_PROP_SETUID:
+		mntopt_on = MNTOPT_SETUID;
+		mntopt_off = MNTOPT_NOSETUID;
+		break;
+
+	case ZFS_PROP_XATTR:
+		mntopt_on = MNTOPT_XATTR;
+		mntopt_off = MNTOPT_NOXATTR;
+		break;
+	}
 
 	/*
 	 * Because looking up the mount options is potentially expensive
@@ -1295,23 +1345,20 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zfs_source_t *src,
 	 * we're looking up a property which requires its presence.
 	 */
 	if (!zhp->zfs_mntcheck &&
-	    (prop == ZFS_PROP_ATIME ||
-	    prop == ZFS_PROP_DEVICES ||
-	    prop == ZFS_PROP_EXEC ||
-	    prop == ZFS_PROP_READONLY ||
-	    prop == ZFS_PROP_SETUID ||
-	    prop == ZFS_PROP_MOUNTED)) {
-		struct mnttab search = { 0 }, entry;
+	    (mntopt_on != NULL || prop == ZFS_PROP_MOUNTED)) {
+		struct mnttab entry, search = { 0 };
+		FILE *mnttab = zhp->zfs_hdl->libzfs_mnttab;
 
 		search.mnt_special = (char *)zhp->zfs_name;
 		search.mnt_fstype = MNTTYPE_ZFS;
-		rewind(zhp->zfs_hdl->libzfs_mnttab);
+		rewind(mnttab);
 
-		if (getmntany(zhp->zfs_hdl->libzfs_mnttab, &entry,
-		    &search) == 0 && (zhp->zfs_mntopts =
-		    zfs_strdup(zhp->zfs_hdl,
-		    entry.mnt_mntopts)) == NULL)
-			return (-1);
+		if (getmntany(mnttab, &entry, &search) == 0) {
+			zhp->zfs_mntopts = zfs_strdup(zhp->zfs_hdl,
+			    entry.mnt_mntopts);
+			if (zhp->zfs_mntopts == NULL)
+				return (-1);
+		}
 
 		zhp->zfs_mntcheck = B_TRUE;
 	}
@@ -1323,41 +1370,18 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zfs_source_t *src,
 
 	switch (prop) {
 	case ZFS_PROP_ATIME:
-		*val = getprop_uint64(zhp, prop, source);
-
-		if (hasmntopt(&mnt, MNTOPT_ATIME) && !*val) {
-			*val = B_TRUE;
-			if (src)
-				*src = ZFS_SRC_TEMPORARY;
-		} else if (hasmntopt(&mnt, MNTOPT_NOATIME) && *val) {
-			*val = B_FALSE;
-			if (src)
-				*src = ZFS_SRC_TEMPORARY;
-		}
-		break;
-
 	case ZFS_PROP_DEVICES:
-		*val = getprop_uint64(zhp, prop, source);
-
-		if (hasmntopt(&mnt, MNTOPT_DEVICES) && !*val) {
-			*val = B_TRUE;
-			if (src)
-				*src = ZFS_SRC_TEMPORARY;
-		} else if (hasmntopt(&mnt, MNTOPT_NODEVICES) && *val) {
-			*val = B_FALSE;
-			if (src)
-				*src = ZFS_SRC_TEMPORARY;
-		}
-		break;
-
 	case ZFS_PROP_EXEC:
+	case ZFS_PROP_READONLY:
+	case ZFS_PROP_SETUID:
+	case ZFS_PROP_XATTR:
 		*val = getprop_uint64(zhp, prop, source);
 
-		if (hasmntopt(&mnt, MNTOPT_EXEC) && !*val) {
+		if (hasmntopt(&mnt, mntopt_on) && !*val) {
 			*val = B_TRUE;
 			if (src)
 				*src = ZFS_SRC_TEMPORARY;
-		} else if (hasmntopt(&mnt, MNTOPT_NOEXEC) && *val) {
+		} else if (hasmntopt(&mnt, mntopt_off) && *val) {
 			*val = B_FALSE;
 			if (src)
 				*src = ZFS_SRC_TEMPORARY;
@@ -1375,21 +1399,8 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zfs_source_t *src,
 	case ZFS_PROP_AVAILABLE:
 	case ZFS_PROP_VOLSIZE:
 	case ZFS_PROP_VOLBLOCKSIZE:
+	case ZFS_PROP_CANMOUNT:
 		*val = getprop_uint64(zhp, prop, source);
-		break;
-
-	case ZFS_PROP_READONLY:
-		*val = getprop_uint64(zhp, prop, source);
-
-		if (hasmntopt(&mnt, MNTOPT_RO) && !*val) {
-			*val = B_TRUE;
-			if (src)
-				*src = ZFS_SRC_TEMPORARY;
-		} else if (hasmntopt(&mnt, MNTOPT_RW) && *val) {
-			*val = B_FALSE;
-			if (src)
-				*src = ZFS_SRC_TEMPORARY;
-		}
 		break;
 
 	case ZFS_PROP_QUOTA:
@@ -1401,26 +1412,12 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zfs_source_t *src,
 			*source = zhp->zfs_name;
 		break;
 
-	case ZFS_PROP_SETUID:
-		*val = getprop_uint64(zhp, prop, source);
-
-		if (hasmntopt(&mnt, MNTOPT_SETUID) && !*val) {
-			*val = B_TRUE;
-			if (src)
-				*src = ZFS_SRC_TEMPORARY;
-		} else if (hasmntopt(&mnt, MNTOPT_NOSETUID) && *val) {
-			*val = B_FALSE;
-			if (src)
-				*src = ZFS_SRC_TEMPORARY;
-		}
-		break;
-
 	case ZFS_PROP_MOUNTED:
 		*val = (zhp->zfs_mntopts != NULL);
 		break;
 
-	case ZFS_PROP_CANMOUNT:
-		*val = getprop_uint64(zhp, prop, source);
+	case ZFS_PROP_NUMCLONES:
+		*val = zhp->zfs_dmustats.dds_num_clones;
 		break;
 
 	default:
@@ -1492,6 +1489,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 	case ZFS_PROP_DEVICES:
 	case ZFS_PROP_EXEC:
 	case ZFS_PROP_CANMOUNT:
+	case ZFS_PROP_XATTR:
 		/*
 		 * Basic boolean values are built on top of
 		 * get_numeric_property().
@@ -1509,6 +1507,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 	case ZFS_PROP_USED:
 	case ZFS_PROP_VOLSIZE:
 	case ZFS_PROP_VOLBLOCKSIZE:
+	case ZFS_PROP_NUMCLONES:
 		/*
 		 * Basic numeric values are built on top of
 		 * get_numeric_property().
@@ -1591,6 +1590,8 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		break;
 
 	case ZFS_PROP_SHARENFS:
+	case ZFS_PROP_SHAREISCSI:
+	case ZFS_PROP_ISCSIOPTIONS:
 		(void) strlcpy(propbuf, getprop_string(zhp, prop, &source),
 		    proplen);
 		break;
@@ -1719,7 +1720,7 @@ zfs_prop_get_numeric(zfs_handle_t *zhp, zfs_prop_t prop, uint64_t *value,
 	 * Check to see if this property applies to our object
 	 */
 	if (!zfs_prop_valid_for_type(prop, zhp->zfs_type))
-		return (zfs_error(zhp->zfs_hdl, EZFS_PROPTYPE,
+		return (zfs_error_fmt(zhp->zfs_hdl, EZFS_PROPTYPE,
 		    dgettext(TEXT_DOMAIN, "cannot get property '%s'"),
 		    zfs_prop_to_name(prop)));
 
@@ -2090,11 +2091,16 @@ int
 zfs_destroy(zfs_handle_t *zhp)
 {
 	zfs_cmd_t zc = { 0 };
-	int ret;
 
 	(void) strlcpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
 
 	if (ZFS_IS_VOLUME(zhp)) {
+		/*
+		 * Unconditionally unshare this zvol ignoring failure as it
+		 * indicates only that the volume wasn't shared initially.
+		 */
+		(void) zfs_unshare_iscsi(zhp);
+
 		if (zvol_remove_link(zhp->zfs_hdl, zhp->zfs_name) != 0)
 			return (-1);
 
@@ -2103,9 +2109,8 @@ zfs_destroy(zfs_handle_t *zhp)
 		zc.zc_objset_type = DMU_OST_ZFS;
 	}
 
-	ret = ioctl(zhp->zfs_hdl->libzfs_fd, ZFS_IOC_DESTROY, &zc);
-	if (ret != 0) {
-		return (zfs_standard_error(zhp->zfs_hdl, errno,
+	if (ioctl(zhp->zfs_hdl->libzfs_fd, ZFS_IOC_DESTROY, &zc) != 0) {
+		return (zfs_standard_error_fmt(zhp->zfs_hdl, errno,
 		    dgettext(TEXT_DOMAIN, "cannot destroy '%s'"),
 		    zhp->zfs_name));
 	}
@@ -2118,6 +2123,7 @@ zfs_destroy(zfs_handle_t *zhp)
 struct destroydata {
 	char *snapname;
 	boolean_t gotone;
+	boolean_t closezhp;
 };
 
 static int
@@ -2126,6 +2132,8 @@ zfs_remove_link_cb(zfs_handle_t *zhp, void *arg)
 	struct destroydata *dd = arg;
 	zfs_handle_t *szhp;
 	char name[ZFS_MAXNAMELEN];
+	boolean_t closezhp = dd->closezhp;
+	int rv;
 
 	(void) strlcpy(name, zhp->zfs_name, sizeof (name));
 	(void) strlcat(name, "@", sizeof (name));
@@ -2146,7 +2154,11 @@ zfs_remove_link_cb(zfs_handle_t *zhp, void *arg)
 		 */
 	}
 
-	return (zfs_iter_filesystems(zhp, zfs_remove_link_cb, arg));
+	dd->closezhp = B_TRUE;
+	rv = zfs_iter_filesystems(zhp, zfs_remove_link_cb, arg);
+	if (closezhp)
+		zfs_close(zhp);
+	return (rv);
 }
 
 /*
@@ -2163,7 +2175,7 @@ zfs_destroy_snaps(zfs_handle_t *zhp, char *snapname)
 	(void) zfs_remove_link_cb(zhp, &dd);
 
 	if (!dd.gotone) {
-		return (zfs_standard_error(zhp->zfs_hdl, ENOENT,
+		return (zfs_standard_error_fmt(zhp->zfs_hdl, ENOENT,
 		    dgettext(TEXT_DOMAIN, "cannot destroy '%s@%s'"),
 		    zhp->zfs_name, snapname));
 	}
@@ -2297,10 +2309,13 @@ promote_snap_cb(zfs_handle_t *zhp, void *data)
 	promote_data_t *pd = data;
 	zfs_handle_t *szhp;
 	char snapname[MAXPATHLEN];
+	int rv = 0;
 
 	/* We don't care about snapshots after the pivot point */
-	if (zfs_prop_get_int(zhp, ZFS_PROP_CREATETXG) > pd->cb_pivot_txg)
+	if (zfs_prop_get_int(zhp, ZFS_PROP_CREATETXG) > pd->cb_pivot_txg) {
+		zfs_close(zhp);
 		return (0);
+	}
 
 	/* Remove the device link if it's a zvol. */
 	if (ZFS_IS_VOLUME(zhp))
@@ -2316,9 +2331,10 @@ promote_snap_cb(zfs_handle_t *zhp, void *data)
 		    "snapshot name '%s' from origin \n"
 		    "conflicts with '%s' from target"),
 		    zhp->zfs_name, snapname);
-		return (zfs_error(zhp->zfs_hdl, EZFS_EXISTS, pd->cb_errbuf));
+		rv = zfs_error(zhp->zfs_hdl, EZFS_EXISTS, pd->cb_errbuf);
 	}
-	return (0);
+	zfs_close(zhp);
+	return (rv);
 }
 
 static int
@@ -2327,13 +2343,13 @@ promote_snap_done_cb(zfs_handle_t *zhp, void *data)
 	promote_data_t *pd = data;
 
 	/* We don't care about snapshots after the pivot point */
-	if (zfs_prop_get_int(zhp, ZFS_PROP_CREATETXG) > pd->cb_pivot_txg)
-		return (0);
+	if (zfs_prop_get_int(zhp, ZFS_PROP_CREATETXG) <= pd->cb_pivot_txg) {
+		/* Create the device link if it's a zvol. */
+		if (ZFS_IS_VOLUME(zhp))
+			(void) zvol_create_link(zhp->zfs_hdl, zhp->zfs_name);
+	}
 
-	/* Create the device link if it's a zvol. */
-	if (ZFS_IS_VOLUME(zhp))
-		(void) zvol_create_link(zhp->zfs_hdl, zhp->zfs_name);
-
+	zfs_close(zhp);
 	return (0);
 }
 
@@ -2733,6 +2749,8 @@ zfs_receive(libzfs_handle_t *hdl, const char *tosnap, int isprefix,
 	(void) strcpy(zc.zc_value, tosnap);
 	(void) strncat(zc.zc_value, drr.drr_u.drr_begin.drr_toname+choplen,
 	    sizeof (zc.zc_value));
+	if (!zfs_validate_name(hdl, zc.zc_value, ZFS_TYPE_SNAPSHOT))
+		return (zfs_error(hdl, EZFS_INVALIDNAME, errbuf));
 
 	(void) strcpy(zc.zc_name, zc.zc_value);
 	if (drrb->drr_fromguid) {
@@ -2832,8 +2850,9 @@ zfs_receive(libzfs_handle_t *hdl, const char *tosnap, int isprefix,
 			}
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "destination already exists"));
-			(void) zfs_error(hdl, EZFS_EXISTS, dgettext(TEXT_DOMAIN,
-			    "cannot restore to %s"), zc.zc_value);
+			(void) zfs_error_fmt(hdl, EZFS_EXISTS,
+			    dgettext(TEXT_DOMAIN, "cannot restore to %s"),
+			    zc.zc_value);
 			break;
 		case EINVAL:
 			(void) zfs_error(hdl, EZFS_BADSTREAM, errbuf);
@@ -2980,7 +2999,7 @@ do_rollback(zfs_handle_t *zhp)
 	 */
 	if ((ret = ioctl(zhp->zfs_hdl->libzfs_fd, ZFS_IOC_ROLLBACK,
 	    &zc)) != 0) {
-		(void) zfs_standard_error(zhp->zfs_hdl, errno,
+		(void) zfs_standard_error_fmt(zhp->zfs_hdl, errno,
 		    dgettext(TEXT_DOMAIN, "cannot rollback '%s'"),
 		    zhp->zfs_name);
 	} else if (zhp->zfs_type == ZFS_TYPE_VOLUME) {
@@ -3249,7 +3268,7 @@ zvol_create_link(libzfs_handle_t *hdl, const char *dataset)
 			return (0);
 
 		default:
-			return (zfs_standard_error(hdl, errno,
+			return (zfs_standard_error_fmt(hdl, errno,
 			    dgettext(TEXT_DOMAIN, "cannot create device links "
 			    "for '%s'"), dataset));
 		}
@@ -3260,7 +3279,7 @@ zvol_create_link(libzfs_handle_t *hdl, const char *dataset)
 	 */
 	if ((dhdl = di_devlink_init(ZFS_DRIVER, DI_MAKE_LINK)) == NULL) {
 		zfs_error_aux(hdl, strerror(errno));
-		(void) zfs_error(hdl, EZFS_DEVLINKS,
+		(void) zfs_error_fmt(hdl, EZFS_DEVLINKS,
 		    dgettext(TEXT_DOMAIN, "cannot create device links "
 		    "for '%s'"), dataset);
 		(void) ioctl(hdl->libzfs_fd, ZFS_IOC_REMOVE_MINOR, &zc);
@@ -3293,7 +3312,7 @@ zvol_remove_link(libzfs_handle_t *hdl, const char *dataset)
 			return (0);
 
 		default:
-			return (zfs_standard_error(hdl, errno,
+			return (zfs_standard_error_fmt(hdl, errno,
 			    dgettext(TEXT_DOMAIN, "cannot remove device "
 			    "links for '%s'"), dataset));
 		}

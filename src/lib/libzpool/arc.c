@@ -146,7 +146,6 @@ static int		arc_grow_retry = 60;
  */
 static int		arc_min_prefetch_lifespan;
 
-static kmutex_t arc_reclaim_lock;
 static int arc_dead;
 
 /*
@@ -231,10 +230,6 @@ struct arc_callback {
 };
 
 struct arc_buf_hdr {
-	/* immutable */
-	uint64_t		b_size;
-	spa_t			*b_spa;
-
 	/* protected by hash lock */
 	dva_t			b_dva;
 	uint64_t		b_birth;
@@ -248,8 +243,13 @@ struct arc_buf_hdr {
 	uint32_t		b_flags;
 	uint32_t		b_datacnt;
 
-	kcondvar_t		b_cv;
 	arc_callback_t		*b_acb;
+	kcondvar_t		b_cv;
+
+	/* immutable */
+	arc_buf_contents_t	b_type;
+	uint64_t		b_size;
+	spa_t			*b_spa;
 
 	/* protected by arc state mutex */
 	arc_state_t		*b_state;
@@ -489,9 +489,6 @@ hdr_dest(void *vbuf, void *unused)
 	cv_destroy(&buf->b_cv);
 }
 
-static int arc_reclaim_needed(void);
-void arc_kmem_reclaim(void);
-
 /*
  * Reclaim callback -- invoked when memory is low.
  */
@@ -500,8 +497,12 @@ static void
 hdr_recl(void *unused)
 {
 	dprintf("hdr_recl called\n");
-	if (arc_reclaim_needed())
-		arc_kmem_reclaim();
+	/*
+	 * umem calls the reclaim func when we destroy the buf cache,
+	 * which is after we do arc_fini().
+	 */
+	if (!arc_dead)
+		cv_signal(&arc_reclaim_thr_cv);
 }
 
 static void
@@ -550,11 +551,12 @@ arc_cksum_verify(arc_buf_t *buf)
 {
 	zio_cksum_t zc;
 
-	if (!zfs_flags & ZFS_DEBUG_MODIFY)
+	if (!(zfs_flags & ZFS_DEBUG_MODIFY))
 		return;
 
 	mutex_enter(&buf->b_hdr->b_freeze_lock);
-	if (buf->b_hdr->b_freeze_cksum == NULL) {
+	if (buf->b_hdr->b_freeze_cksum == NULL ||
+	    (buf->b_hdr->b_flags & ARC_IO_ERROR)) {
 		mutex_exit(&buf->b_hdr->b_freeze_lock);
 		return;
 	}
@@ -567,7 +569,7 @@ arc_cksum_verify(arc_buf_t *buf)
 static void
 arc_cksum_compute(arc_buf_t *buf)
 {
-	if (!zfs_flags & ZFS_DEBUG_MODIFY)
+	if (!(zfs_flags & ZFS_DEBUG_MODIFY))
 		return;
 
 	mutex_enter(&buf->b_hdr->b_freeze_lock);
@@ -584,7 +586,7 @@ arc_cksum_compute(arc_buf_t *buf)
 void
 arc_buf_thaw(arc_buf_t *buf)
 {
-	if (!zfs_flags & ZFS_DEBUG_MODIFY)
+	if (!(zfs_flags & ZFS_DEBUG_MODIFY))
 		return;
 
 	if (buf->b_hdr->b_state != arc.anon)
@@ -603,6 +605,9 @@ arc_buf_thaw(arc_buf_t *buf)
 void
 arc_buf_freeze(arc_buf_t *buf)
 {
+	if (!(zfs_flags & ZFS_DEBUG_MODIFY))
+		return;
+
 	ASSERT(buf->b_hdr->b_freeze_cksum != NULL ||
 	    buf->b_hdr->b_state == arc.anon);
 	arc_cksum_compute(buf);
@@ -745,7 +750,7 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 }
 
 arc_buf_t *
-arc_buf_alloc(spa_t *spa, int size, void *tag)
+arc_buf_alloc(spa_t *spa, int size, void *tag, arc_buf_contents_t type)
 {
 	arc_buf_hdr_t *hdr;
 	arc_buf_t *buf;
@@ -754,6 +759,7 @@ arc_buf_alloc(spa_t *spa, int size, void *tag)
 	hdr = kmem_cache_alloc(hdr_cache, KM_SLEEP);
 	ASSERT(BUF_EMPTY(hdr));
 	hdr->b_size = size;
+	hdr->b_type = type;
 	hdr->b_spa = spa;
 	hdr->b_state = arc.anon;
 	hdr->b_arc_access = 0;
@@ -838,10 +844,16 @@ arc_buf_destroy(arc_buf_t *buf, boolean_t recycle, boolean_t all)
 	if (buf->b_data) {
 		arc_state_t *state = buf->b_hdr->b_state;
 		uint64_t size = buf->b_hdr->b_size;
+		arc_buf_contents_t type = buf->b_hdr->b_type;
 
 		arc_cksum_verify(buf);
 		if (!recycle) {
-			zio_buf_free(buf->b_data, size);
+			if (type == ARC_BUFC_METADATA) {
+				zio_buf_free(buf->b_data, size);
+			} else {
+				ASSERT(type == ARC_BUFC_DATA);
+				zio_data_buf_free(buf->b_data, size);
+			}
 			atomic_add_64(&arc.size, -size);
 		}
 		if (list_link_active(&buf->b_hdr->b_arc_node)) {
@@ -1002,7 +1014,8 @@ arc_buf_size(arc_buf_t *buf)
  * new buffer in a full arc cache.
  */
 static void *
-arc_evict(arc_state_t *state, int64_t bytes, boolean_t recycle)
+arc_evict(arc_state_t *state, int64_t bytes, boolean_t recycle,
+    arc_buf_contents_t type)
 {
 	arc_state_t *evicted_state;
 	uint64_t bytes_evicted = 0, skipped = 0, missed = 0;
@@ -1040,7 +1053,8 @@ arc_evict(arc_state_t *state, int64_t bytes, boolean_t recycle)
 				arc_buf_t *buf = ab->b_buf;
 				if (buf->b_data) {
 					bytes_evicted += ab->b_size;
-					if (recycle && ab->b_size == bytes) {
+					if (recycle && ab->b_type == type &&
+					    ab->b_size == bytes) {
 						stolen = buf->b_data;
 						recycle = FALSE;
 					}
@@ -1146,7 +1160,7 @@ arc_adjust(void)
 
 	if (top_sz > arc.p && arc.mru->lsize > 0) {
 		int64_t toevict = MIN(arc.mru->lsize, top_sz-arc.p);
-		(void) arc_evict(arc.mru, toevict, FALSE);
+		(void) arc_evict(arc.mru, toevict, FALSE, ARC_BUFC_UNDEF);
 		top_sz = arc.anon->size + arc.mru->size;
 	}
 
@@ -1164,7 +1178,8 @@ arc_adjust(void)
 
 		if (arc.mfu->lsize > 0) {
 			int64_t toevict = MIN(arc.mfu->lsize, arc_over);
-			(void) arc_evict(arc.mfu, toevict, FALSE);
+			(void) arc_evict(arc.mfu, toevict, FALSE,
+			    ARC_BUFC_UNDEF);
 		}
 
 		tbl_over = arc.size + arc.mru_ghost->lsize +
@@ -1206,9 +1221,9 @@ void
 arc_flush(void)
 {
 	while (list_head(&arc.mru->list))
-		(void) arc_evict(arc.mru, -1, FALSE);
+		(void) arc_evict(arc.mru, -1, FALSE, ARC_BUFC_UNDEF);
 	while (list_head(&arc.mfu->list))
-		(void) arc_evict(arc.mfu, -1, FALSE);
+		(void) arc_evict(arc.mfu, -1, FALSE, ARC_BUFC_UNDEF);
 
 	arc_evict_ghost(arc.mru_ghost, -1);
 	arc_evict_ghost(arc.mfu_ghost, -1);
@@ -1219,53 +1234,35 @@ arc_flush(void)
 	ASSERT(arc_eviction_list == NULL);
 }
 
-int arc_kmem_reclaim_shift = 5;		/* log2(fraction of arc to reclaim) */
+int arc_shrink_shift = 5;		/* log2(fraction of arc to reclaim) */
 
 void
-arc_kmem_reclaim(void)
+arc_shrink(void)
 {
-	uint64_t to_free;
-
-	/*
-	 * We need arc_reclaim_lock because we don't want multiple
-	 * threads trying to reclaim concurrently.
-	 */
-
-	/*
-	 * umem calls the reclaim func when we destroy the buf cache,
-	 * which is after we do arc_fini().  So we set a flag to prevent
-	 * accessing the destroyed mutexes and lists.
-	 */
-	if (arc_dead)
-		return;
-
-	if (arc.c <= arc.c_min)
-		return;
-
-	mutex_enter(&arc_reclaim_lock);
+	if (arc.c > arc.c_min) {
+		uint64_t to_free;
 
 #ifdef _KERNEL
-	to_free = MAX(arc.c >> arc_kmem_reclaim_shift, ptob(needfree));
+		to_free = MAX(arc.c >> arc_shrink_shift, ptob(needfree));
 #else
-	to_free = arc.c >> arc_kmem_reclaim_shift;
+		to_free = arc.c >> arc_shrink_shift;
 #endif
-	if (arc.c > to_free)
-		atomic_add_64(&arc.c, -to_free);
-	else
-		arc.c = arc.c_min;
+		if (arc.c > arc.c_min + to_free)
+			atomic_add_64(&arc.c, -to_free);
+		else
+			arc.c = arc.c_min;
 
-	atomic_add_64(&arc.p, -(arc.p >> arc_kmem_reclaim_shift));
-	if (arc.c > arc.size)
-		arc.c = arc.size;
-	if (arc.c < arc.c_min)
-		arc.c = arc.c_min;
-	if (arc.p > arc.c)
-		arc.p = (arc.c >> 1);
-	ASSERT((int64_t)arc.p >= 0);
+		atomic_add_64(&arc.p, -(arc.p >> arc_shrink_shift));
+		if (arc.c > arc.size)
+			arc.c = MAX(arc.size, arc.c_min);
+		if (arc.p > arc.c)
+			arc.p = (arc.c >> 1);
+		ASSERT(arc.c >= arc.c_min);
+		ASSERT((int64_t)arc.p >= 0);
+	}
 
-	arc_adjust();
-
-	mutex_exit(&arc_reclaim_lock);
+	if (arc.size > arc.c)
+		arc_adjust();
 }
 
 static int
@@ -1303,6 +1300,18 @@ arc_reclaim_needed(void)
 	if (availrmem < swapfs_minfree + swapfs_reserve + extra)
 		return (1);
 
+	/*
+	 * If zio data pages are being allocated out of a separate heap segment,
+	 * then check that the size of available vmem for this area remains
+	 * above 1/4th free.  This needs to be done since the size of the
+	 * non-default segment is smaller than physical memory, so we could
+	 * conceivably run out of VA in that segment before running out of
+	 * physical memory.
+	 */
+	if ((zio_arena != NULL) && (btop(vmem_size(zio_arena, VMEM_FREE)) <
+	    (btop(vmem_size(zio_arena, VMEM_FREE | VMEM_ALLOC)) >> 2)))
+		return (1);
+
 #if defined(__i386)
 	/*
 	 * If we're on an i386 platform, it's possible that we'll exhaust the
@@ -1332,7 +1341,9 @@ arc_kmem_reap_now(arc_reclaim_strategy_t strat)
 {
 	size_t			i;
 	kmem_cache_t		*prev_cache = NULL;
+	kmem_cache_t		*prev_data_cache = NULL;
 	extern kmem_cache_t	*zio_buf_cache[];
+	extern kmem_cache_t	*zio_data_buf_cache[];
 
 #ifdef _KERNEL
 	/*
@@ -1354,12 +1365,16 @@ arc_kmem_reap_now(arc_reclaim_strategy_t strat)
 	 * reap free buffers from the arc kmem caches.
 	 */
 	if (strat == ARC_RECLAIM_AGGR)
-		arc_kmem_reclaim();
+		arc_shrink();
 
 	for (i = 0; i < SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT; i++) {
 		if (zio_buf_cache[i] != prev_cache) {
 			prev_cache = zio_buf_cache[i];
 			kmem_cache_reap_now(zio_buf_cache[i]);
+		}
+		if (zio_data_buf_cache[i] != prev_data_cache) {
+			prev_data_cache = zio_data_buf_cache[i];
+			kmem_cache_reap_now(zio_data_buf_cache[i]);
 		}
 	}
 	kmem_cache_reap_now(buf_cache);
@@ -1400,6 +1415,10 @@ arc_reclaim_thread(void)
 		} else if ((growtime > 0) && ((growtime - lbolt) <= 0)) {
 			arc.no_grow = FALSE;
 		}
+
+		if (2 * arc.c <
+		    arc.size + arc.mru_ghost->size + arc.mfu_ghost->size)
+			arc_adjust();
 
 		if (arc_eviction_list != NULL)
 			arc_do_user_evicts();
@@ -1515,8 +1534,9 @@ arc_evict_needed()
 static void
 arc_get_data_buf(arc_buf_t *buf)
 {
-	arc_state_t	*state = buf->b_hdr->b_state;
-	uint64_t	size = buf->b_hdr->b_size;
+	arc_state_t		*state = buf->b_hdr->b_state;
+	uint64_t		size = buf->b_hdr->b_size;
+	arc_buf_contents_t	type = buf->b_hdr->b_type;
 
 	arc_adapt(size, state);
 
@@ -1525,7 +1545,12 @@ arc_get_data_buf(arc_buf_t *buf)
 	 * just allocate a new buffer.
 	 */
 	if (!arc_evict_needed()) {
-		buf->b_data = zio_buf_alloc(size);
+		if (type == ARC_BUFC_METADATA) {
+			buf->b_data = zio_buf_alloc(size);
+		} else {
+			ASSERT(type == ARC_BUFC_DATA);
+			buf->b_data = zio_data_buf_alloc(size);
+		}
 		atomic_add_64(&arc.size, size);
 		goto out;
 	}
@@ -1547,8 +1572,13 @@ arc_get_data_buf(arc_buf_t *buf)
 		uint64_t mfu_space = arc.c - arc.p;
 		state =  (mfu_space > arc.mfu->size) ? arc.mru : arc.mfu;
 	}
-	if ((buf->b_data = arc_evict(state, size, TRUE)) == NULL) {
-		buf->b_data = zio_buf_alloc(size);
+	if ((buf->b_data = arc_evict(state, size, TRUE, type)) == NULL) {
+		if (type == ARC_BUFC_METADATA) {
+			buf->b_data = zio_buf_alloc(size);
+		} else {
+			ASSERT(type == ARC_BUFC_DATA);
+			buf->b_data = zio_data_buf_alloc(size);
+		}
 		atomic_add_64(&arc.size, size);
 		atomic_add_64(&arc.recycle_miss, 1);
 	}
@@ -1566,6 +1596,13 @@ out:
 			ASSERT(refcount_is_zero(&hdr->b_refcnt));
 			atomic_add_64(&hdr->b_state->lsize, size);
 		}
+		/*
+		 * If we are growing the cache, and we are adding anonymous
+		 * data, and we have outgrown arc.p, update arc.p
+		 */
+		if (arc.size < arc.c && hdr->b_state == arc.anon &&
+		    arc.anon->size + arc.mru->size > arc.p)
+			arc.p = MIN(arc.c, arc.p + size);
 	}
 }
 
@@ -1933,8 +1970,8 @@ top:
 		if (hdr == NULL) {
 			/* this block is not in the cache */
 			arc_buf_hdr_t	*exists;
-
-			buf = arc_buf_alloc(spa, size, private);
+			arc_buf_contents_t type = BP_GET_BUFC_TYPE(bp);
+			buf = arc_buf_alloc(spa, size, private, type);
 			hdr = buf->b_hdr;
 			hdr->b_dva = *BP_IDENTITY(bp);
 			hdr->b_birth = bp->blk_birth;
@@ -2194,6 +2231,7 @@ arc_release(arc_buf_t *buf, void *tag)
 		arc_buf_t **bufp;
 		uint64_t blksz = hdr->b_size;
 		spa_t *spa = hdr->b_spa;
+		arc_buf_contents_t type = hdr->b_type;
 
 		ASSERT(hdr->b_datacnt > 1);
 		/*
@@ -2219,14 +2257,17 @@ arc_release(arc_buf_t *buf, void *tag)
 		nhdr = kmem_cache_alloc(hdr_cache, KM_SLEEP);
 		nhdr->b_size = blksz;
 		nhdr->b_spa = spa;
+		nhdr->b_type = type;
 		nhdr->b_buf = buf;
 		nhdr->b_state = arc.anon;
 		nhdr->b_arc_access = 0;
 		nhdr->b_flags = 0;
 		nhdr->b_datacnt = 1;
-		nhdr->b_freeze_cksum =
-		    kmem_alloc(sizeof (zio_cksum_t), KM_SLEEP);
-		*nhdr->b_freeze_cksum = *hdr->b_freeze_cksum; /* struct copy */
+		if (hdr->b_freeze_cksum != NULL) {
+			nhdr->b_freeze_cksum =
+			    kmem_alloc(sizeof (zio_cksum_t), KM_SLEEP);
+			*nhdr->b_freeze_cksum = *hdr->b_freeze_cksum;
+		}
 		buf->b_hdr = nhdr;
 		buf->b_next = NULL;
 		(void) refcount_add(&nhdr->b_refcnt, tag);
@@ -2502,7 +2543,6 @@ arc_tempreserve_space(uint64_t tempreserve)
 void
 arc_init(void)
 {
-	mutex_init(&arc_reclaim_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&arc_reclaim_thr_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&arc_reclaim_thr_cv, NULL, CV_DEFAULT, NULL);
 
@@ -2584,6 +2624,8 @@ arc_init(void)
 
 	(void) thread_create(NULL, 0, arc_reclaim_thread, NULL, 0, &p0,
 	    TS_RUN, minclsyspri);
+
+	arc_dead = FALSE;
 }
 
 void
@@ -2600,7 +2642,6 @@ arc_fini(void)
 	arc_dead = TRUE;
 
 	mutex_destroy(&arc_eviction_mtx);
-	mutex_destroy(&arc_reclaim_lock);
 	mutex_destroy(&arc_reclaim_thr_lock);
 	cv_destroy(&arc_reclaim_thr_cv);
 
