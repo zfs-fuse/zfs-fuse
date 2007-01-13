@@ -638,10 +638,17 @@ zfs_is_shared_iscsi(zfs_handle_t *zhp)
 int
 zfs_share_iscsi(zfs_handle_t *zhp)
 {
-	char shareopts[ZFS_MAXPROPLEN];
+	/*char shareopts[ZFS_MAXPROPLEN];*/
 	const char *dataset = zhp->zfs_name;
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
 
+	/* ZFSFUSE: not implemented */
+	zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "feature not implemented yet"));
+	return zfs_error_fmt(hdl, EZFS_SHAREISCSIFAILED,
+	                 dgettext(TEXT_DOMAIN, "cannot share '%s'"),
+	                 dataset);
+
+#if 0
 	/*
 	 * Return success if there are no share options.
 	 */
@@ -655,6 +662,7 @@ zfs_share_iscsi(zfs_handle_t *zhp)
 		    dgettext(TEXT_DOMAIN, "cannot share '%s'"), dataset));
 
 	return (0);
+#endif
 }
 
 int
