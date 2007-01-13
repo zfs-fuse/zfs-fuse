@@ -1,5 +1,9 @@
 ? - Release 0.4.0_alpha2
 --------------------------------------------------
+Features:
+	* Updated ZFS code to Nevada build 56
+Enhancements:
+	* Performance improvements
 Bug fixes:
 	* Bug #9833 - Cannot execute binaries inside ZFS filesystems.
 	* Bug #9834 - Terminating zfs-fuse didn't unmount filesystems.

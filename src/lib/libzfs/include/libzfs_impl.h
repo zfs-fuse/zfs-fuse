@@ -18,6 +18,7 @@
  *
  * CDDL HEADER END
  */
+
 /*
  * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
@@ -85,15 +86,18 @@ struct zpool_handle {
 	size_t zpool_error_count;
 };
 
-int zfs_error(libzfs_handle_t *, int, const char *, ...);
+int zfs_error(libzfs_handle_t *, int, const char *);
+int zfs_error_fmt(libzfs_handle_t *, int, const char *, ...);
 void zfs_error_aux(libzfs_handle_t *, const char *, ...);
 void *zfs_alloc(libzfs_handle_t *, size_t);
 void *zfs_realloc(libzfs_handle_t *, void *, size_t, size_t);
 char *zfs_strdup(libzfs_handle_t *, const char *);
 int no_memory(libzfs_handle_t *);
 
-int zfs_standard_error(libzfs_handle_t *, int, const char *, ...);
-int zpool_standard_error(libzfs_handle_t *, int, const char *, ...);
+int zfs_standard_error(libzfs_handle_t *, int, const char *);
+int zfs_standard_error_fmt(libzfs_handle_t *, int, const char *, ...);
+int zpool_standard_error(libzfs_handle_t *, int, const char *);
+int zpool_standard_error_fmt(libzfs_handle_t *, int, const char *, ...);
 
 int get_dependents(libzfs_handle_t *, boolean_t, const char *, char ***,
     size_t *);
@@ -124,6 +128,7 @@ int zpool_open_silent(libzfs_handle_t *, const char *, zpool_handle_t **);
 
 int zvol_create_link(libzfs_handle_t *, const char *);
 int zvol_remove_link(libzfs_handle_t *, const char *);
+int zpool_iter_zvol(zpool_handle_t *, int (*)(const char *, void *), void *);
 
 void namespace_clear(libzfs_handle_t *);
 

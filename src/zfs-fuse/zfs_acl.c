@@ -879,7 +879,6 @@ zfs_acl_chmod(znode_t *zp, uint64_t mode, zfs_acl_t *aclp,
 }
 
 
-
 int
 zfs_acl_chmod_setattr(znode_t *zp, uint64_t mode, dmu_tx_t *tx)
 {

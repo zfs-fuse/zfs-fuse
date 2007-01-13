@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -118,6 +118,9 @@ static prop_desc_t zfs_prop_table[ZFS_NPROP_ALL] = {
 	{ "sharenfs",	prop_type_string,	0,	"off",	prop_inherit,
 	    ZFS_TYPE_FILESYSTEM,
 	    "on | off | share(1M) options", "SHARENFS", B_FALSE },
+	{ "shareiscsi",	prop_type_string,	0,	"off",	prop_inherit,
+	    ZFS_TYPE_ANY,
+	    "on | off | type=<type>", "SHAREISCSI", B_FALSE },
 	{ "checksum",	prop_type_index,	ZIO_CHECKSUM_DEFAULT,	"on",
 	    prop_inherit,	ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "on | off | fletcher2 | fletcher4 | sha256", "CHECKSUM", B_TRUE },
@@ -155,10 +158,17 @@ static prop_desc_t zfs_prop_table[ZFS_NPROP_ALL] = {
 	{ "canmount",	prop_type_boolean,	1,	NULL,	prop_default,
 	    ZFS_TYPE_FILESYSTEM,
 	    "on | off", "CANMOUNT", B_TRUE },
+	{ "xattr",	prop_type_boolean,	1,	NULL,	prop_inherit,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT,
+	    "on | off", "XATTR", B_TRUE },
 	{ "createtxg",	prop_type_number,	0,	NULL,	prop_readonly,
 	    ZFS_TYPE_ANY, NULL, NULL, B_FALSE},
 	{ "name",	prop_type_string,	0,	NULL,	prop_readonly,
 	    ZFS_TYPE_ANY, NULL, "NAME", B_FALSE },
+	{ "iscsioptions", prop_type_string,	0,	NULL,	prop_inherit,
+	    ZFS_TYPE_VOLUME, NULL, "ISCSIOPTIONS", B_FALSE },
+	{ "numclones", prop_type_number,	0,	NULL,	prop_readonly,
+	    ZFS_TYPE_SNAPSHOT, NULL, NULL, B_FALSE },
 };
 
 zfs_proptype_t
