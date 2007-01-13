@@ -9,6 +9,9 @@ In order to compile and use zfs-fuse, you need the following:
 earlier pre-release versions have a bug that prevents zfs-fuse
 from compiling correctly, simply upgrade to FUSE-2.6.0 or later).
 
+   You will need the fuse, fuse-utils and/or libfuse packages
+(and associated -dev packages), depending on the distribution.
+
  * glibc version 2.3.3 or up with NPTL enabled.
    You can check if it's enabled with the following command:
 
