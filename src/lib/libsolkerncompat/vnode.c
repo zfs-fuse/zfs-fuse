@@ -1186,8 +1186,16 @@ static int
 root_fsync(vnode_t *vp, int syncflag, cred_t *cr)
 {
 	VERIFY(vp->v_fd != -1);
+
 	/* fprintf(stderr, "fsync!: %i\n", vp->v_fd); */
-	return fsync(vp->v_fd);
+
+	int ret = fsync(vp->v_fd);
+	int ret2;
+
+	if(vp->v_type == VBLK)
+		ret2 = ioctl(vp->v_fd, BLKFLSBUF, 0);
+
+	return ret != 0 ? ret : ret2;
 }
 
 static int
