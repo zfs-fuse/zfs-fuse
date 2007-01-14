@@ -224,13 +224,11 @@ dbuf_evict_user(dmu_buf_impl_t *db)
 void
 dbuf_evict(dmu_buf_impl_t *db)
 {
-	int i;
-
 	ASSERT(MUTEX_HELD(&db->db_mtx));
 	ASSERT(db->db_buf == NULL);
 
 #ifdef ZFS_DEBUG
-	for (i = 0; i < TXG_SIZE; i++) {
+	for (int i = 0; i < TXG_SIZE; i++) {
 		ASSERT(!list_link_active(&db->db_dirty_node[i]));
 		ASSERT(db->db_level != 0 || db->db_d.db_data_old[i] == NULL);
 	}

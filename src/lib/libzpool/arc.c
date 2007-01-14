@@ -2301,13 +2301,11 @@ arc_has_callback(arc_buf_t *buf)
 	return (buf->b_efunc != NULL);
 }
 
-#ifdef ZFS_DEBUG
 int
 arc_referenced(arc_buf_t *buf)
 {
 	return (refcount_count(&buf->b_hdr->b_refcnt));
 }
-#endif
 
 static void
 arc_write_done(zio_t *zio)

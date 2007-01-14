@@ -16,15 +16,17 @@ env['CCFLAGS'] = Split('-pipe -Wall -Werror -std=c99 -Wno-missing-braces -Wno-pa
 debug = int(ARGUMENTS.get('debug', '1'))
 
 if not debug:
-	env.Append(LINKFLAGS = Split('-s'))
+	env.Append(LINKFLAGS = ['-s'])
 	env.Append(CCFLAGS = Split('-s -O2 -DNDEBUG'))
 else:
-	env.Append(LINKFLAGS = Split('-ggdb'))
-	env.Append(CCFLAGS = Split('-ggdb -DDEBUG'))
+	env.Append(LINKFLAGS = ['-ggdb'])
+	env.Append(CCFLAGS = ['-ggdb'])
 	if debug == 1:
-		env.Append(CCFLAGS = Split('-O2'))
+		env.Append(CCFLAGS = ['-O2'])
+	elif debug == 2:
+		env.Append(CCFLAGS = ['-DDEBUG'])
 	elif debug == 3:
-		env.Append(CCFLAGS = Split('-finstrument-functions'))
+		env.Append(CCFLAGS = Split('-finstrument-functions -DDEBUG'))
 
 env['CPPPATH'] = []
 
