@@ -10,7 +10,7 @@ and clones.
 It supports any vdev configuration which is supported by the original Solaris
 implementation.
 - You can use any block device or file as a vdev (except files stored inside ZFS
-itself and ramdisk block devices).
+itself).
 - Compression, checksumming, error detection, self-healing (on redundant pools).
 - Quotas and reservations.
 
