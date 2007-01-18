@@ -3,7 +3,7 @@ Prerequisites
 
 In order to compile and use zfs-fuse, you need the following:
 
- * A 2.6.x Linux kernel
+ * Linux kernel 2.6.16 or newer.
 
  * FUSE 2.5.x or greater (Gentoo users: FUSE-2.6.0rc1 and some 
 earlier pre-release versions have a bug that prevents zfs-fuse
@@ -12,10 +12,14 @@ from compiling correctly, simply upgrade to FUSE-2.6.0 or later).
    You will need the fuse, fuse-utils and/or libfuse packages
 (and associated -dev packages), depending on the distribution.
 
- * glibc version 2.3.3 or up with NPTL enabled.
-   You can check if it's enabled with the following command:
+ * glibc version 2.4 or newer with NPTL enabled.
+   You can check these requirements with following commands:
 
+   getconf GNU_LIBC_VERSION
    getconf GNU_LIBPTHREAD_VERSION
+
+   The output should be "glibc 2.4" and "NTPL 2.4" (or newer,
+   of course).
 
  * SCons (packaged in most distributions)
    Only needed for compilation.
