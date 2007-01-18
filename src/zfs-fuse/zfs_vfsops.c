@@ -170,10 +170,13 @@ zfs_sync(vfs_t *vfsp, short flag, cred_t *cr)
 	return (0);
 }
 
-#if 0
 static int
 zfs_create_unique_device(dev_t *dev)
 {
+	/* ZFSFUSE: not needed */
+	*dev = makedev(0, 0);
+	return 0;
+#if 0
 	major_t new_major;
 
 	do {
@@ -221,8 +224,9 @@ zfs_create_unique_device(dev_t *dev)
 	} while (1);
 
 	return (0);
-}
 #endif
+}
+
 static void
 atime_changed_cb(void *arg, uint64_t newval)
 {
@@ -588,11 +592,10 @@ zfs_domount(vfs_t *vfsp, char *osname, cred_t *cr)
 	vfsp->vfs_bcount = 0;
 	vfsp->vfs_data = NULL;
 
-	/* ZFSFUSE: not needed */
-	/*if (zfs_create_unique_device(&mount_dev) == -1) {
+	if (zfs_create_unique_device(&mount_dev) == -1) {
 		error = ENODEV;
 		goto out;
-	}*/
+	}
 
 	ASSERT(vfs_devismounted(mount_dev) == 0);
 
