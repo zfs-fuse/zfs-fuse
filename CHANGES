@@ -1,5 +1,7 @@
 ? - Release 0.4.0_alpha2
 --------------------------------------------------
+Notes:
+	* zfs-fuse now requires kernel version 2.6.16 and glibc 2.4 or newer.
 Features:
 	* Updated ZFS code to Nevada build 56
 Enhancements:
