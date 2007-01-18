@@ -823,7 +823,7 @@ zpool_find_vdev(zpool_handle_t *zhp, const char *path, boolean_t *avail_spare)
 	if (guid != 0 && *end == '\0') {
 		search = NULL;
 	} else if (path[0] != '/') {
-		(void) snprintf(buf, sizeof (buf), "%s%s", "/dev/dsk/", path);
+		(void) snprintf(buf, sizeof (buf), "%s%s", "/dev/", path);
 		search = buf;
 	} else {
 		search = path;
@@ -1475,7 +1475,7 @@ set_path(zpool_handle_t *zhp, nvlist_t *nv, const char *path)
 
 /*
  * Given a vdev, return the name to display in iostat.  If the vdev has a path,
- * we use that, stripping off any leading "/dev/dsk/"; if not, we use the type.
+ * we use that, stripping off any leading "/dev/"; if not, we use the type.
  * We also check if this is a whole disk, in which case we strip off the
  * trailing 's0' slice name.
  *
@@ -1536,8 +1536,8 @@ zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv)
 				devid_str_free(newdevid);
 		}
 
-		if (strncmp(path, "/dev/dsk/", 9) == 0)
-			path += 9;
+		if (strncmp(path, "/dev/", 5) == 0)
+			path += 5;
 
 		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_WHOLE_DISK,
 		    &value) == 0 && value) {

@@ -123,7 +123,7 @@ libdiskmgt_error(int error)
 {
 	/*
 	 * ENXIO/ENODEV is a valid error message if the device doesn't live in
-	 * /dev/dsk.  Don't bother printing an error message in this case.
+	 * /dev.  Don't bother printing an error message in this case.
 	 */
 	if (error == ENXIO || error == ENODEV)
 		return;
@@ -365,9 +365,9 @@ is_whole_disk(const char *arg, struct stat64 *statbuf)
  * device, fill in the device id to make a complete nvlist.  Valid forms for a
  * leaf vdev are:
  *
- * 	/dev/dsk/xxx	Complete disk path
+ * 	/dev/xxx	Complete disk path
  * 	/xxx		Full path to file
- * 	xxx		Shorthand for /dev/dsk/xxx
+ * 	xxx		Shorthand for /dev/xxx
  */
 nvlist_t *
 make_leaf_vdev(const char *arg)
@@ -402,7 +402,7 @@ make_leaf_vdev(const char *arg)
 		/*
 		 * This may be a short path for a device, or it could be total
 		 * gibberish.  Check to see if it's a known device in
-		 * /dev/dsk/.  As part of this check, see if we've been given a
+		 * /dev/.  As part of this check, see if we've been given a
 		 * an entire disk (minus the slice number).
 		 */
 		(void) snprintf(path, sizeof (path), "%s/%s", DISK_ROOT,

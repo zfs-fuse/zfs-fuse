@@ -714,7 +714,7 @@ zpool_read_label(int fd, nvlist_t **config)
 /*
  * Given a list of directories to search, find all pools stored on disk.  This
  * includes partial pools which are not available to import.  If no args are
- * given (argc is 0), then the default directory (/dev/dsk) is searched.
+ * given (argc is 0), then the default directory (/dev) is searched.
  */
 nvlist_t *
 zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv)
@@ -725,7 +725,7 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv)
 	char path[MAXPATHLEN];
 	struct stat64 statbuf;
 	nvlist_t *ret = NULL, *config;
-	static char *default_dir = "/dev/dsk";
+	static char *default_dir = "/dev";
 	int fd;
 	pool_list_t pools = { 0 };
 	pool_entry_t *pe, *penext;

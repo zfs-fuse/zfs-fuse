@@ -383,40 +383,10 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 	int fd;
 	vnode_t *vp;
 	int old_umask = 0;
-	char realpath[MAXPATHLEN];
 	struct stat64 st;
 
-	/*
-	 * If we're accessing a real disk from userland, we need to use
-	 * the character interface to avoid caching.  This is particularly
-	 * important if we're trying to look at a real in-kernel storage
-	 * pool from userland, e.g. via zdb, because otherwise we won't
-	 * see the changes occurring under the segmap cache.
-	 * On the other hand, the stupid character device returns zero
-	 * for its size.  So -- gag -- we open the block device to get
-	 * its size, and remember it for subsequent VOP_GETATTR().
-	 */
-	/* FIXME: Clean this up */
-	if (strncmp(path, "/dev/", 5) == 0) {
-		char *dsk;
-		fd = open64(path, O_RDONLY);
-		if (fd == -1)
-			return (errno);
-		if (fstat64(fd, &st) == -1) {
-			close(fd);
-			return (errno);
-		}
-		close(fd);
-		(void) sprintf(realpath, "%s", path);
-		dsk = strstr(path, "/dsk/");
-		if (dsk != NULL)
-			(void) sprintf(realpath + (dsk - path) + 1, "r%s",
-			    dsk + 1);
-	} else {
-		(void) sprintf(realpath, "%s", path);
-		if (!(flags & FCREAT) && stat64(realpath, &st) == -1)
-			return (errno);
-	}
+	if (!(flags & FCREAT) && stat64(path, &st) == -1)
+		return (errno);
 
 	if (flags & FCREAT)
 		old_umask = umask(0);
@@ -425,7 +395,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 	 * The construct 'flags - FREAD' conveniently maps combinations of
 	 * FREAD and FWRITE to the corresponding O_RDONLY, O_WRONLY, and O_RDWR.
 	 */
-	fd = open64(realpath, flags - FREAD, mode);
+	fd = open64(path, flags - FREAD, mode);
 
 	if (flags & FCREAT)
 		(void) umask(old_umask);
