@@ -114,7 +114,7 @@ int zfsfuse_socket_read_loop(int fd, void *buf, int bytes)
 	int left_bytes = bytes;
 
 	while(left_bytes > 0) {
-		int ret = recvfrom(fd, buf + read_bytes, left_bytes, 0, NULL, NULL);
+		int ret = recvfrom(fd, ((char *) buf) + read_bytes, left_bytes, 0, NULL, NULL);
 		if(ret == 0)
 			return -1;
 

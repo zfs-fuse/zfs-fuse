@@ -1838,7 +1838,7 @@ zfs_readdir(vnode_t *vp, uio_t *uio, cred_t *cr, int *eofp)
 	zp->z_zn_prefetch = B_FALSE; /* a lookup will re-enable pre-fetching */
 
 	if (uio->uio_segflg == UIO_SYSSPACE && uio->uio_iovcnt == 1) {
-		iovp->iov_base += outcount;
+		iovp->iov_base = ((char *) iovp->iov_base) + outcount;
 		iovp->iov_len -= outcount;
 		uio->uio_resid -= outcount;
 	} else if (error = uiomove(outbuf, (long)outcount, UIO_READ, uio)) {

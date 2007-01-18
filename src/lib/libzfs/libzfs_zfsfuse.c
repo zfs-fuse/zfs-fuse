@@ -69,7 +69,7 @@ int zfsfuse_open(const char *pathname, int flags)
 }
 
 /*
- * This function is repeated in zfs-fuse/zfsfuse_ioctl.c
+ * This function is repeated in zfs-fuse/zfsfuse_socket.c
  * and in zfs-fuse/fuse_listener.c
  */
 int zfsfuse_ioctl_read_loop(int fd, void *buf, int bytes)
@@ -78,7 +78,7 @@ int zfsfuse_ioctl_read_loop(int fd, void *buf, int bytes)
 	int left_bytes = bytes;
 
 	while(left_bytes > 0) {
-		int ret = recvfrom(fd, buf + read_bytes, left_bytes, 0, NULL, NULL);
+		int ret = recvfrom(fd, ((char *) buf) + read_bytes, left_bytes, 0, NULL, NULL);
 		if(ret == 0) {
 			fprintf(stderr, "zfsfuse_ioctl_read_loop(): file descriptor closed\n");
 			errno = EIO;
