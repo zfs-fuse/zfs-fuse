@@ -1241,6 +1241,9 @@ int
 zpool_iter_zvol(zpool_handle_t *zhp, int (*cb)(const char *, void *),
     void *data)
 {
+	/* ZFSFUSE: not implemented */
+	return 0;
+#if 0
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 	char (*paths)[MAXPATHLEN];
 	size_t size = 4;
@@ -1333,6 +1336,7 @@ err:
 	free(paths);
 	(void) close(base);
 	return (-1);
+#endif
 }
 
 typedef struct zvol_cb {
