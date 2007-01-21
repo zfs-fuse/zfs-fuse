@@ -546,34 +546,34 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 
 		VN_RELE(vp);
 		vp = new_vp;
-	}
+	} else {
+		/*
+		 * Get the attributes to check whether file is large.
+		 * We do this only if the O_LARGEFILE flag is not set and
+		 * only for regular files.
+		 */
+		if (!(flags & FOFFMAX) && (vp->v_type == VREG)) {
+			vattr_t vattr;
+			vattr.va_mask = AT_SIZE;
+			if ((error = VOP_GETATTR(vp, &vattr, 0, &cred)))
+				goto out;
 
-	/*
-	 * Get the attributes to check whether file is large.
-	 * We do this only if the O_LARGEFILE flag is not set and
-	 * only for regular files.
-	 */
-	if (!(flags & FOFFMAX) && (vp->v_type == VREG)) {
-		vattr_t vattr;
-		vattr.va_mask = AT_SIZE;
-		if ((error = VOP_GETATTR(vp, &vattr, 0, &cred)))
-			goto out;
-
-		if (vattr.va_size > (u_offset_t) MAXOFF32_T) {
-			/*
-			 * Large File API - regular open fails
-			 * if FOFFMAX flag is set in file mode
-			 */
-			error = EOVERFLOW;
-			goto out;
+			if (vattr.va_size > (u_offset_t) MAXOFF32_T) {
+				/*
+				 * Large File API - regular open fails
+				 * if FOFFMAX flag is set in file mode
+				 */
+				error = EOVERFLOW;
+				goto out;
+			}
 		}
-	}
 
-	/*
-	 * Check permissions.
-	 */
-	if (error = VOP_ACCESS(vp, mode, 0, &cred))
-		goto out;
+		/*
+		 * Check permissions.
+		 */
+		if (error = VOP_ACCESS(vp, mode, 0, &cred))
+			goto out;
+	}
 
 	if ((flags & FNOFOLLOW) && vp->v_type == VLNK) {
 		error = ELOOP;
