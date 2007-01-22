@@ -110,9 +110,7 @@ static void zfsfuse_statfs(fuse_req_t req)
 	stat.f_flag = zfs_stat.f_flag;
 	stat.f_namemax = zfs_stat.f_namemax;
 
-	int error = -fuse_reply_statfs(req, &stat);
-	if(error)
-		fuse_reply_err(req, error);
+	fuse_reply_statfs(req, &stat);
 }
 
 static int zfsfuse_stat(vnode_t *vp, struct stat *stbuf, cred_t *cred)
@@ -177,7 +175,7 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_attr(req, &stbuf, 0.0);
+		fuse_reply_attr(req, &stbuf, 0.0);
 
 	return error;
 }
@@ -244,7 +242,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_entry(req, &e);
+		fuse_reply_entry(req, &e);
 
 	return error;
 }
@@ -319,7 +317,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_open(req, fi);
+		fuse_reply_open(req, fi);
 
 	return error;
 }
@@ -448,7 +446,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_buf(req, outbuf, outbuf_off);
+		fuse_reply_buf(req, outbuf, outbuf_off);
 
 	free(outbuf);
 
@@ -629,9 +627,9 @@ out:
 
 	if(!error) {
 		if(!(flags & FCREAT))
-			error = -fuse_reply_open(req, fi);
+			fuse_reply_open(req, fi);
 		else
-			error = -fuse_reply_create(req, &e, fi);
+			fuse_reply_create(req, &e, fi);
 	}
 	return error;
 }
@@ -675,7 +673,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
-	char buffer[PATH_MAX];
+	char buffer[PATH_MAX + 1];
 
 	iovec_t iovec;
 	uio_t uio;
@@ -700,7 +698,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	if(!error) {
 		VERIFY(uio.uio_loffset < sizeof(buffer));
 		buffer[uio.uio_loffset] = '\0';
-		error = -fuse_reply_readlink(req, buffer);
+		fuse_reply_readlink(req, buffer);
 	}
 
 	return error;
@@ -754,7 +752,7 @@ static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, 
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_buf(req, outbuf, uio.uio_loffset - off);
+		fuse_reply_buf(req, outbuf, uio.uio_loffset - off);
 
 	free(outbuf);
 
@@ -825,7 +823,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_entry(req, &e);
+		fuse_reply_entry(req, &e);
 
 	return error;
 }
@@ -997,7 +995,7 @@ out: ;
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_attr(req, &stat_reply, 0.0);
+		fuse_reply_attr(req, &stat_reply, 0.0);
 
 	return error;
 }
@@ -1089,7 +1087,7 @@ static int zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t
 	if(!error) {
 		/* When not using direct_io, we must always write 'size' bytes */
 		VERIFY(uio.uio_resid == 0);
-		error = -fuse_reply_write(req, size - uio.uio_resid);
+		fuse_reply_write(req, size - uio.uio_resid);
 	}
 
 	return error;
@@ -1167,7 +1165,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_entry(req, &e);
+		fuse_reply_entry(req, &e);
 
 	return error;
 }
@@ -1242,7 +1240,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_entry(req, &e);
+		fuse_reply_entry(req, &e);
 
 	return error;
 }
@@ -1412,7 +1410,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		error = -fuse_reply_entry(req, &e);
+		fuse_reply_entry(req, &e);
 
 	return error;
 }
