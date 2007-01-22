@@ -3,7 +3,7 @@ Prerequisites
 
 In order to compile and use zfs-fuse, you need the following:
 
- * Linux kernel 2.6.x.
+ * Linux kernel 2.6.x (2.6.15 or later recommended).
 
  * FUSE 2.5.x or greater (Gentoo users: FUSE-2.6.0rc1 and some 
 earlier pre-release versions have a bug that prevents zfs-fuse

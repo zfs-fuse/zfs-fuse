@@ -33,6 +33,7 @@
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_znode.h>
 #include <sys/mode.h>
+#include <sys/fcntl.h>
 
 #include <string.h>
 #include <errno.h>
@@ -893,6 +894,9 @@ static int zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, in
 
 	int error;
 
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
 	if(fi == NULL) {
 		znode_t *znode;
 
@@ -910,6 +914,42 @@ static int zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, in
 		file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
 		vp = info->vp;
 		release = B_FALSE;
+
+		/*
+		 * Special treatment for ftruncate().
+		 * This is needed because otherwise ftruncate() would
+		 * fail with permission denied on read-only files.
+		 * (Solaris calls VOP_SPACE instead of VOP_SETATTR on
+		 * ftruncate).
+		 */
+		if(to_set & FUSE_SET_ATTR_SIZE) {
+			/* Check if file is opened for writing */
+			if((info->flags & FWRITE) == 0) {
+				error = EBADF;
+				goto out;
+			}
+			/* Sanity check */
+			if(vp->v_type != VREG) {
+				error = EINVAL;
+				goto out;
+			}
+
+			flock64_t bf;
+
+			bf.l_whence = 0; /* beginning of file */
+			bf.l_start = attr->st_size;
+			bf.l_type = F_WRLCK;
+			bf.l_len = (off_t) 0;
+
+			/* FIXME: check locks */
+			error = VOP_SPACE(vp, F_FREESP, &bf, info->flags, 0, &cred, NULL);
+			if(error)
+				goto out;
+
+			to_set &= ~FUSE_SET_ATTR_SIZE;
+			if(to_set == 0)
+				goto out;
+		}
 	}
 
 	ASSERT(vp != NULL);
@@ -941,12 +981,10 @@ static int zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, in
 		TIME_TO_TIMESTRUC(attr->st_mtime, &vattr.va_mtime);
 	}
 
-	cred_t cred;
-	zfsfuse_getcred(req, &cred);
-
 	int flags = (to_set & (FUSE_SET_ATTR_ATIME | FUSE_SET_ATTR_MTIME)) ? ATTR_UTIME : 0;
 	error = VOP_SETATTR(vp, &vattr, flags, &cred, NULL);
 
+out: ;
 	struct stat stat_reply;
 
 	if(!error)
