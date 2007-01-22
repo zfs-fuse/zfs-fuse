@@ -699,7 +699,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	if(!error) {
 		VERIFY(uio.uio_loffset < sizeof(buffer));
 		buffer[uio.uio_loffset] = '\0';
-		error = -fuse_reply_buf(req, buffer, uio.uio_loffset + 1);
+		error = -fuse_reply_readlink(req, buffer);
 	}
 
 	return error;
