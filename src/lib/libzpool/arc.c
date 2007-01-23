@@ -1274,13 +1274,13 @@ arc_shrink(void)
 static int
 arc_reclaim_needed(void)
 {
+	uint64_t extra;
+
 #ifdef _KERNEL
-	/* fprintf(stderr, "Memory usage: %.2f MiB\n", (double) kern_memusage / (1<<20)); */
+	/*fprintf(stderr, "Memory usage: %.2f MiB, arc.c: %.2f MiB, arc.size: %.2f MiB\n", (double) kern_memusage / (1<<20), (double) arc.c / (1<<20), (double) arc.size / (1<<20))*/;
 	if(kern_memusage > zfsfuse_maxmemory)
 		return 1;
 #if 0
-	uint64_t extra;
-
 	if (needfree)
 		return (1);
 

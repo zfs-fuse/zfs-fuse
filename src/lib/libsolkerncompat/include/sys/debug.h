@@ -29,16 +29,16 @@
 
 #include <assert.h>
 
-#define ASSERT_FAIL(EX) \
+#define ASSERT_FAIL(EX, FILE, LINE) \
         do { \
-        	fprintf(stderr, __FILE__ ":%i: %s: Assertion `" #EX "` failed.\n", __LINE__, __PRETTY_FUNCTION__); \
+        	fprintf(stderr, "%s:%i: %s: Assertion `%s` failed.\n", FILE, LINE, __PRETTY_FUNCTION__, EX); \
         	abort(); \
         } while(0)
 
-#define VERIFY(EX) do { if(!(EX)) ASSERT_FAIL(EX); } while(0)
+#define VERIFY(EX) do { if(!(EX)) ASSERT_FAIL(#EX, __FILE__, __LINE__); } while(0)
 
 #ifndef __assert
-#define __assert(EX, FILE, LINE) ASSERT_FAIL(EX)
+#define __assert(EX, FILE, LINE) ASSERT_FAIL(EX, FILE, LINE)
 #endif
 
 #define ASSERT(EX) assert(EX)
