@@ -16,8 +16,6 @@ itself).
 
 What isn't working yet (expected version):
 
-- Multi-threaded event loop (relatively easy to implement, should come in the
-next alpha or so).
 - Mount options (0.4.0).
 - File locks (0.4.0).
 - zfs send/recv (0.4.0).
@@ -37,6 +35,7 @@ snapshot (see zfs clone).
 
 What can't be done right now:
 - Remount filesystems (FUSE limitation).
+- Have better than 1-second granularity on file times (FUSE limitation).
 
 What will probably never work:
 - Storing swap files in a ZFS filesystem. This will deadlock your kernel. The
