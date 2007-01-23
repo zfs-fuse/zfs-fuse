@@ -122,9 +122,9 @@
 #include <vm/anon.h>
 #include <sys/fs/swapnode.h>
 #include <sys/dnlc.h>
+#include <sys/kmem.h>
 #endif
 #include <sys/callb.h>
-#include <sys/kmem.h>
 
 static kmutex_t		arc_reclaim_thr_lock;
 static kcondvar_t	arc_reclaim_thr_cv;	/* used to signal reclaim thr */
