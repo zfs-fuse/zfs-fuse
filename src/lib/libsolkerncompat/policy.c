@@ -88,6 +88,7 @@ int groupmember(gid_t gid, const cred_t *cr)
 		else
 			perror("strerror_r");
 
+		error = 1;
 		goto out;
 	}
 
@@ -109,6 +110,7 @@ int groupmember(gid_t gid, const cred_t *cr)
 		else
 			perror("strerror_r");
 
+		error = 1;
 		goto out;
 	}
 
