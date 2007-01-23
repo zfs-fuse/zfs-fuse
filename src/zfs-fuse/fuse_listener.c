@@ -42,7 +42,7 @@ static const int listener_threads = 40;
 
 boolean_t exit_fuse_listener = B_FALSE;
 
-taskq_t *fuse_tq;
+taskq_t *fuse_tq = NULL;
 
 int newfs_fd[2];
 
@@ -77,7 +77,11 @@ void zfsfuse_listener_exit()
 {
 	close(newfs_fd[0]);
 	close(newfs_fd[1]);
-	taskq_destroy(fuse_tq);
+
+	if(fuse_tq != NULL) {
+		taskq_destroy(fuse_tq);
+		fuse_tq = NULL;
+	}
 }
 
 int zfsfuse_newfs(char *mntpoint, struct fuse_chan *ch)
