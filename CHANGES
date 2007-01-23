@@ -10,6 +10,7 @@ Bug fixes:
 	* Bug #9833 - Cannot execute binaries inside ZFS filesystems.
 	* Bug #9834 - Terminating zfs-fuse didn't unmount filesystems.
 	* Bug #9835 - zfs-fuse would exit when killing zfs or zpool with ctrl-c.
+	* Bug #9838 - zfs-fuse memory usage would grow almost indefinitely.
 	* Bug #9841 - zpool export fails with -f force option. Bug reported and fixed by philwozza.
 	* Bug #10071 - Cannot copy write protected file.
 	* Fixed bug where opened read-only files couldn't be ftruncated() (fixes IOzone sanity check).

@@ -28,26 +28,32 @@
 #ifndef _SYS_KMEM_H
 #define _SYS_KMEM_H
 
-#include <stdlib.h>
+#include <sys/types.h>
 #include <umem.h>
+
+extern uint64_t kern_memusage;
 
 /*
  * Kernel memory
  */
-#define	KM_SLEEP		UMEM_NOFAIL
-#define	KM_NOSLEEP		UMEM_DEFAULT
-#define	KMC_NODEBUG		UMC_NODEBUG
-#define	kmem_alloc(_s, _f)	umem_alloc(_s, _f)
-#define	kmem_zalloc(_s, _f)	umem_zalloc(_s, _f)
-#define	kmem_free(_b, _s)	umem_free(_b, _s)
-#define	kmem_cache_create(_a, _b, _c, _d, _e, _f, _g, _h, _i) \
-	umem_cache_create(_a, _b, _c, _d, _e, _f, _g, _h, _i)
-#define	kmem_cache_destroy(_c)	umem_cache_destroy(_c)
-#define	kmem_cache_alloc(_c, _f) umem_cache_alloc(_c, _f)
-#define	kmem_cache_free(_c, _b)	umem_cache_free(_c, _b)
-#define	kmem_debugging()	0
-#define	kmem_cache_reap_now(c)
+#define KM_SLEEP    UMEM_NOFAIL
+#define KM_NOSLEEP  UMEM_DEFAULT
+#define KMC_NODEBUG UMC_NODEBUG
 
 typedef umem_cache_t kmem_cache_t;
+
+extern void *kmem_alloc(size_t size, int kmflags);
+extern void *kmem_zalloc(size_t size, int kmflags);
+extern void kmem_free(void *buf, size_t size);
+
+#define kmem_cache_create(_a, _b, _c, _d, _e, _f, _g, _h, _i) \
+    umem_cache_create(_a, _b, _c, _d, _e, _f, _g, _h, _i)
+#define kmem_cache_destroy(_c) umem_cache_destroy(_c)
+
+extern void *kmem_cache_alloc(kmem_cache_t *, int);
+extern void kmem_cache_free(kmem_cache_t *, void *);
+
+#define kmem_debugging() 0
+#define kmem_cache_reap_now(c)
 
 #endif

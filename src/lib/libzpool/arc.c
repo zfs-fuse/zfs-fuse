@@ -124,6 +124,7 @@
 #include <sys/dnlc.h>
 #endif
 #include <sys/callb.h>
+#include <sys/kmem.h>
 
 static kmutex_t		arc_reclaim_thr_lock;
 static kcondvar_t	arc_reclaim_thr_cv;	/* used to signal reclaim thr */
@@ -149,10 +150,15 @@ static int		arc_min_prefetch_lifespan;
 static int arc_dead;
 
 /*
+ * ZFSFUSE: Max memory usage in bytes
+ */
+uint64_t zfsfuse_maxmemory = 64<<20;
+
+/*
  * These tunables are for performance analysis.
  */
-uint64_t zfs_arc_max = 80<<20;
-uint64_t zfs_arc_min = 64<<20 + 1;
+uint64_t zfs_arc_max;
+uint64_t zfs_arc_min;
 
 /*
  * Note that buffers can be on one of 5 states:
@@ -1268,6 +1274,12 @@ arc_shrink(void)
 static int
 arc_reclaim_needed(void)
 {
+#ifdef _KERNEL
+#ifdef DEBUG
+	/* fprintf(stderr, "Memory usage: %.2f MiB\n", (double) kern_memusage / (1<<20)); */
+#endif
+	if(kern_memusage > zfsfuse_maxmemory)
+		return 1;
 #if 0
 	uint64_t extra;
 
@@ -1327,7 +1339,7 @@ arc_reclaim_needed(void)
 	    (btop(vmem_size(heap_arena, VMEM_FREE | VMEM_ALLOC)) >> 2))
 		return (1);
 #endif
-
+#endif /* if 0 */
 #else
 	if (spa_get_random(100) == 0)
 		return (1);
@@ -2558,8 +2570,8 @@ arc_init(void)
 	arc.c = MIN(arc.c, vmem_size(heap_arena, VMEM_ALLOC | VMEM_FREE) / 8);
 #endif
 
-	/* set min cache to 1/32 of all memory, or 64MB, whichever is more */
-	arc.c_min = MAX(arc.c / 4, 64<<20);
+	/* set min cache to 16 MB */
+	arc.c_min = 16<<20;
 	/* set max to 3/4 of all memory, or all but 1GB, whichever is more */
 	if (arc.c * 8 >= 1<<30)
 		arc.c_max = (arc.c * 8) - (1<<30);

@@ -165,3 +165,10 @@ void umem_cache_destroy(umem_cache_t *cache)
 {
 	free(cache);
 }
+
+/* ZFSFUSE */
+size_t umem_get_bufsize(umem_cache_t *cache)
+{
+	return cache->bufsize;
+}
+
