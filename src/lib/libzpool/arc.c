@@ -1275,9 +1275,7 @@ static int
 arc_reclaim_needed(void)
 {
 #ifdef _KERNEL
-#ifdef DEBUG
 	/* fprintf(stderr, "Memory usage: %.2f MiB\n", (double) kern_memusage / (1<<20)); */
-#endif
 	if(kern_memusage > zfsfuse_maxmemory)
 		return 1;
 #if 0
@@ -2572,12 +2570,8 @@ arc_init(void)
 
 	/* set min cache to 16 MB */
 	arc.c_min = 16<<20;
-	/* set max to 3/4 of all memory, or all but 1GB, whichever is more */
-	if (arc.c * 8 >= 1<<30)
-		arc.c_max = (arc.c * 8) - (1<<30);
-	else
-		arc.c_max = arc.c_min;
-	arc.c_max = MAX(arc.c * 6, arc.c_max);
+	/* set max cache to zfsfuse_maxmemory */
+	arc.c_max = zfsfuse_maxmemory;
 
 	/*
 	 * Allow the tunables to override our calculations if they are
