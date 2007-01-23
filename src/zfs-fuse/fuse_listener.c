@@ -29,11 +29,20 @@
 #include <sys/poll.h>
 #include <sys/debug.h>
 #include <sys/types.h>
+#include <sys/taskq.h>
+#include <sys/disp.h>
+#include <sys/kmem.h>
 #include <errno.h>
 
 #include "fuse.h"
 
+static const int listener_threads = 40;
+
+#define MAX_FILESYSTEMS 1000
+
 boolean_t exit_fuse_listener = B_FALSE;
+
+taskq_t *fuse_tq;
 
 int newfs_fd[2];
 
@@ -45,7 +54,12 @@ typedef struct fuse_fs_info {
 	int mntlen;
 } fuse_fs_info_t;
 
-#define MAX_FILESYSTEMS 1000
+typedef struct fuse_request {
+	char *buf;
+	size_t len;
+	struct fuse_chan *ch;
+	struct fuse_session *se;
+} fuse_request_t;
 
 int zfsfuse_listener_init()
 {
@@ -53,6 +67,9 @@ int zfsfuse_listener_init()
 		perror("pipe");
 		return -1;
 	}
+
+	fuse_tq = taskq_create("fuse_tq", listener_threads, minclsyspri, 20, 100, TASKQ_PREPOPULATE);
+
 	return 0;
 }
 
@@ -60,11 +77,12 @@ void zfsfuse_listener_exit()
 {
 	close(newfs_fd[0]);
 	close(newfs_fd[1]);
+	taskq_destroy(fuse_tq);
 }
 
 int zfsfuse_newfs(char *mntpoint, struct fuse_chan *ch)
 {
-	fuse_fs_info_t info;
+	fuse_fs_info_t info = { 0 };
 
 	info.fd = fuse_chan_fd(ch);
 	info.bufsize = fuse_chan_bufsize(ch);
@@ -88,7 +106,7 @@ int zfsfuse_newfs(char *mntpoint, struct fuse_chan *ch)
  * This function is repeated in lib/libzfs/libzfs_zfsfuse.c
  * and in zfs-fuse/zfsfuse_socket.c
  */
-int fd_read_loop(int fd, void *buf, int bytes)
+static int fd_read_loop(int fd, void *buf, int bytes)
 {
 	int read_bytes = 0;
 	int left_bytes = bytes;
@@ -110,7 +128,68 @@ int fd_read_loop(int fd, void *buf, int bytes)
 	return 0;
 }
 
+static void zfsfuse_dispatcher(void *arg)
+{
+	fuse_request_t *req = (fuse_request_t *) arg;
+
+	fuse_session_process(req->se, req->buf, req->len, req->ch);
+
+	free(req->buf);
+	free(req);
+}
+
 #define MAX_FDS (MAX_FILESYSTEMS + 1)
+
+static void new_fs(int *nfds, struct pollfd *fds, char **mountpoints, fuse_fs_info_t *fsinfo)
+{
+	fuse_fs_info_t fs;
+
+	/*
+	 * This should never fail (famous last words) since the fd
+	 * is only closed in fuse_listener_exit()
+	 */
+	VERIFY(fd_read_loop(fds[0].fd, &fs, sizeof(fuse_fs_info_t)) == 0);
+
+	char *mntpoint = malloc(fs.mntlen + 1);
+	if(mntpoint == NULL) {
+		fprintf(stderr, "Warning: out of memory!\n");
+		return;
+	}
+
+	VERIFY(fd_read_loop(fds[0].fd, mntpoint, fs.mntlen) == 0);
+
+	mntpoint[fs.mntlen] = '\0';
+
+	if(*nfds == MAX_FDS) {
+		fprintf(stderr, "Warning: filesystem limit (%i) reached, unmounting..\n", MAX_FILESYSTEMS);
+		fuse_unmount(mntpoint);
+		free(mntpoint);
+		return;
+	}
+
+#ifdef DEBUG
+	fprintf(stderr, "Adding filesystem %i at mntpoint %s\n", *nfds, mntpoint);
+#endif
+	fsinfo[*nfds] = fs;
+	mountpoints[*nfds] = mntpoint;
+
+	fds[*nfds].fd = fs.fd;
+	fds[*nfds].events = POLLIN;
+	fds[*nfds].revents = 0;
+	(*nfds)++;
+}
+
+static void destroy_fs(int i, struct pollfd *fds, char **mountpoints, fuse_fs_info_t *fsinfo)
+{
+#ifdef DEBUG
+	fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
+#endif
+	fuse_session_reset(fsinfo[i].se);
+	fuse_session_destroy(fsinfo[i].se);
+	close(fds[i].fd);
+	fds[i].fd = -1;
+	free(mountpoints[i]);
+}
 
 int zfsfuse_listener_loop()
 {
@@ -123,7 +202,6 @@ int zfsfuse_listener_loop()
 
 	int nfds = 1;
 
-	char *buf = NULL;
 	size_t bufsize = 0;
 
 	while(!exit_fuse_listener) {
@@ -152,72 +230,42 @@ int zfsfuse_listener_loop()
 				continue;
 
 			if(i == 0) {
-				/* New FUSE session */
+				new_fs(&nfds, fds, mountpoints, fsinfo);
+			} else {
+				/* Handle request */
 
-				fuse_fs_info_t fs;
-
-				/*
-				 * This should never fail (famous last words) since the fd
-				 * is only closed in fuse_listener_exit()
-				 */
-				VERIFY(fd_read_loop(fds[0].fd, &fs, sizeof(fuse_fs_info_t)) == 0);
-
-				char *mntpoint = malloc(fs.mntlen + 1);
-				if(mntpoint == NULL) {
+				char *buf = malloc(fsinfo[i].bufsize);
+				if(buf == NULL) {
 					fprintf(stderr, "Warning: out of memory!\n");
 					continue;
 				}
 
-				VERIFY(fd_read_loop(fds[0].fd, mntpoint, fs.mntlen) == 0);
-
-				mntpoint[fs.mntlen] = '\0';
-
-				if(nfds == MAX_FDS) {
-					fprintf(stderr, "Warning: filesystem limit (%i) reached, unmounting..\n", MAX_FILESYSTEMS);
-					fuse_unmount(mntpoint);
-					free(mntpoint);
-					continue;
-				}
-#ifdef DEBUG
-				fprintf(stderr, "Adding filesystem %i at mntpoint %s\n", nfds, mntpoint);
-#endif
-				fsinfo[nfds] = fs;
-				mountpoints[nfds] = mntpoint;
-
-				fds[nfds].fd = fs.fd;
-				fds[nfds].events = POLLIN;
-				fds[nfds].revents = 0;
-				nfds++;
-			} else {
-				/* Handle request */
-
-				if(fsinfo[i].bufsize > bufsize) {
-					char *new_buf = realloc(buf, fsinfo[i].bufsize);
-					if (new_buf == NULL) {
-						fprintf(stderr, "Warning: out of memory!\n");
-						continue;
-					}
-					buf = new_buf;
-				}
-
 				int res = fuse_chan_receive(fsinfo[i].ch, buf, fsinfo[i].bufsize);
-				if(res == 0)
-					continue;
-
-				if(res != -1)
-					fuse_session_process(fsinfo[i].se, buf, res, fsinfo[i].ch);
-
 				if(res == -1 || fuse_session_exited(fsinfo[i].se)) {
-#ifdef DEBUG
-					fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
-#endif
-					fuse_session_reset(fsinfo[i].se);
-					fuse_session_destroy(fsinfo[i].se);
-					close(fds[i].fd);
-					fds[i].fd = -1;
-					free(mountpoints[i]);
+					free(buf);
+					destroy_fs(i, fds, mountpoints, fsinfo);
 					continue;
 				}
+
+				if(res == 0) {
+					free(buf);
+					continue;
+				}
+
+				fuse_request_t *req = malloc(sizeof(fuse_request_t));
+				if(req == NULL) {
+					fprintf(stderr, "Warning: out of memory!\n");
+					free(buf);
+					continue;
+				}
+
+				req->buf = buf;
+				req->len = res;
+				req->ch = fsinfo[i].ch;
+				req->se = fsinfo[i].se;
+
+				/* buf and req are freed in zfsfuse_dispatcher */
+				taskq_dispatch(fuse_tq, zfsfuse_dispatcher, req, KM_SLEEP);
 			}
 		}
 
@@ -240,6 +288,8 @@ int zfsfuse_listener_loop()
 	fprintf(stderr, "Exiting...\n");
 #endif
 
+	taskq_wait(fuse_tq);
+
 	for(int i = 1; i < nfds; i++) {
 		if(fds[i].fd == -1)
 			continue;
@@ -251,9 +301,6 @@ int zfsfuse_listener_loop()
 
 		free(mountpoints[i]);
 	}
-
-	if(buf != NULL)
-		free(buf);
 
 	return 1;
 }

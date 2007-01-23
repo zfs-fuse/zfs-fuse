@@ -4,6 +4,7 @@ Features:
 	* Updated ZFS code to Nevada build 56
 Enhancements:
 	* Performance improvements
+	* Added multithreaded event loop
 	* Added LSB compliant init.d script to contrib/ directory (contributed by Dietmar Scharf).
 Bug fixes:
 	* Bug #9833 - Cannot execute binaries inside ZFS filesystems.
