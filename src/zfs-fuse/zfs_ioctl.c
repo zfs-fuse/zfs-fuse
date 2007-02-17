@@ -1035,12 +1035,10 @@ zfs_ioc_create(zfs_cmd_t *zc)
 	case DMU_OST_ZFS:
 		cbfunc = zfs_create_cb;
 		break;
-	/* ZFSFUSE: TODO Implement ZVOLs */
-#if 0
 	case DMU_OST_ZVOL:
-		cbfunc = zvol_create_cb;
-		break;
-#endif
+		/* ZFSFUSE: TODO Implement ZVOLs */
+		/*cbfunc = zvol_create_cb;*/
+		return ENOSYS;
 	default:
 		cbfunc = NULL;
 	}
