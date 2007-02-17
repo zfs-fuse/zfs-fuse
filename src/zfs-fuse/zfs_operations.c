@@ -192,6 +192,9 @@ static void zfsfuse_getattr_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_f
 
 static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -465,6 +468,9 @@ static void zfsfuse_readdir_helper(fuse_req_t req, fuse_ino_t ino, size_t size, 
 
 static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi, int fflags, mode_t createmode, const char *name)
 {
+	if(name && strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -771,6 +777,9 @@ static void zfsfuse_read_helper(fuse_req_t req, fuse_ino_t ino, size_t size, off
 
 static int zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
 {
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -840,6 +849,9 @@ static void zfsfuse_mkdir_helper(fuse_req_t req, fuse_ino_t parent, const char *
 
 static int zfsfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1012,6 +1024,9 @@ static void zfsfuse_setattr_helper(fuse_req_t req, fuse_ino_t ino, struct stat *
 
 static int zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1105,6 +1120,9 @@ static void zfsfuse_write_helper(fuse_req_t req, fuse_ino_t ino, const char *buf
 
 static int zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, dev_t rdev)
 {
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1182,6 +1200,9 @@ static void zfsfuse_mknod_helper(fuse_req_t req, fuse_ino_t parent, const char *
 
 static int zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent, const char *name)
 {
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1257,6 +1278,11 @@ static void zfsfuse_symlink_helper(fuse_req_t req, const char *link, fuse_ino_t 
 
 static int zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, fuse_ino_t newparent, const char *newname)
 {
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+	if(strlen(newname) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1346,6 +1372,9 @@ static void zfsfuse_fsync_helper(fuse_req_t req, fuse_ino_t ino, int datasync, s
 
 static int zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, const char *newname)
 {
+	if(strlen(newname) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
