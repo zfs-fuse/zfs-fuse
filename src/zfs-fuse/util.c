@@ -157,7 +157,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	fuse_opt_free_args(&args);
 
 	if(se == NULL) {
-		VERIFY(do_umount(vfs, 0) == B_FALSE); /* ZFSFUSE: FIXME?? */
+		VERIFY(do_umount(vfs, B_FALSE) == 0); /* ZFSFUSE: FIXME?? */
 		close(fd);
 		fuse_unmount(dir);
 		return EIO;
