@@ -32,7 +32,7 @@
 extern boolean_t exit_fuse_listener;
 
 extern int zfsfuse_listener_init();
-extern int zfsfuse_listener_loop();
+extern int zfsfuse_listener_start();
 extern void zfsfuse_listener_exit();
 extern int zfsfuse_newfs(char *mntpoint, struct fuse_chan *ch);
 

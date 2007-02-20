@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
 		return 2;
 	}
 
-	int ret = zfsfuse_listener_loop();
+	int ret = zfsfuse_listener_start();
 
 	do_exit();
 

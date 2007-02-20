@@ -29,22 +29,16 @@
 #include <sys/poll.h>
 #include <sys/debug.h>
 #include <sys/types.h>
-#include <sys/taskq.h>
 #include <sys/disp.h>
 #include <sys/kmem.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include "fuse.h"
 
-static const int listener_threads = 40;
+#define NUM_THREADS 40
 
 #define MAX_FILESYSTEMS 1000
-
-boolean_t exit_fuse_listener = B_FALSE;
-
-taskq_t *fuse_tq = NULL;
-
-int newfs_fd[2];
 
 typedef struct fuse_fs_info {
 	int fd;
@@ -54,12 +48,19 @@ typedef struct fuse_fs_info {
 	int mntlen;
 } fuse_fs_info_t;
 
-typedef struct fuse_request {
-	char *buf;
-	size_t len;
-	struct fuse_chan *ch;
-	struct fuse_session *se;
-} fuse_request_t;
+boolean_t exit_fuse_listener = B_FALSE;
+
+int newfs_fd[2];
+
+#define MAX_FDS (MAX_FILESYSTEMS + 1)
+
+int nfds;
+struct pollfd fds[MAX_FDS];
+fuse_fs_info_t fsinfo[MAX_FDS];
+char *mountpoints[MAX_FDS];
+
+pthread_t fuse_threads[NUM_THREADS];
+pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
 int zfsfuse_listener_init()
 {
@@ -68,7 +69,9 @@ int zfsfuse_listener_init()
 		return -1;
 	}
 
-	fuse_tq = taskq_create("fuse_tq", listener_threads, minclsyspri, 20, 100, TASKQ_PREPOPULATE);
+	fds[0].fd = newfs_fd[0];
+	fds[0].events = POLLIN;
+	nfds = 1;
 
 	return 0;
 }
@@ -77,11 +80,6 @@ void zfsfuse_listener_exit()
 {
 	close(newfs_fd[0]);
 	close(newfs_fd[1]);
-
-	if(fuse_tq != NULL) {
-		taskq_destroy(fuse_tq);
-		fuse_tq = NULL;
-	}
 }
 
 int zfsfuse_newfs(char *mntpoint, struct fuse_chan *ch)
@@ -132,19 +130,11 @@ static int fd_read_loop(int fd, void *buf, int bytes)
 	return 0;
 }
 
-static void zfsfuse_dispatcher(void *arg)
-{
-	fuse_request_t *req = (fuse_request_t *) arg;
-
-	fuse_session_process(req->se, req->buf, req->len, req->ch);
-
-	free(req->buf);
-	free(req);
-}
-
-#define MAX_FDS (MAX_FILESYSTEMS + 1)
-
-static void new_fs(int *nfds, struct pollfd *fds, char **mountpoints, fuse_fs_info_t *fsinfo)
+/*
+ * Add a new filesystem/file descriptor to the poll set
+ * Must be called with mtx locked
+ */
+static void new_fs()
 {
 	fuse_fs_info_t fs;
 
@@ -164,7 +154,7 @@ static void new_fs(int *nfds, struct pollfd *fds, char **mountpoints, fuse_fs_in
 
 	mntpoint[fs.mntlen] = '\0';
 
-	if(*nfds == MAX_FDS) {
+	if(nfds == MAX_FDS) {
 		fprintf(stderr, "Warning: filesystem limit (%i) reached, unmounting..\n", MAX_FILESYSTEMS);
 		fuse_unmount(mntpoint);
 		free(mntpoint);
@@ -172,18 +162,23 @@ static void new_fs(int *nfds, struct pollfd *fds, char **mountpoints, fuse_fs_in
 	}
 
 #ifdef DEBUG
-	fprintf(stderr, "Adding filesystem %i at mntpoint %s\n", *nfds, mntpoint);
+	fprintf(stderr, "Adding filesystem %i at mntpoint %s\n", nfds, mntpoint);
 #endif
-	fsinfo[*nfds] = fs;
-	mountpoints[*nfds] = mntpoint;
 
-	fds[*nfds].fd = fs.fd;
-	fds[*nfds].events = POLLIN;
-	fds[*nfds].revents = 0;
-	(*nfds)++;
+	fsinfo[nfds] = fs;
+	mountpoints[nfds] = mntpoint;
+
+	fds[nfds].fd = fs.fd;
+	fds[nfds].events = POLLIN;
+	fds[nfds].revents = 0;
+	nfds++;
 }
 
-static void destroy_fs(int i, struct pollfd *fds, char **mountpoints, fuse_fs_info_t *fsinfo)
+/*
+ * Delete a filesystem/file descriptor from the poll set
+ * Must be called with mtx locked
+ */
+static void destroy_fs(int i)
 {
 #ifdef DEBUG
 	fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
@@ -195,18 +190,12 @@ static void destroy_fs(int i, struct pollfd *fds, char **mountpoints, fuse_fs_in
 	free(mountpoints[i]);
 }
 
-int zfsfuse_listener_loop()
+static void *zfsfuse_listener_loop(void *arg)
 {
-	struct pollfd fds[MAX_FDS];
-	fuse_fs_info_t fsinfo[MAX_FDS];
-	char *mountpoints[MAX_FDS];
-
-	fds[0].fd = newfs_fd[0];
-	fds[0].events = POLLIN;
-
-	int nfds = 1;
-
 	size_t bufsize = 0;
+	char *buf = NULL;
+
+	VERIFY(pthread_mutex_lock(&mtx) == 0);
 
 	while(!exit_fuse_listener) {
 		int ret = poll(fds, nfds, 1000);
@@ -215,7 +204,7 @@ int zfsfuse_listener_loop()
 
 		if(ret == -1) {
 			perror("poll");
-			break;
+			continue;
 		}
 
 		int oldfds = nfds;
@@ -234,46 +223,52 @@ int zfsfuse_listener_loop()
 				continue;
 
 			if(i == 0) {
-				new_fs(&nfds, fds, mountpoints, fsinfo);
+				new_fs();
 			} else {
 				/* Handle request */
 
-				char *buf = malloc(fsinfo[i].bufsize);
-				if(buf == NULL) {
-					fprintf(stderr, "Warning: out of memory!\n");
-					continue;
+				if(fsinfo[i].bufsize > bufsize) {
+					char *new_buf = realloc(buf, fsinfo[i].bufsize);
+					if(new_buf == NULL) {
+						fprintf(stderr, "Warning: out of memory!\n");
+						continue;
+					}
+					buf = new_buf;
+					bufsize = fsinfo[i].bufsize;
 				}
 
 				int res = fuse_chan_receive(fsinfo[i].ch, buf, fsinfo[i].bufsize);
 				if(res == -1 || fuse_session_exited(fsinfo[i].se)) {
-					free(buf);
-					destroy_fs(i, fds, mountpoints, fsinfo);
+					destroy_fs(i);
 					continue;
 				}
 
-				if(res == 0) {
-					free(buf);
+				if(res == 0)
 					continue;
-				}
 
-				fuse_request_t *req = malloc(sizeof(fuse_request_t));
-				if(req == NULL) {
-					fprintf(stderr, "Warning: out of memory!\n");
-					free(buf);
-					continue;
-				}
+				struct fuse_session *se = fsinfo[i].se;
+				struct fuse_chan *ch = fsinfo[i].ch;
 
-				req->buf = buf;
-				req->len = res;
-				req->ch = fsinfo[i].ch;
-				req->se = fsinfo[i].se;
+				/*
+				 * While we process this request, we let another
+				 * thread receive new events
+				 */
+				VERIFY(pthread_mutex_unlock(&mtx) == 0);
 
-				/* buf and req are freed in zfsfuse_dispatcher */
-				taskq_dispatch(fuse_tq, zfsfuse_dispatcher, req, KM_SLEEP);
+				fuse_session_process(se, buf, res, ch);
+
+				/* Acquire the mutex before proceeding */
+				VERIFY(pthread_mutex_lock(&mtx) == 0);
+
+				/*
+				 * At this point, we can no longer trust oldfds
+				 * to be accurate, so we exit this loop
+				 */
+				break;
 			}
 		}
 
-		/* Free file descriptors that are -1 */
+		/* Free the closed file descriptors entries */
 		int write_ptr = 0;
 		for(int read_ptr = 0; read_ptr < nfds; read_ptr++) {
 			if(fds[read_ptr].fd == -1)
@@ -288,11 +283,25 @@ int zfsfuse_listener_loop()
 		nfds = write_ptr;
 	}
 
+	VERIFY(pthread_mutex_unlock(&mtx) == 0);
+
+	return NULL;
+}
+
+int zfsfuse_listener_start()
+{
+	for(int i = 0; i < NUM_THREADS; i++)
+		VERIFY(pthread_create(&fuse_threads[i], NULL, zfsfuse_listener_loop, NULL) == 0);
+
+	for(int i = 0; i < NUM_THREADS; i++) {
+		int ret = pthread_join(fuse_threads[i], NULL);
+		if(ret != 0)
+			fprintf(stderr, "Warning: pthread_join() on thread %i returned %i\n", i, ret);
+	}
+
 #ifdef DEBUG
 	fprintf(stderr, "Exiting...\n");
 #endif
-
-	taskq_wait(fuse_tq);
 
 	for(int i = 1; i < nfds; i++) {
 		if(fds[i].fd == -1)
