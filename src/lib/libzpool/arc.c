@@ -732,7 +732,8 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 				to_delta = ab->b_size;
 			}
 			atomic_add_64(&new_state->lsize, to_delta);
-			ASSERT3U(new_state->size + to_delta, >=,
+			atomic_add_64(&new_state->size, to_delta);
+			ASSERT3U(new_state->size, >=,
 			    new_state->lsize);
 
 			if (use_mutex)
@@ -746,7 +747,7 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 	}
 
 	/* adjust state sizes */
-	if (to_delta)
+	if (to_delta && (refcnt != 0 || new_state == arc.anon))
 		atomic_add_64(&new_state->size, to_delta);
 	if (from_delta) {
 		ASSERT3U(old_state->size, >=, from_delta);
