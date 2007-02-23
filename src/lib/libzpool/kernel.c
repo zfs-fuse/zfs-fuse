@@ -282,7 +282,7 @@ top:
 	if (delta <= 0)
 		return (-1);
 
-	VERIFY(gettimeofday(&tv, NULL) != 0);
+	VERIFY(gettimeofday(&tv, NULL) == 0);
 
 	ts.tv_sec = tv.tv_sec + delta / hz;
 	ts.tv_nsec = tv.tv_usec * 1000 + (delta % hz) * (NANOSEC / hz);
