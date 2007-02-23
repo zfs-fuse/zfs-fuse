@@ -18,6 +18,7 @@ Bug fixes:
 	* Fixed bug where opened read-only files couldn't be ftruncated() (fixes IOzone sanity check).
 	* Fixed bug where files bigger than 2 GB couldn't be opened on 64-bit platforms.
 	* Fixed crash/segfault after interrupting user processes with CTRL-C.
+	* Fixed crash when detaching a spare device.
 	* Fixed compilation error on CentOS 4.4 (reported by Leroy van Logchem).
 	* 'zfs umount /path/to/mntpoint' didn't work.
 	* Fixed stray /dev/dsk errors.

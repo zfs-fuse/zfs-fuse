@@ -420,8 +420,7 @@ vdev_inuse(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason,
 			return (spa_has_spare(spa, device_guid));
 
 		case VDEV_LABEL_REMOVE:
-			/* Should not happen */
-			abort();
+			break;
 		}
 	}
 
