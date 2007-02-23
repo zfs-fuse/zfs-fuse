@@ -276,15 +276,13 @@ cv_timedwait(kcondvar_t *cv, kmutex_t *mp, clock_t abstime)
 	struct timeval tv;
 	clock_t delta;
 
-	ASSERT(abstime > 0);
 top:
 	delta = abstime - lbolt;
 	dprintf("thread %li is at cv_timedwait at %.2f with delta %.2f secs\n", curthread, (double) lbolt / hz, (double) delta / hz);
 	if (delta <= 0)
 		return (-1);
 
-	if(gettimeofday(&tv, NULL) != 0)
-		abort();
+	VERIFY(gettimeofday(&tv, NULL) != 0);
 
 	ts.tv_sec = tv.tv_sec + delta / hz;
 	ts.tv_nsec = tv.tv_usec * 1000 + (delta % hz) * (NANOSEC / hz);

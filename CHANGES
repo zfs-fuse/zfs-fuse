@@ -23,6 +23,7 @@ Bug fixes:
 	* 'zfs umount /path/to/mntpoint' didn't work.
 	* Fixed stray /dev/dsk errors.
 	* Marked stack as non-executable. Found and fixed by Phil Worral (philwozza).
+	* Fixed assertion failure due to timer overflow problem on 32-bit machines with high uptimes.
 
 2006/12/26 - Release 0.4.0_alpha1
 --------------------------------------------------
