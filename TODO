@@ -8,6 +8,5 @@ In no particular order:
 - Get EFI labels working, necessary for whole disk support.
 - Get zfs_fm.c to work.
 - Device in use detection?
-- Integrate libumem linux port.
 - Fix FIXMEs
 - Fix TODOs

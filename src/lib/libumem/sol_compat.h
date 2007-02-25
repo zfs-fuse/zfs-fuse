@@ -118,7 +118,7 @@ static INLINE int thr_create(void *stack_base,
 static INLINE uint_t ec_atomic_cas(uint_t *mem, uint_t with, uint_t cmp)
 {
   uint_t prev;
-  asm volatile ("lock; cmpxchgl %1, %2"
+  __asm volatile ("lock; cmpxchgl %1, %2"
         : "=a" (prev)
         : "r"    (with), "m" (*(mem)), "0" (cmp)
         : "memory");
@@ -165,7 +165,7 @@ static INLINE uint_t ec_atomic_inc(uint_t *mem)
 
 #ifdef _WIN32
 #define issetugid()		  0
-#elseif !defined(__FreeBSD__)
+#elif !defined(__FreeBSD__)
 #define issetugid()       (geteuid() == 0)
 #endif
 

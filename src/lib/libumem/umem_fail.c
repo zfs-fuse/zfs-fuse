@@ -173,5 +173,4 @@ __umem_assert_failed(const char *assertion, const char *file, int line)
 	    assertion, file, line);
 	umem_do_abort();
 	/*NOTREACHED*/
-	return (0);
 }

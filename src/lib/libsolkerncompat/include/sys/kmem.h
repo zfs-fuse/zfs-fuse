@@ -31,6 +31,11 @@
 #include <sys/types.h>
 #include <umem.h>
 
+/* Maximum zfs-fuse memory usage */
+#define ZFSFUSE_MAX_MEMORY (64<<20)
+
+#define ZFSFUSE_MAX_ARCSIZE (ZFSFUSE_MAX_MEMORY - (10<<20))
+
 extern uint64_t kern_memusage;
 
 /*
@@ -54,6 +59,8 @@ extern void *kmem_cache_alloc(kmem_cache_t *, int);
 extern void kmem_cache_free(kmem_cache_t *, void *);
 
 #define kmem_debugging() 0
-#define kmem_cache_reap_now(c)
+#define kmem_cache_reap_now(c) umem_reap()
+
+extern uint64_t get_real_memusage();
 
 #endif

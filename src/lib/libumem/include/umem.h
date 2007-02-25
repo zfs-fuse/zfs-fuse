@@ -81,6 +81,9 @@ extern void umem_cache_free(umem_cache_t *, void *);
 
 extern void umem_reap(void);
 
+/* ZFSFUSE */
+extern size_t umem_cache_get_bufsize(umem_cache_t *);
+
 #ifdef	__cplusplus
 }
 #endif

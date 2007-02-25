@@ -33,6 +33,7 @@
 #include <sys/dditypes.h>
 
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 
 extern uint64_t physmem;

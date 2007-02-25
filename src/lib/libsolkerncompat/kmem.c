@@ -26,6 +26,11 @@
 #include <sys/kmem.h>
 #include <sys/atomic.h>
 #include <umem.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
 
 uint64_t kern_memusage = 0;
 
@@ -49,12 +54,57 @@ void kmem_free(void *buf, size_t size)
 
 void *kmem_cache_alloc(kmem_cache_t *cp, int kmflag)
 {
-	atomic_add_64(&kern_memusage, umem_get_bufsize(cp));
+	atomic_add_64(&kern_memusage, umem_cache_get_bufsize(cp));
 	return umem_cache_alloc(cp, kmflag);
 }
 
 void kmem_cache_free(kmem_cache_t *cp, void *buf)
 {
 	umem_cache_free(cp, buf);
-	atomic_add_64(&kern_memusage, -umem_get_bufsize(cp));
+	atomic_add_64(&kern_memusage, -umem_cache_get_bufsize(cp));
+}
+
+/* This really sucks but we have no choice since getrusage() doesn't work.. */
+uint64_t get_real_memusage()
+{
+	int error_n = -1;
+
+	FILE *f = fopen("/proc/self/status", "r");
+
+	if(f == NULL) {
+		error_n = errno;
+		goto error;
+	}
+
+	uint64_t memusage = 0;
+
+	for(;;) {
+		char buf[512];
+		char key[100];
+		u_longlong_t val;
+
+		if(fgets(buf, sizeof(buf), f) == NULL)
+			goto error;
+ 
+		int res = sscanf(buf, "%99[^:]: %Lu", key, &val);
+
+		if(res == 2 && strcmp(key, "VmRSS") == 0) {
+			memusage = val << 10;
+			break;
+		}
+	}
+
+	fclose(f);
+
+	return memusage;
+
+error:
+	if(f == NULL)
+		fprintf(stderr, "Error: unable to open /proc/self/status (error %i)\nMake sure you have the proc filesystem mounted.\n", error_n);
+	else {
+		fprintf(stderr, "Error: unable to read /proc/self/status (error %i)\n", error_n);
+		fclose(f);
+	}
+
+	exit(1);
 }

@@ -10,6 +10,8 @@
 ^src/cmd/zpool/zpool$
 ^src/cmd/ztest/ztest$
 
+^src/lib/libnvpair/build-user/
+^src/lib/libnvpair/build-kernel/
 ^src/lib/libzpool/build-user/
 ^src/lib/libzpool/build-kernel/
 ^src/lib/libzfscommon/build-user/

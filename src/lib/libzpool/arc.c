@@ -150,11 +150,6 @@ static int		arc_min_prefetch_lifespan;
 static int arc_dead;
 
 /*
- * ZFSFUSE: Max memory usage in bytes
- */
-uint64_t zfsfuse_maxmemory = 64<<20;
-
-/*
  * These tunables are for performance analysis.
  */
 uint64_t zfs_arc_max;
@@ -1278,8 +1273,11 @@ arc_reclaim_needed(void)
 	uint64_t extra;
 
 #ifdef _KERNEL
-	/*fprintf(stderr, "Memory usage: %.2f MiB, arc.c: %.2f MiB, arc.size: %.2f MiB\n", (double) kern_memusage / (1<<20), (double) arc.c / (1<<20), (double) arc.size / (1<<20))*/;
-	if(kern_memusage > zfsfuse_maxmemory)
+	uint64_t memusage = get_real_memusage();
+
+	/*fprintf(stderr, "arc.c: %.2f MiB, arc.size: %.2f MiB, memusage: %.2f MiB, Real memusage: %.2f MiB (max: %.2f MiB)\n", (double) arc.c / (1<<20), (double) arc.size / (1<<20), (double) kern_memusage / (1<<20), (double) memusage / (1<<20), (double) ZFSFUSE_MAX_MEMORY / (1<<20));*/
+
+	if(memusage > ZFSFUSE_MAX_MEMORY)
 		return 1;
 #if 0
 	if (needfree)
@@ -2571,8 +2569,12 @@ arc_init(void)
 
 	/* set min cache to 16 MB */
 	arc.c_min = 16<<20;
-	/* set max cache to zfsfuse_maxmemory */
-	arc.c_max = zfsfuse_maxmemory;
+#ifdef _KERNEL
+	/* set max cache to ZFSFUSE_MAX_ARCSIZE */
+	arc.c_max = ZFSFUSE_MAX_ARCSIZE;
+#else
+	arc.c_max = 64<<20;
+#endif
 
 	/*
 	 * Allow the tunables to override our calculations if they are

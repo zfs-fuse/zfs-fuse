@@ -2382,6 +2382,7 @@ umem_reap(void)
 		(void) mutex_unlock(&umem_update_lock);
 		return;
 	}
+
 	umem_reaping = UMEM_REAP_ADDING;	/* lock out other reaps */
 
 	(void) mutex_unlock(&umem_update_lock);
@@ -2902,10 +2903,16 @@ umem_cache_init(void)
  * umem_startup() is called early on, and must be called explicitly if we're
  * the standalone version.
  */
+static void
+umem_startup() __attribute__((constructor));
+
 void
-umem_startup(caddr_t start, size_t len, size_t pagesize, caddr_t minstack,
-    caddr_t maxstack) 
+umem_startup()
 {
+	caddr_t start = NULL;
+	size_t len = 0;
+	size_t pagesize = 0;
+
 #ifdef UMEM_STANDALONE
 	int idx;
 	/* Standalone doesn't fork */
@@ -3192,3 +3199,10 @@ fail:
 	(void) mutex_unlock(&umem_init_lock);
 	return (0);
 }
+
+size_t
+umem_cache_get_bufsize(umem_cache_t *cache)
+{
+	return cache->cache_bufsize;
+}
+

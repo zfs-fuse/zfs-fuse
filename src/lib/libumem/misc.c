@@ -121,6 +121,8 @@ umem_error_enter(const char *error_str)
 	umem_log_enter(error_str, 1);
 }
 
+/* ZFSFUSE: defined in libzpool/kernel.c and in libsolkerncompat/bitmap.c */
+#if 0
 int
 highbit(ulong_t i)
 {
@@ -150,6 +152,7 @@ highbit(ulong_t i)
 	}
 	return (h);
 }
+#endif
 
 int
 lowbit(ulong_t i)

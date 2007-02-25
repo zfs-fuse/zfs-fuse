@@ -437,6 +437,11 @@ process_item(const umem_env_item_t *item, const char *item_arg)
 	case ITEM_SIZE:
 		arg_required = 1;
 		break;
+
+	default:
+		log_message("%s: %s: Invalid type.  Ignored\n",
+		    CURRENT, item->item_name);
+		return (1);
 	}
 
 	switch (item->item_type) {
