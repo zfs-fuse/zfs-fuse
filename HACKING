@@ -15,8 +15,8 @@ src/ -> source code
 ......./libnvpair/        -> Name-value pairs, used by almost all ZFS libraries
 ......./libsolcompat/     -> Solaris headers/code not available in Linux
 ......./libsolkerncompat/ -> Solaris kernel headers/code necessary for the zfs-fuse process
-......./libumem/          -> Memory management library, currently it simply uses malloc() and free()
+......./libumem/          -> Memory management library
 ......./libuutil/         -> Solaris userland utility functions
 ......./libzfs/           -> ZFS library used by zfs and zpool
-......./libzfscommon/     -> Common ZFS code between libzpool and libzfs. Compiles into libzfscommon-user and libzpool-kernel.
+......./libzfscommon/     -> Common ZFS code between libzpool and libzfs. Compiles into libzfscommon-user and libzfscommon-kernel.
 ......./libzpool/         -> Main ZFS code. Compiles into libzpool-user (used by zdb and ztest) and libzpool-kernel (used by zfs-fuse process). Also contains "userland" zfs_context.h.

@@ -20,49 +20,31 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2002 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
+/*
+ * Portions Copyright 2006 OmniTI, Inc.
+ */
 
+/* #pragma ident	"@(#)umem_agent_support.c	1.2	05/06/08 SMI" */
 
+#include "config.h"
+#include "umem_base.h"
 
-#include <sys/nvpair.h>
-#include <stdlib.h>
+#define	AGENT_STACK_SIZE	4096
 
-/*ARGSUSED*/
-static void *
-nv_alloc_sys(nv_alloc_t *nva, size_t size)
+#if 0
+char __umem_agent_stack_beg[AGENT_STACK_SIZE];
+char *__umem_agent_stack_end = __umem_agent_stack_beg + AGENT_STACK_SIZE;
+
+void
+__umem_agent_free_bp(umem_cache_t *cp, void *buf)
 {
-#ifdef _KERNEL
-	return (kmem_alloc(size, KM_NOSLEEP));
-#else
-	return (malloc(size));
-#endif
+	extern void _breakpoint(void);			/* inline asm */
+
+	_umem_cache_free(cp, buf);
+	_breakpoint();
 }
-
-/*ARGSUSED*/
-static void
-nv_free_sys(nv_alloc_t *nva, void *buf, size_t size)
-{
-#ifdef _KERNEL
-	kmem_free(buf, size);
-#else
-	free(buf);
 #endif
-}
 
-const nv_alloc_ops_t system_ops_def = {
-	NULL,			/* nv_ao_init() */
-	NULL,			/* nv_ao_fini() */
-	nv_alloc_sys,		/* nv_ao_alloc() */
-	nv_free_sys,		/* nv_ao_free() */
-	NULL			/* nv_ao_reset() */
-};
-
-nv_alloc_t nv_alloc_nosleep_def = {
-	&system_ops_def,
-	NULL
-};
-
-nv_alloc_t *nv_alloc_nosleep = &nv_alloc_nosleep_def;
-nv_alloc_t *nv_alloc_sleep = &nv_alloc_nosleep_def;

@@ -20,49 +20,39 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
+/* #pragma ident	"@(#)vmem_base.c	1.6	05/06/08 SMI" */
 
+/* #include "mtlib.h" */
+#include "config.h"
+#include "vmem_base.h"
+#include "umem_base.h"
 
-#include <sys/nvpair.h>
-#include <stdlib.h>
+uint_t vmem_backend = 0;
 
-/*ARGSUSED*/
-static void *
-nv_alloc_sys(nv_alloc_t *nva, size_t size)
+vmem_t *
+vmem_heap_arena(vmem_alloc_t **allocp, vmem_free_t **freep)
 {
-#ifdef _KERNEL
-	return (kmem_alloc(size, KM_NOSLEEP));
-#else
-	return (malloc(size));
-#endif
+	static mutex_t arena_mutex = DEFAULTMUTEX;
+
+	/*
+	 * Allow the init thread through, block others until the init completes
+	 */
+	if (umem_ready != UMEM_READY && umem_init_thr != thr_self() &&
+	    umem_init() == 0)
+		return (NULL);
+
+	(void) mutex_lock(&arena_mutex);
+	if (vmem_heap == NULL)
+		vmem_heap_init();
+	(void) mutex_unlock(&arena_mutex);
+
+	if (allocp != NULL)
+		*allocp = vmem_heap_alloc;
+	if (freep != NULL)
+		*freep = vmem_heap_free;
+	return (vmem_heap);
 }
-
-/*ARGSUSED*/
-static void
-nv_free_sys(nv_alloc_t *nva, void *buf, size_t size)
-{
-#ifdef _KERNEL
-	kmem_free(buf, size);
-#else
-	free(buf);
-#endif
-}
-
-const nv_alloc_ops_t system_ops_def = {
-	NULL,			/* nv_ao_init() */
-	NULL,			/* nv_ao_fini() */
-	nv_alloc_sys,		/* nv_ao_alloc() */
-	nv_free_sys,		/* nv_ao_free() */
-	NULL			/* nv_ao_reset() */
-};
-
-nv_alloc_t nv_alloc_nosleep_def = {
-	&system_ops_def,
-	NULL
-};
-
-nv_alloc_t *nv_alloc_nosleep = &nv_alloc_nosleep_def;
-nv_alloc_t *nv_alloc_sleep = &nv_alloc_nosleep_def;

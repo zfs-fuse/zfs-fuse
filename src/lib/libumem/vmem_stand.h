@@ -24,45 +24,26 @@
  * Use is subject to license terms.
  */
 
+#ifndef _VMEM_STAND_H
+#define	_VMEM_STAND_H
 
+/* #pragma ident	"@(#)vmem_stand.h	1.3	05/06/08 SMI" */
 
-#include <sys/nvpair.h>
-#include <stdlib.h>
+/*
+ * additional functions defined by the standalone backend
+ */
 
-/*ARGSUSED*/
-static void *
-nv_alloc_sys(nv_alloc_t *nva, size_t size)
-{
-#ifdef _KERNEL
-	return (kmem_alloc(size, KM_NOSLEEP));
-#else
-	return (malloc(size));
+#include <sys/types.h>
+
+#ifdef __cplusplus
+extern "C" {
 #endif
-}
 
-/*ARGSUSED*/
-static void
-nv_free_sys(nv_alloc_t *nva, void *buf, size_t size)
-{
-#ifdef _KERNEL
-	kmem_free(buf, size);
-#else
-	free(buf);
+extern void vmem_stand_init(void);
+extern int vmem_stand_add(caddr_t, size_t);
+
+#ifdef __cplusplus
+}
 #endif
-}
 
-const nv_alloc_ops_t system_ops_def = {
-	NULL,			/* nv_ao_init() */
-	NULL,			/* nv_ao_fini() */
-	nv_alloc_sys,		/* nv_ao_alloc() */
-	nv_free_sys,		/* nv_ao_free() */
-	NULL			/* nv_ao_reset() */
-};
-
-nv_alloc_t nv_alloc_nosleep_def = {
-	&system_ops_def,
-	NULL
-};
-
-nv_alloc_t *nv_alloc_nosleep = &nv_alloc_nosleep_def;
-nv_alloc_t *nv_alloc_sleep = &nv_alloc_nosleep_def;
+#endif /* _VMEM_STAND_H */
