@@ -1275,9 +1275,12 @@ arc_reclaim_needed(void)
 #ifdef _KERNEL
 	uint64_t memusage = get_real_memusage();
 
-	/*fprintf(stderr, "arc.c: %.2f MiB, arc.size: %.2f MiB, memusage: %.2f MiB, Real memusage: %.2f MiB (max: %.2f MiB)\n", (double) arc.c / (1<<20), (double) arc.size / (1<<20), (double) kern_memusage / (1<<20), (double) memusage / (1<<20), (double) ZFSFUSE_MAX_MEMORY / (1<<20));*/
+	/*fprintf(stderr, "arc.c: %.2f MiB, arc.size: %.2f MiB, memusage: %.2f MiB, Real memusage: %.2f MiB (max: %.2f MiB)\n", (double) arc.c / (1<<20), (double) arc.size / (1<<20), (double) kern_memusage / (1<<20), (double) memusage / (1<<20), (double) ZFSFUSE_MAX_MEMORY * 2 / (1<<20))*/;
 
-	if(memusage > ZFSFUSE_MAX_MEMORY)
+	if(memusage > ZFSFUSE_MAX_MEMORY * 2 || memusage > kern_memusage * 3)
+		umem_reap();
+
+	if(kern_memusage > ZFSFUSE_MAX_MEMORY)
 		return 1;
 #if 0
 	if (needfree)

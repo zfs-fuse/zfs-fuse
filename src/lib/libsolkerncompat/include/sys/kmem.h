@@ -59,7 +59,7 @@ extern void *kmem_cache_alloc(kmem_cache_t *, int);
 extern void kmem_cache_free(kmem_cache_t *, void *);
 
 #define kmem_debugging() 0
-#define kmem_cache_reap_now(c) umem_reap()
+#define kmem_cache_reap_now(c)
 
 extern uint64_t get_real_memusage();
 
