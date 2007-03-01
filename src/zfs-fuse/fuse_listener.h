@@ -27,7 +27,17 @@
 #define ZFSFUSE_LISTENER_H
 
 #include <sys/types.h>
+#include <sys/kmem.h>
+#include <sys/vnode.h>
+
 #include "fuse.h"
+
+typedef struct file_info {
+	vnode_t *vp;
+	int flags;
+} file_info_t;
+
+extern kmem_cache_t *file_info_cache;
 
 extern boolean_t exit_fuse_listener;
 

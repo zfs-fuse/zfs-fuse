@@ -55,7 +55,6 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
-#include <umem.h>
 #include <unistd.h>
 
 #include <sys/ioctl.h>
@@ -282,7 +281,7 @@ vnode_t *vn_alloc(int kmflag)
 
 	vnode_t *vp;
 
-	vp = umem_alloc(sizeof(vnode_t), kmflag);
+	vp = kmem_cache_alloc(vnode_cache, kmflag);
 
 	/* taken from vn_cache_constructor */
 	mutex_init(&vp->v_lock, NULL, MUTEX_DEFAULT, NULL);
@@ -410,7 +409,8 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 	(void) fcntl(fd, F_SETFD, FD_CLOEXEC);
 
-	*vpp = vp = umem_zalloc(sizeof (vnode_t), UMEM_NOFAIL);
+	*vpp = vp = kmem_cache_alloc(vnode_cache, KM_SLEEP);
+	memset(vp, 0, sizeof(vnode_t));
 
 	vp->v_fd = fd;
 	if(S_ISBLK(st.st_mode)) {
@@ -460,7 +460,7 @@ int
 vn_openat(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum create x2,
     mode_t x3, vnode_t *startvp)
 {
-	char *realpath = umem_alloc(strlen(path) + 2, UMEM_NOFAIL);
+	char *realpath = kmem_alloc(strlen(path) + 2, KM_SLEEP);
 	int ret;
 
 	ASSERT(startvp == rootdir);
@@ -468,7 +468,7 @@ vn_openat(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum 
 
 	ret = vn_open(realpath, x1, flags, mode, vpp, x2, x3);
 
-	umem_free(realpath, strlen(path) + 2);
+	kmem_free(realpath, strlen(path) + 2);
 
 	return (ret);
 }
@@ -553,7 +553,7 @@ void vn_close(vnode_t *vp)
 		close(vp->v_fd);
 	if(vp->v_path != NULL)
 		free(vp->v_path);
-	umem_free(vp, sizeof (vnode_t));
+	kmem_cache_free(vnode_cache, vp);
 	/* fprintf(stderr, "VNode %p freed\n", vp); */
 }
 

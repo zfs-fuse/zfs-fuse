@@ -35,6 +35,7 @@
 #include <pthread.h>
 
 #include "fuse.h"
+#include "fuse_listener.h"
 
 #define NUM_THREADS 40
 
@@ -62,6 +63,8 @@ char *mountpoints[MAX_FDS];
 pthread_t fuse_threads[NUM_THREADS];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
+kmem_cache_t *file_info_cache;
+
 int zfsfuse_listener_init()
 {
 	if(pipe(newfs_fd) == -1) {
@@ -73,11 +76,16 @@ int zfsfuse_listener_init()
 	fds[0].events = POLLIN;
 	nfds = 1;
 
+	file_info_cache = kmem_cache_create("file_info_t", sizeof(file_info_t), 0, NULL, NULL, NULL, NULL, NULL, 0);
+	VERIFY(file_info_cache != NULL);
+
 	return 0;
 }
 
 void zfsfuse_listener_exit()
 {
+	kmem_cache_destroy(file_info_cache);
+
 	close(newfs_fd[0]);
 	close(newfs_fd[1]);
 }

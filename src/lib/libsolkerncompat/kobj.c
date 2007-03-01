@@ -30,8 +30,7 @@
 #include <sys/file.h>
 #include <sys/kobj.h>
 #include <sys/errno.h>
-
-#include <umem.h>
+#include <sys/kmem.h>
 
 struct _buf *
 kobj_open_file(char *name)
@@ -43,7 +42,7 @@ kobj_open_file(char *name)
 	if (vn_openat(name, UIO_SYSSPACE, FREAD, 0, &vp, 0, 0, rootdir) != 0)
 		return ((void *)-1UL);
 
-	file = umem_zalloc(sizeof (struct _buf), UMEM_NOFAIL);
+	file = kmem_zalloc(sizeof (struct _buf), KM_SLEEP);
 	file->_fd = (intptr_t)vp;
 	return (file);
 }
@@ -63,7 +62,7 @@ void
 kobj_close_file(struct _buf *file)
 {
 	vn_close((vnode_t *)file->_fd);
-	umem_free(file, sizeof (struct _buf));
+	kmem_free(file, sizeof (struct _buf));
 }
 
 int

@@ -27,6 +27,7 @@
 #include <sys/types.h>
 #include <sys/debug.h>
 #include <sys/policy.h>
+#include <sys/kmem.h>
 
 #include <stdio.h>
 #include <unistd.h>
@@ -38,6 +39,7 @@ int ncpus;
 uint64_t physmem;
 unsigned long _pagesize;
 unsigned int _pageshift;
+kmem_cache_t *vnode_cache;
 
 void libsolkerncompat_init()
 {
@@ -58,10 +60,15 @@ void libsolkerncompat_init()
 	printf("pwd_buflen = %li, grp_buflen = %li\n\n", pwd_buflen, grp_buflen);
 #endif
 
+	vnode_cache = kmem_cache_create("vnode_t", sizeof(vnode_t), 0, NULL, NULL, NULL, NULL, NULL, 0);
+	VERIFY(vnode_cache != NULL);
+
 	vfs_init();
 }
 
 void libsolkerncompat_exit()
 {
+	kmem_cache_destroy(vnode_cache);
+
 	vfs_exit();
 }

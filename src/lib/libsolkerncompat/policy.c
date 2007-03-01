@@ -64,14 +64,14 @@ int groupmember(gid_t gid, const cred_t *cr)
 	char *grp_buf = NULL;
 	int error = 0;
 
-	pwd_buf = malloc(pwd_buflen);
+	pwd_buf = kmem_alloc(pwd_buflen, KM_NOSLEEP);
 	if(pwd_buf == NULL) {
 		fprintf(stderr, "groupmember(): pwd_buf memory allocation failed\n");
 		error = 1;
 		goto out;
 	}
 
-	grp_buf = malloc(grp_buflen);
+	grp_buf = kmem_alloc(grp_buflen, KM_NOSLEEP);
 	if(grp_buf == NULL) {
 		fprintf(stderr, "groupmember(): grp_buf memory allocation failed\n");
 		error = 1;
@@ -130,9 +130,9 @@ int groupmember(gid_t gid, const cred_t *cr)
 
 out:
 	if(pwd_buf != NULL)
-		free(pwd_buf);
+		kmem_free(pwd_buf, pwd_buflen);
 	if(grp_buf != NULL)
-		free(grp_buf);
+		kmem_free(grp_buf, grp_buflen);
 
 	/* If error == 0 then the user belongs to the group */
 	return error ? 0 : 1;

@@ -46,11 +46,6 @@
 
 #define ZFS_MAGIC 0x2f52f5
 
-typedef struct file_info {
-	vnode_t *vp;
-	int flags;
-} file_info_t;
-
 static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
 {
 	const struct fuse_ctx *ctx = fuse_req_ctx(req);
@@ -303,7 +298,7 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	ASSERT(old_vp == vp);
 
 	if(!error) {
-		file_info_t *info = malloc(sizeof(file_info_t));
+		file_info_t *info = kmem_cache_alloc(file_info_cache, KM_NOSLEEP);
 		if(info == NULL) {
 			error = ENOMEM;
 			goto out;
@@ -355,8 +350,7 @@ static int zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 
 	VN_RELE(info->vp);
 
-	ASSERT(fi->fh != 0);
-	free((void *)(uintptr_t) fi->fh);
+	kmem_cache_free(file_info_cache, info);
 
 	ZFS_EXIT(zfsvfs);
 
@@ -385,7 +379,7 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
-	char *outbuf = malloc(size);
+	char *outbuf = kmem_alloc(size, KM_NOSLEEP);
 	if(outbuf == NULL)
 		return ENOMEM;
 
@@ -452,7 +446,7 @@ out:
 	if(!error)
 		fuse_reply_buf(req, outbuf, outbuf_off);
 
-	free(outbuf);
+	kmem_free(outbuf, size);
 
 	return error;
 }
@@ -603,7 +597,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 			goto out;
 	}
 
-	file_info_t *info = malloc(sizeof(file_info_t));
+	file_info_t *info = kmem_cache_alloc(file_info_cache, KM_NOSLEEP);
 	if(info == NULL) {
 		error = ENOMEM;
 		goto out;
@@ -732,7 +726,7 @@ static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, 
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
-	char *outbuf = malloc(size);
+	char *outbuf = kmem_alloc(size, KM_NOSLEEP);
 	if(outbuf == NULL)
 		return ENOMEM;
 
@@ -761,7 +755,7 @@ static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, 
 	if(!error)
 		fuse_reply_buf(req, outbuf, uio.uio_loffset - off);
 
-	free(outbuf);
+	kmem_free(outbuf, size);
 
 	return error;
 }

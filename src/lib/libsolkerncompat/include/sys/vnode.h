@@ -33,7 +33,10 @@
 #include <sys/cred.h>
 #include <sys/uio.h>
 #include <sys/resource.h>
+#include <sys/kmem.h>
 #include <vm/seg_enum.h>
+
+extern kmem_cache_t *vnode_cache;
 
 typedef int (*fs_generic_func_p) ();
 
