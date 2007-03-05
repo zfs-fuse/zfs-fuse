@@ -24,45 +24,11 @@
  */
 
 #include <sys/kmem.h>
-#include <sys/atomic.h>
-#include <umem.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-
-uint64_t kern_memusage = 0;
-
-void *kmem_alloc(size_t size, int kmflags)
-{
-	atomic_add_64(&kern_memusage, size);
-	return umem_alloc(size, kmflags);
-}
-
-void *kmem_zalloc(size_t size, int kmflags)
-{
-	atomic_add_64(&kern_memusage, size);
-	return umem_zalloc(size, kmflags);
-}
-
-void kmem_free(void *buf, size_t size)
-{
-	umem_free(buf, size);
-	atomic_add_64(&kern_memusage, -size);
-}
-
-void *kmem_cache_alloc(kmem_cache_t *cp, int kmflag)
-{
-	atomic_add_64(&kern_memusage, umem_cache_get_bufsize(cp));
-	return umem_cache_alloc(cp, kmflag);
-}
-
-void kmem_cache_free(kmem_cache_t *cp, void *buf)
-{
-	umem_cache_free(cp, buf);
-	atomic_add_64(&kern_memusage, -umem_cache_get_bufsize(cp));
-}
 
 /* This really sucks but we have no choice since getrusage() doesn't work.. */
 uint64_t get_real_memusage()

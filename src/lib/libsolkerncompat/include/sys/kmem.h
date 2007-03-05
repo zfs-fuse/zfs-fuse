@@ -32,11 +32,9 @@
 #include <umem.h>
 
 /* Maximum zfs-fuse memory usage */
-#define ZFSFUSE_MAX_MEMORY (64<<20)
+#define ZFSFUSE_MAX_MEMORY (128<<20)
 
-#define ZFSFUSE_MAX_ARCSIZE (ZFSFUSE_MAX_MEMORY - (10<<20))
-
-extern uint64_t kern_memusage;
+#define ZFSFUSE_MAX_ARCSIZE ((ZFSFUSE_MAX_MEMORY / 2) - (10<<20))
 
 /*
  * Kernel memory
@@ -47,16 +45,23 @@ extern uint64_t kern_memusage;
 
 typedef umem_cache_t kmem_cache_t;
 
+#if 0
 extern void *kmem_alloc(size_t size, int kmflags);
 extern void *kmem_zalloc(size_t size, int kmflags);
 extern void kmem_free(void *buf, size_t size);
+extern void *kmem_cache_alloc(kmem_cache_t *, int);
+extern void kmem_cache_free(kmem_cache_t *, void *);
+#endif
+
+#define kmem_alloc(a,b) umem_alloc(a,b)
+#define kmem_zalloc(a,b) umem_zalloc(a,b)
+#define kmem_free(a,b) umem_free(a,b)
+#define kmem_cache_alloc(a,b) umem_cache_alloc(a,b)
+#define kmem_cache_free(a,b) umem_cache_free(a,b)
 
 #define kmem_cache_create(_a, _b, _c, _d, _e, _f, _g, _h, _i) \
     umem_cache_create(_a, _b, _c, _d, _e, _f, _g, _h, _i)
 #define kmem_cache_destroy(_c) umem_cache_destroy(_c)
-
-extern void *kmem_cache_alloc(kmem_cache_t *, int);
-extern void kmem_cache_free(kmem_cache_t *, void *);
 
 #define kmem_debugging() 0
 #define kmem_cache_reap_now(c)
