@@ -18,8 +18,7 @@ Please read the INSTALL file for instructions.
 Using
 -----
 
-This is an alpha release, so it might corrupt your files.
-You should backup all your data first.
+Just to be safe, you should backup all your data before using ZFS-FUSE.
 
 1) Start the run.sh script in src/zfs-fuse.
 
@@ -27,7 +26,9 @@ This will start the main zfs-fuse daemon process that must be running
 at all times.
 You should be running it with root permissions.
 
-Currently it will use up to 100 MB of RAM (not configurable yet).
+Currently ZFS-FUSE is configured to use up to 128 MB of RAM, but it can
+grow larger with some usage patterns. It's recommended to have a machine
+with at least 1 GB of RAM.
 
 2) Use the zpool and zfs commands to manage pools and filesystems.
 

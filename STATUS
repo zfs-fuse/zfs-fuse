@@ -1,8 +1,6 @@
 Status
 ------
 
-This is an alpha-quality release, it has received very limited testing.
-
 What should be working:
 - Creation, modification and destruction of ZFS pools, filesystems, snapshots
 and clones.
@@ -16,11 +14,11 @@ itself).
 
 What isn't working yet (expected version):
 
+- zfs-fuse is not a real daemon (0.4.0)
 - Mount options (0.4.0).
 - File locks (0.4.0).
 - zfs send/recv (0.4.0).
-- ARC size is not adjustable yet, so zfs-fuse will always use up to
-100 MB of RAM (0.4.0).
+- Maximum memory usage is not adjustable (0.4.0).
 - Nested pools -- creating a pool on a file stored on another
 pool (probably 0.4.0).
 - ACLs and extended attributes (0.5.0). ACLs created in Solaris

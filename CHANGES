@@ -1,9 +1,8 @@
-? - Release 0.4.0_alpha2
+2007/03/06 - Release 0.4.0_beta1
 --------------------------------------------------
 Features:
 	* Updated ZFS code to Nevada build 56
 Enhancements:
-	* Performance improvements
 	* Added multithreaded event loop
 	* Added LSB compliant init.d script to contrib/ directory (contributed by Dietmar Scharf).
 Bug fixes:

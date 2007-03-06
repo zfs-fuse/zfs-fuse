@@ -1,7 +1,6 @@
 In no particular order:
 
 - Implement missing STATUS features
-- Turn zfs-fuse into a real daemon
 - Implement zfs_ioctl.c TODOs.
 - Check strlcat.
 - Get zfs_ioc_recvbackup() and zfs_ioc_sendbackup() in zfs_ioctl.c to work.
