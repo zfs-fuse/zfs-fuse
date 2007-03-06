@@ -1,3 +1,8 @@
+? - Release 0.4.0_beta2
+--------------------------------------------------
+Bug fixes:
+	* Fix crash when using 'zpool status -v' to list errors.
+
 2007/03/06 - Release 0.4.0_beta1
 --------------------------------------------------
 Features:

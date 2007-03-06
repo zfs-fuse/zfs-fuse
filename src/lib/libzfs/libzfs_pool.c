@@ -1633,6 +1633,8 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t ***list, size_t *nelem)
 	zb = ((zbookmark_t *)(uintptr_t)zc.zc_nvlist_dst) +
 	    zc.zc_nvlist_dst_size;
 	count -= zc.zc_nvlist_dst_size;
+
+	void *nvlist_dst = (void *)(uintptr_t) zc.zc_nvlist_dst;
 	zc.zc_nvlist_dst = 0ULL;
 
 	qsort(zb, count, sizeof (zbookmark_t), zbookmark_compare);
@@ -1654,7 +1656,7 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t ***list, size_t *nelem)
 	 */
 	if (list == NULL) {
 		*nelem = j;
-		free((void *)(uintptr_t)zc.zc_nvlist_dst);
+		free(nvlist_dst);
 		return (0);
 	}
 
@@ -1665,7 +1667,7 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t ***list, size_t *nelem)
 	 */
 	if ((zhp->zpool_error_log = zfs_alloc(zhp->zpool_hdl,
 	    j * sizeof (nvlist_t *))) == NULL) {
-		free((void *)(uintptr_t)zc.zc_nvlist_dst);
+		free(nvlist_dst);
 		return (-1);
 	}
 
@@ -1740,11 +1742,12 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t ***list, size_t *nelem)
 
 	*list = zhp->zpool_error_log;
 	*nelem = zhp->zpool_error_count;
-	free((void *)(uintptr_t)zc.zc_nvlist_dst);
+	free(nvlist_dst);
 
 	return (0);
 
 nomem:
+	free(nvlist_dst);
 	free((void *)(uintptr_t)zc.zc_nvlist_dst);
 	for (i = 0; i < zhp->zpool_error_count; i++)
 		nvlist_free(zhp->zpool_error_log[i]);
