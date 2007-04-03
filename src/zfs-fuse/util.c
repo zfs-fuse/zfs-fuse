@@ -54,8 +54,33 @@ int num_filesystems;
 extern vfsops_t *zfs_vfsops;
 extern int zfs_vfsinit(int fstype, char *name);
 
+static void do_daemon()
+{
+	int n = open("/dev/null", O_RDONLY);
+	if (n < 0) {
+		perror("open /dev/null");
+	} else {
+		dup2(n, 0);
+		dup2(n, 1);
+		dup2(n, 2);
+		close(n);
+	}
+	pid_t pid = fork();
+	if (pid < 0) {
+		perror("fork");
+		return;
+	} else if (pid != 0) {
+		_exit(0);
+	}
+
+	chdir("/");
+	setsid();
+}
+
 int do_init()
 {
+	do_daemon();
+
 	libsolkerncompat_init();
 
 	zfs_vfsinit(zfstype, NULL);
