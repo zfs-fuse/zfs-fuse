@@ -54,7 +54,8 @@ int num_filesystems;
 extern vfsops_t *zfs_vfsops;
 extern int zfs_vfsinit(int fstype, char *name);
 
-static void do_daemon()
+/* fixme: should write a pid file */
+void do_daemon()
 {
 	int n = open("/dev/null", O_RDONLY);
 	if (n < 0) {
@@ -79,8 +80,6 @@ static void do_daemon()
 
 int do_init()
 {
-	do_daemon();
-
 	libsolkerncompat_init();
 
 	zfs_vfsinit(zfstype, NULL);

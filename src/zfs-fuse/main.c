@@ -29,6 +29,8 @@
 #include "util.h"
 #include "fuse_listener.h"
 
+static int cf_daemonize = 1;
+
 static void exit_handler(int sig)
 {
 	exit_fuse_listener = B_TRUE;
@@ -52,8 +54,28 @@ static int set_signal_handler(int sig, void (*handler)(int))
 	return 0;
 }
 
+/* fixme: really ugly */
+static void parse_args(int argc, char *argv[])
+{
+	if (argc == 1) return;
+	if (argc == 2) {
+		if (!strcmp(argv[1], "--no-daemon")) {
+			cf_daemonize = 0;
+			return;
+		}
+	}
+	fprintf(stderr, "usage: %s [--no-daemon]\n", argv[0]);
+	exit(1);
+}
+
 int main(int argc, char *argv[])
 {
+	parse_args(argc, argv);
+
+	if (cf_daemonize) {
+		do_daemon();
+	}
+
 	if(do_init() != 0) {
 		do_exit();
 		return 1;
