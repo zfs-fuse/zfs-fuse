@@ -170,9 +170,7 @@ void *listener_loop(void *arg)
 							continue;
 						}
 						break;
-					case IOCTL_ANS:
-					case COPYIN_REQ:
-					case COPYOUT_REQ:
+					default:
 						abort();
 						break;
 				}

@@ -2,8 +2,9 @@
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
+ * Common Development and Distribution License, Version 1.0 only
+ * (the "License").  You may not use this file except in compliance
+ * with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -24,11 +25,25 @@
  * Use is subject to license terms.
  */
 
-#ifndef _SYS_MNTENT_H
-#define _SYS_MNTENT_H
+#ifndef _SOL_KERN_SYS_FILE_H
+#define _SOL_KERN_SYS_FILE_H
 
-#define MNTTYPE_ROOT "zfsfuse_root" /* pseudo root file system */
-#define MNTTYPE_FD   "zfsfuse_fd"   /* pseudo fd file system */
-#define MNTTYPE_ZFS  "zfs"          /* ZFS file system */
+#include <sys/file_aux.h>
+#include <sys/avl.h>
+#include <sys/vnode.h>
+#include <sys/types.h>
+
+typedef struct file {
+	struct vnode *f_vnode;  /* pointer to vnode structure */
+	offset_t      f_offset; /* read/write character pointer */
+
+	int           f_client; /* client socket */
+	int           f_oldfd;  /* requested fd */
+	avl_node_t    f_node;   /* avl node link */
+} file_t;
+
+/* The next 2 functions are implemented in zfs-fuse/zfsfuse_socket.c */
+extern file_t *getf(int);
+extern void releasef(int);
 
 #endif

@@ -1,5 +1,7 @@
 ? - Release 0.4.0_beta2
 --------------------------------------------------
+Features:
+	* Implemented zfs send/recv.
 Bug fixes:
 	* Fix crash when using 'zpool status -v' to list errors.
 

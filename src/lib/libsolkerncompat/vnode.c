@@ -83,6 +83,9 @@ ushort_t vttoif_tab[] = {
 	0, 0, S_IFSOCK, 0, 0
 };
 
+extern struct vnodeops *root_fvnodeops;
+extern struct vnodeops *fd_fvnodeops;
+
 /*
  * Vnode operations vector.
  */
@@ -228,8 +231,6 @@ static const fs_operation_trans_def_t vn_ops_table[] = {
 	NULL, 0, NULL, NULL
 };
 
-extern struct vnodeops *root_fvnodeops;
-
 /*
  * vn_vfswlock is used to implement a lock which is logically a writers lock
  * protecting the v_vfsmountedhere field.
@@ -368,39 +369,10 @@ vn_copypath(struct vnode *src, struct vnode *dst)
 	mutex_exit(&dst->v_lock);
 }
 
-/*
- * Note: for the xxxat() versions of these functions, we assume that the
- * starting vp is always rootdir (which is true for spa_directory.c, the only
- * ZFS consumer of these interfaces).  We assert this is true, and then emulate
- * them by adding '/' in front of the path.
- */
-
-/*ARGSUSED*/
-int
-vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum create x2, mode_t x3)
+int vn_fromfd(int fd, char *path, int flags, struct vnode **vpp, boolean_t fromfd)
 {
-	int fd;
 	vnode_t *vp;
-	int old_umask = 0;
 	struct stat64 st;
-
-	if (!(flags & FCREAT) && stat64(path, &st) == -1)
-		return (errno);
-
-	if (flags & FCREAT)
-		old_umask = umask(0);
-
-	/*
-	 * The construct 'flags - FREAD' conveniently maps combinations of
-	 * FREAD and FWRITE to the corresponding O_RDONLY, O_WRONLY, and O_RDWR.
-	 */
-	fd = open64(path, flags - FREAD, mode);
-
-	if (flags & FCREAT)
-		(void) umask(old_umask);
-
-	if (fd == -1)
-		return (errno);
 
 	if (fstat64(fd, &st) == -1) {
 		close(fd);
@@ -423,7 +395,10 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 	vp->v_type = VNON;
 
-	vn_setops(vp, root_fvnodeops);
+	if(fromfd)
+		vn_setops(vp, fd_fvnodeops);
+	else
+		vn_setops(vp, root_fvnodeops);
 
 	if(S_ISREG(st.st_mode)) {
 		vp->v_type = VREG;
@@ -454,6 +429,42 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 	/*fprintf(stderr, "VNode %p created at vn_open (%s)\n", *vpp, path);*/
 	return (0);
+}
+
+/*
+ * Note: for the xxxat() versions of these functions, we assume that the
+ * starting vp is always rootdir (which is true for spa_directory.c, the only
+ * ZFS consumer of these interfaces).  We assert this is true, and then emulate
+ * them by adding '/' in front of the path.
+ */
+
+/*ARGSUSED*/
+int
+vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum create x2, mode_t x3)
+{
+	int fd;
+	int old_umask = 0;
+	struct stat64 st;
+
+	if (!(flags & FCREAT) && stat64(path, &st) == -1)
+		return (errno);
+
+	if (flags & FCREAT)
+		old_umask = umask(0);
+
+	/*
+	 * The construct 'flags - FREAD' conveniently maps combinations of
+	 * FREAD and FWRITE to the corresponding O_RDONLY, O_WRONLY, and O_RDWR.
+	 */
+	fd = open64(path, flags - FREAD, mode);
+
+	if (flags & FCREAT)
+		(void) umask(old_umask);
+
+	if (fd == -1)
+		return (errno);
+
+	return vn_fromfd(fd, path, flags, vpp, B_FALSE);
 }
 
 int
@@ -1144,6 +1155,19 @@ fop_rwunlock(
 	VOPSTATS_UPDATE(vp, rwunlock);
 }
 
+int
+fop_seek(
+	vnode_t *vp,
+	offset_t ooff,
+	offset_t *noffp)
+{
+	int	err;
+
+	err = (*(vp)->v_op->vop_seek)(vp, ooff, noffp);
+	VOPSTATS_UPDATE(vp, seek);
+	return (err);
+}
+
 static int
 root_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr)
 {
@@ -1215,11 +1239,65 @@ root_write(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *c
 	return 0;
 }
 
+static int
+fd_read(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *ct)
+{
+	VERIFY(vp->v_fd != -1);
+
+	int error = 0;
+
+	ssize_t iolen = read(vp->v_fd, uiop->uio_iov->iov_base, uiop->uio_iov->iov_len);
+	if(iolen == -1) {
+		error = errno;
+		perror("read");
+	}
+
+	if(error)
+		return error;
+
+	uiop->uio_resid -= iolen;
+
+	return 0;
+}
+
+static int
+fd_write(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *ct)
+{
+	VERIFY(vp->v_fd != -1);
+
+	int error = 0;
+
+	ssize_t iolen = write(vp->v_fd, uiop->uio_iov->iov_base, uiop->uio_iov->iov_len);
+	if(iolen == -1) {
+		error = errno;
+		perror("write");
+	}
+
+	if(iolen != uiop->uio_iov->iov_len)
+		fprintf(stderr, "fd_write(): len: %lli iolen: %lli offset: %lli file: %s\n", (longlong_t) uiop->uio_iov->iov_len, (longlong_t) iolen, (longlong_t) uiop->uio_loffset, vp->v_path);
+
+	if(error)
+		return error;
+
+	uiop->uio_resid -= iolen;
+
+	return 0;
+}
+
 const fs_operation_def_t root_fvnodeops_template[] = {
 	VOPNAME_GETATTR, root_getattr,
 	VOPNAME_FSYNC, root_fsync,
 	VOPNAME_CLOSE, root_close,
 	VOPNAME_READ, root_read,
 	VOPNAME_WRITE, root_write,
+	NULL, NULL
+};
+
+const fs_operation_def_t fd_fvnodeops_template[] = {
+	VOPNAME_GETATTR, root_getattr,
+	VOPNAME_FSYNC, root_fsync,
+	VOPNAME_READ, fd_read,
+	VOPNAME_WRITE, fd_write,
+	VOPNAME_CLOSE, root_close,
 	NULL, NULL
 };
