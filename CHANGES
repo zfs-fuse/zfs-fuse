@@ -4,6 +4,7 @@ Features:
 	* Implemented zfs send/recv.
 Bug fixes:
 	* Fix crash when using 'zpool status -v' to list errors.
+	* Backported fix for OpenSolaris bug #6458218.
 
 2007/03/06 - Release 0.4.0_beta1
 --------------------------------------------------
