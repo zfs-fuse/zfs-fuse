@@ -35,6 +35,7 @@
 #include <sys/un.h>
 #include <sys/file.h>
 #include <sys/avl.h>
+#include <sys/uio.h>
 #include <fcntl.h>
 #include <pthread.h>
 
