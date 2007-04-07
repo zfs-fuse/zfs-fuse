@@ -27,7 +27,8 @@
 #ifndef _SYS_MNTENT_H
 #define _SYS_MNTENT_H
 
-#define MNTTYPE_ROOT "root" /* root file system */
-#define MNTTYPE_ZFS "zfs"   /* ZFS file system */
+#define MNTTYPE_ROOT "zfsfuse_root" /* pseudo root file system */
+#define MNTTYPE_FD   "zfsfuse_fd"   /* pseudo fd file system */
+#define MNTTYPE_ZFS  "zfs"          /* ZFS file system */
 
 #endif

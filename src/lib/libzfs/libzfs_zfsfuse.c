@@ -28,6 +28,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #include <errno.h>
 
@@ -97,6 +98,41 @@ int zfsfuse_ioctl_read_loop(int fd, void *buf, int bytes)
 	return 0;
 }
 
+/*
+ * Send a file descriptor to zfs-fuse.
+ * The file descriptor is passed through the UNIX socket.
+ */
+int zfsfuse_sendfd(int sock, int fd)
+{
+	/* man cmsg(3) */
+
+	struct msghdr msg = { 0 };
+	struct cmsghdr *cmsg;
+	char buf[CMSG_SPACE(sizeof(int))];
+	int *fdptr;
+
+	/* Kernel requires we send something... */
+	struct iovec iov[1];
+	iov[0].iov_base = "";
+	iov[0].iov_len = 1;
+	msg.msg_iov = iov;
+	msg.msg_iovlen = 1;
+
+	msg.msg_control = buf;
+	msg.msg_controllen = sizeof(buf);
+	cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+
+	fdptr = (int *) CMSG_DATA(cmsg);
+	*fdptr = fd;
+
+	msg.msg_controllen = cmsg->cmsg_len;
+
+	return sendmsg(sock, &msg, 0) < 0 ? -1 : 0;
+}
+
 int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 {
 	zfsfuse_cmd_t cmd;
@@ -113,9 +149,6 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 			return -1;
 
 		switch(cmd.cmd_type) {
-			case IOCTL_REQ:
-			case MOUNT_REQ:
-				abort();
 			case IOCTL_ANS:
 				errno = cmd.cmd_u.ioctl_ans_ret;
 				return errno;
@@ -126,6 +159,13 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 			case COPYOUT_REQ:
 				if(zfsfuse_ioctl_read_loop(fd, (void *)(uintptr_t) cmd.cmd_u.copy_req.ptr, cmd.cmd_u.copy_req.size) != 0)
 					return -1;
+				break;
+			case GETF_REQ:
+				if(zfsfuse_sendfd(fd, cmd.cmd_u.getf_req_fd) != 0)
+					return -1;
+				break;
+			default:
+				abort();
 				break;
 		}
 	}

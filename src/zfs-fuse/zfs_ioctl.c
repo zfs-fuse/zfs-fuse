@@ -1232,8 +1232,6 @@ zfs_ioc_rename(zfs_cmd_t *zc)
 static int
 zfs_ioc_recvbackup(zfs_cmd_t *zc)
 {
-/* zfs-fuse: TODO */
-#if 0
 	file_t *fp;
 	int error, fd;
 	offset_t new_off;
@@ -1256,15 +1254,11 @@ zfs_ioc_recvbackup(zfs_cmd_t *zc)
 
 	releasef(fd);
 	return (error);
-#endif
-	return EBADF;
 }
 
 static int
 zfs_ioc_sendbackup(zfs_cmd_t *zc)
 {
-/* zfs-fuse: TODO */
-#if 0
 	objset_t *fromsnap = NULL;
 	objset_t *tosnap;
 	file_t *fp;
@@ -1307,8 +1301,6 @@ zfs_ioc_sendbackup(zfs_cmd_t *zc)
 		dmu_objset_close(fromsnap);
 	dmu_objset_close(tosnap);
 	return (error);
-#endif
-	return EBADF;
 }
 
 static int

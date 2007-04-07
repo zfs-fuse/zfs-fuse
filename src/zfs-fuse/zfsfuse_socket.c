@@ -33,7 +33,11 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/file.h>
+#include <sys/avl.h>
+#include <sys/uio.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 #include <sys/fs/zfs.h>
 
@@ -43,6 +47,9 @@
 #define LOCKFILE LOCKDIR "/zfs_lock"
 
 int cur_fd = -1;
+
+avl_tree_t fd_avl;
+pthread_mutex_t fd_avl_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 static int zfsfuse_do_locking()
 {
@@ -54,6 +61,28 @@ static int zfsfuse_do_locking()
 		return -1;
 
 	return lockf(lock_fd, F_TLOCK, 0);
+}
+
+/*
+ * AVL comparison function used to order the fd tree
+ */
+int
+zfsfuse_fd_compare(const void *arg1, const void *arg2)
+{
+	const file_t *f1 = arg1;
+	const file_t *f2 = arg2;
+
+	if (f1->f_client > f2->f_client)
+		return 1;
+	if (f1->f_client < f2->f_client)
+		return -1;
+
+	if (f1->f_oldfd > f2->f_oldfd)
+		return 1;
+	if (f1->f_oldfd < f2->f_oldfd)
+		return -1;
+
+	return 0;
 }
 
 int zfsfuse_socket_create()
@@ -101,7 +130,18 @@ int zfsfuse_socket_create()
 		return -1;
 	}
 
+	avl_create(&fd_avl, zfsfuse_fd_compare, sizeof(file_t), offsetof(file_t, f_node));
+
 	return sock;
+}
+
+void zfsfuse_socket_close(int fd)
+{
+	close(fd);
+
+	unlink(ZFS_DEV_NAME);
+
+	avl_destroy(&fd_avl);
 }
 
 /*
@@ -127,13 +167,6 @@ int zfsfuse_socket_read_loop(int fd, void *buf, int bytes)
 		left_bytes -= ret;
 	}
 	return 0;
-}
-
-void zfsfuse_socket_close(int fd)
-{
-	close(fd);
-
-	unlink(ZFS_DEV_NAME);
 }
 
 int zfsfuse_socket_ioctl_write(int fd, int ret)
@@ -202,4 +235,112 @@ int xcopyout(const void *src, void *dest, size_t size)
 		return EFAULT;
 
 	return 0;
+}
+
+/*
+ * Request a file descriptor from the "user" process.
+ * The file descriptor is passed through the UNIX socket.
+ *
+ * This function is declared in libsolkerncompat/include/sys/file.h
+ */
+file_t *getf(int fd)
+{
+#ifdef DEBUG
+	/* Clear valgrind's uninitialized byte(s) warning */
+	zfsfuse_cmd_t cmd = { 0 };
+#else
+	zfsfuse_cmd_t cmd;
+#endif
+
+	/* This should catch stray getf()s in the code.. */
+	VERIFY(cur_fd >= 0);
+
+	cmd.cmd_type = GETF_REQ;
+	cmd.cmd_u.getf_req_fd = fd;
+
+	if(write(cur_fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t))
+		return NULL;
+
+retry: ;
+	/* man cmsg(3) */
+
+	struct msghdr msg = { 0 };
+	struct cmsghdr *cmsg;
+	char buf[CMSG_SPACE(sizeof(int))];
+	int32_t *fdptr;
+
+	struct iovec iov[1];
+	char c;
+	iov[0].iov_base = &c;
+	iov[0].iov_len = 1;
+	msg.msg_iov = iov;
+	msg.msg_iovlen = 1;
+
+	msg.msg_control = buf;
+	msg.msg_controllen = sizeof(buf);
+	cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	msg.msg_controllen = CMSG_LEN(sizeof(int));
+
+	int r = recvmsg(cur_fd, &msg, 0);
+	if(r == 0)
+		return NULL;
+
+	if(r == -1) {
+		if(errno == EINTR)
+			goto retry;
+		return NULL;
+	}
+
+	if(cmsg->cmsg_len != CMSG_LEN(sizeof(int)) || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS)
+		return NULL;
+
+	fdptr = (int *) CMSG_DATA(cmsg);
+	int new_fd = *fdptr;
+
+	file_t *ret = kmem_alloc(sizeof(file_t), KM_SLEEP);
+
+	if(vn_fromfd(new_fd, "file descriptor", FREAD | FWRITE, &ret->f_vnode, B_TRUE) != 0) {
+		kmem_free(ret, sizeof(file_t));
+		return NULL;
+	}
+
+	ret->f_client = cur_fd;
+	ret->f_oldfd = fd;
+	ret->f_offset = 0;
+
+	VERIFY(pthread_mutex_lock(&fd_avl_mtx) == 0);
+
+	avl_add(&fd_avl, ret);
+
+	VERIFY(pthread_mutex_unlock(&fd_avl_mtx) == 0);
+
+	return ret;
+}
+
+/*
+ * Release the file descriptor allocated in getf().
+ *
+ * This function is declared in libsolkerncompat/include/sys/file.h
+ */
+void releasef(int fd)
+{
+	file_t f;
+	f.f_client = cur_fd;
+	f.f_oldfd = fd;
+
+	VERIFY(pthread_mutex_lock(&fd_avl_mtx) == 0);
+
+	file_t *node = avl_find(&fd_avl, &f, NULL);
+	VERIFY(node != NULL);
+
+	VOP_CLOSE(node->f_vnode, FREAD | FWRITE, 1, 0, kcred);
+	VN_RELE(node->f_vnode);
+
+	avl_remove(&fd_avl, node);
+
+	VERIFY(pthread_mutex_unlock(&fd_avl_mtx) == 0);
+
+	kmem_free(node, sizeof(file_t));
 }

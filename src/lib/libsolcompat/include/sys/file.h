@@ -21,27 +21,29 @@
  */
 /*
  * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2006 Ricardo Correia.
  * Use is subject to license terms.
  */
 
-#ifndef _SOL_SYS_FILE_H
-#define _SOL_SYS_FILE_H
+#ifndef _SOL_KERN_SYS_FILE_H
+#define _SOL_KERN_SYS_FILE_H
 
-#include_next <sys/file.h>
+#include <sys/file_aux.h>
+#include <sys/avl.h>
+#include <sys/vnode.h>
+#include <sys/types.h>
 
-#define FREAD   1
-#define FWRITE  2
-//#define FAPPEND  8
+typedef struct file {
+	struct vnode *f_vnode;  /* pointer to vnode structure */
+	offset_t      f_offset; /* read/write character pointer */
 
-#define FCREAT  O_CREAT
-#define FTRUNC  O_TRUNC
-#define FOFFMAX O_LARGEFILE
-#define FSYNC   O_SYNC
-#define FDSYNC  O_DSYNC
-#define FRSYNC  O_RSYNC
-#define FEXCL   O_EXCL
+	int           f_client; /* client socket */
+	int           f_oldfd;  /* requested fd */
+	avl_node_t    f_node;   /* avl node link */
+} file_t;
 
-#define FNODSYNC  0x10000 /* fsync pseudo flag */
-#define FNOFOLLOW 0x20000 /* don't follow symlinks */
+/* The next 2 functions are implemented in zfs-fuse/zfsfuse_socket.c */
+extern file_t *getf(int);
+extern void releasef(int);
 
 #endif

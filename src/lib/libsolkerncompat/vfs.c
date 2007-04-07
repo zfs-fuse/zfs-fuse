@@ -58,9 +58,12 @@ struct vfssw vfssw[] = {
  */
 vnode_t *rootdir = &st_rootdir; /* pointer to root vnode. */
 struct vfs *rootvfs = &st_rootvfs;
+
 vnodeops_t *root_fvnodeops;
+vnodeops_t *fd_fvnodeops;
 
 extern const fs_operation_def_t root_fvnodeops_template[];
+extern const fs_operation_def_t fd_fvnodeops_template[];
 
 void vfs_init()
 {
@@ -73,6 +76,11 @@ void vfs_init()
 
 	int error = vn_make_ops(MNTTYPE_ROOT, root_fvnodeops_template,
 	    &root_fvnodeops);
+	if (error)
+		abort();
+
+	error = vn_make_ops(MNTTYPE_FD, fd_fvnodeops_template,
+	    &fd_fvnodeops);
 	if (error)
 		abort();
 }
