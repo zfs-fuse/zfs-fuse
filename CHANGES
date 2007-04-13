@@ -6,6 +6,7 @@ Features:
 Bug fixes:
 	* Fix crash when using 'zpool status -v' to list errors.
 	* Backported fix for OpenSolaris bug #6458218.
+	* Allow suid files and device nodes to be stored on zfs (Cameron Patrick).
 
 2007/03/06 - Release 0.4.0_beta1
 --------------------------------------------------
