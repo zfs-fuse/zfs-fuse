@@ -3,7 +3,6 @@ In no particular order:
 - Implement missing STATUS features
 - Implement zfs_ioctl.c TODOs.
 - Check strlcat.
-- Get zfs_ioc_recvbackup() and zfs_ioc_sendbackup() in zfs_ioctl.c to work.
 - Get EFI labels working, necessary for whole disk support.
 - Get zfs_fm.c to work.
 - Device in use detection?

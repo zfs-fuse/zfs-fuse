@@ -311,6 +311,9 @@ extern int vn_openat(char *pnamep, enum uio_seg seg, int filemode, int createmod
 extern int vn_rdwr(enum uio_rw rw, struct vnode *vp, caddr_t base, ssize_t len, offset_t offset, enum uio_seg seg, int ioflag, rlim64_t ulimit, cred_t *cr, ssize_t *residp);
 extern void vn_close(vnode_t *vp);
 
+/* ZFSFUSE */
+extern int vn_fromfd(int fd, char *path, int flags, struct vnode **vpp, boolean_t fromfd);
+
 #define vn_invalid(vp)           ((void) 0)
 #define vn_has_cached_data(v)    (0)
 

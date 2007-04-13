@@ -11,13 +11,13 @@ implementation.
 itself).
 - Compression, checksumming, error detection, self-healing (on redundant pools).
 - Quotas and reservations.
+- Backups/restores (with zfs send/recv)
 
 What isn't working yet (expected version):
 
 - zfs-fuse is not a real daemon (0.4.0)
 - Mount options (0.4.0).
 - File locks (0.4.0).
-- zfs send/recv (0.4.0).
 - Maximum memory usage is not adjustable (0.4.0).
 - Nested pools -- creating a pool on a file stored on another
 pool (probably 0.4.0).
