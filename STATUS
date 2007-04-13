@@ -15,7 +15,6 @@ itself).
 
 What isn't working yet (expected version):
 
-- zfs-fuse is not a real daemon (0.4.0)
 - Mount options (0.4.0).
 - File locks (0.4.0).
 - Maximum memory usage is not adjustable (0.4.0).

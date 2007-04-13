@@ -1,7 +1,9 @@
 In no particular order:
 
-- Implement missing STATUS features
-- Implement zfs_ioctl.c TODOs.
+- Implement missing STATUS features.
+- Use getopt to parse zfs-fuse command line args.
+- Support simultaneous ioctls.
+- Provide zpool/zfs SIGINT detection to ioctls (so that zfs send/recv terminates on Ctrl-C).
 - Check strlcat.
 - Get EFI labels working, necessary for whole disk support.
 - Get zfs_fm.c to work.

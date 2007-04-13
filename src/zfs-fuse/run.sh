@@ -2,4 +2,4 @@
 
 ulimit -c unlimited
 
-./zfs-fuse
+./zfs-fuse --no-daemon

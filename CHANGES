@@ -2,6 +2,7 @@
 --------------------------------------------------
 Features:
 	* Implemented zfs send/recv.
+	* Turned zfs-fuse into a real daemon (Cameron Patrick).
 Bug fixes:
 	* Fix crash when using 'zpool status -v' to list errors.
 	* Backported fix for OpenSolaris bug #6458218.
