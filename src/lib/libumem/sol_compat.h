@@ -124,6 +124,14 @@ static INLINE uint_t ec_atomic_cas(uint_t *mem, uint_t with, uint_t cmp)
         : "memory");
   return prev;
 }
+# elif defined(__sparc__) && defined(__GNUC__)
+static INLINE uint_t ec_atomic_cas(uint_t *mem, uint_t with, uint_t cmp)
+{
+  __asm volatile ("cas [%3],%2,%0"
+        : "+r"(with), "=m"(*(mem))
+        : "r"(cmp), "r"(mem), "m"(*(mem)) );
+  return with;
+}
 # endif
 
 # ifndef ec_atomic_inc

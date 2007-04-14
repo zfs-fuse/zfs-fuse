@@ -1,6 +1,7 @@
 ? - Release 0.4.0_beta2
 --------------------------------------------------
 Features:
+	* Ported to the sparc64 architecture (arkadi).
 	* Implemented zfs send/recv.
 	* Turned zfs-fuse into a real daemon (Cameron Patrick).
 Bug fixes:

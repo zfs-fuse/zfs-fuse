@@ -31,8 +31,9 @@ env.Execute(SymLink('cmd/zpool/trace-parse.py', 'zfs-fuse/trace-parse.py'))
 env.Execute(SymLink('lib/libsolkerncompat/taskq.c', 'lib/libzpool/taskq.c'))
 env.Execute(SymLink('lib/libsolkerncompat/i386', 'lib/libsolcompat/i386'))
 env.Execute(SymLink('lib/libsolkerncompat/amd64', 'lib/libsolcompat/amd64'))
+env.Execute(SymLink('lib/libsolkerncompat/sparc64', 'lib/libsolcompat/sparc64'))
 
-files = Split('ia32 i386 amd64 stdarg.h sys/byteorder.h sys/dkio.h sys/dklabel.h sys/feature_tests.h sys/file.h sys/inttypes.h sys/int_limits.h sys/int_types.h sys/isa_defs.h sys/note.h sys/sysmacros.h sys/types.h sys/types32.h sys/va_list.h sys/vmem.h rpc/xdr.h')
+files = Split('ia32 i386 amd64 sparc64 stdarg.h sys/byteorder.h sys/dkio.h sys/dklabel.h sys/feature_tests.h sys/file.h sys/inttypes.h sys/int_limits.h sys/int_types.h sys/isa_defs.h sys/note.h sys/sysmacros.h sys/types.h sys/types32.h sys/va_list.h sys/vmem.h rpc/xdr.h')
 
 for file in files:
 	env.Execute(SymLink('lib/libsolkerncompat/include/' + file, 'lib/libsolcompat/include/' + file))

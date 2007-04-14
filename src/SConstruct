@@ -35,6 +35,9 @@ arch = f.readline().strip()
 f.close()
 
 def getarch(arch):
+	if arch == 'sparc64':
+		return 'sparc64'
+
 	if arch == 'x86_64':
 		return 'amd64'
 
@@ -47,8 +50,12 @@ myarch = getarch(arch)
 
 if not myarch:
 	print
-	print 'Sorry, only the x86 and amd64 hardware architectures are supported'
+	print 'Sorry, only the x86, amd64 and sparc64 hardware architectures are supported'
 	sys.exit(1)
+
+if myarch == 'sparc64':
+	env.Append(CCFLAGS = '-mcpu=ultrasparc')
+	env.Append(ASFLAGS = '-mcpu=ultrasparc')
 
 env['ARCH'] = ARGUMENTS.get('target', myarch)
 
