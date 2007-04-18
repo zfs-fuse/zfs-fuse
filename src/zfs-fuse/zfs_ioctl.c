@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -40,7 +40,9 @@
 #include <sys/zfs_ioctl.h>
 #include <sys/zap.h>
 #include <sys/spa.h>
+#include <sys/spa_impl.h>
 #include <sys/vdev.h>
+#include <sys/vdev_impl.h>
 #include <sys/dmu.h>
 #include <sys/dsl_dir.h>
 #include <sys/dsl_dataset.h>
@@ -488,6 +490,11 @@ zfs_ioc_pool_get_history(zfs_cmd_t *zc)
 	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
 		return (error);
 
+	if (spa_version(spa) < ZFS_VERSION_ZPOOL_HISTORY) {
+		spa_close(spa, FTAG);
+		return (ENOTSUP);
+	}
+
 	hist_buf = kmem_alloc(size, KM_SLEEP);
 	if ((error = spa_history_get(spa, &zc->zc_history_offset,
 	    &zc->zc_history_len, hist_buf)) == 0) {
@@ -515,6 +522,11 @@ zfs_ioc_pool_log_history(zfs_cmd_t *zc)
 	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
 		return (error);
 
+	if (spa_version(spa) < ZFS_VERSION_ZPOOL_HISTORY) {
+		spa_close(spa, FTAG);
+		return (ENOTSUP);
+	}
+
 	/* add one for the NULL delimiter */
 	size++;
 	history_str = kmem_alloc(size, KM_SLEEP);
@@ -535,6 +547,34 @@ zfs_ioc_pool_log_history(zfs_cmd_t *zc)
 }
 
 static int
+zfs_ioc_dsobj_to_dsname(zfs_cmd_t *zc)
+{
+	int error;
+
+	if (error = dsl_dsobj_to_dsname(zc->zc_name, zc->zc_obj, zc->zc_value))
+		return (error);
+
+	return (0);
+}
+
+static int
+zfs_ioc_obj_to_path(zfs_cmd_t *zc)
+{
+	objset_t *osp;
+	int error;
+
+	if ((error = dmu_objset_open(zc->zc_name, DMU_OST_ZFS,
+	    DS_MODE_NONE | DS_MODE_READONLY, &osp)) != 0)
+		return (error);
+
+	error = zfs_obj_to_path(osp, zc->zc_obj, zc->zc_value,
+	    sizeof (zc->zc_value));
+	dmu_objset_close(osp);
+
+	return (error);
+}
+
+static int
 zfs_ioc_vdev_add(zfs_cmd_t *zc)
 {
 	spa_t *spa;
@@ -544,6 +584,15 @@ zfs_ioc_vdev_add(zfs_cmd_t *zc)
 	error = spa_open(zc->zc_name, &spa, FTAG);
 	if (error != 0)
 		return (error);
+
+	/*
+	 * A root pool with concatenated devices is not supported.
+	 * Thus, can not add a device to a root pool with one device.
+	 */
+	if (spa->spa_root_vdev->vdev_children == 1 && spa->spa_bootfs != 0) {
+		spa_close(spa, FTAG);
+		return (EDOM);
+	}
 
 	if ((error = get_nvlist(zc, &config)) == 0) {
 		error = spa_vdev_add(spa, config);
@@ -805,6 +854,9 @@ zfs_set_prop_nvlist(const char *name, dev_t dev, cred_t *cr, nvlist_t *nvl)
 	zfs_prop_t prop;
 	uint64_t intval;
 	char *strval;
+	char buf[MAXNAMELEN];
+	const char *p;
+	spa_t *spa;
 
 	elem = NULL;
 	while ((elem = nvlist_next_nvpair(nvl, elem)) != NULL) {
@@ -826,7 +878,7 @@ zfs_set_prop_nvlist(const char *name, dev_t dev, cred_t *cr, nvlist_t *nvl)
 			if (error == 0)
 				continue;
 			else
-				break;
+				return (error);
 		}
 
 		/*
@@ -863,6 +915,37 @@ zfs_set_prop_nvlist(const char *name, dev_t dev, cred_t *cr, nvlist_t *nvl)
 				if (dslen <= strlen(setpoint))
 					return (EPERM);
 			}
+			break;
+
+		case ZFS_PROP_COMPRESSION:
+			/*
+			 * If the user specified gzip compression, make sure
+			 * the SPA supports it. We ignore any errors here since
+			 * we'll catch them later.
+			 */
+			if (nvpair_type(elem) == DATA_TYPE_UINT64 &&
+			    nvpair_value_uint64(elem, &intval) == 0 &&
+			    intval >= ZIO_COMPRESS_GZIP_1 &&
+			    intval <= ZIO_COMPRESS_GZIP_9) {
+				if ((p = strchr(name, '/')) == NULL) {
+					p = name;
+				} else {
+					bcopy(name, buf, p - name);
+					buf[p - name] = '\0';
+					p = buf;
+				}
+
+				if (spa_open(p, &spa, FTAG) == 0) {
+					if (spa_version(spa) <
+					    ZFS_VERSION_GZIP_COMPRESSION) {
+						spa_close(spa, FTAG);
+						return (ENOTSUP);
+					}
+
+					spa_close(spa, FTAG);
+				}
+			}
+			break;
 		}
 
 		switch (prop) {
@@ -969,6 +1052,126 @@ zfs_ioc_set_prop(zfs_cmd_t *zc)
 	error = zfs_set_prop_nvlist(zc->zc_name, zc->zc_dev,
 	    (cred_t *)(uintptr_t)zc->zc_cred, nvl);
 	nvlist_free(nvl);
+	return (error);
+}
+
+static int
+zfs_ioc_pool_props_set(zfs_cmd_t *zc)
+{
+	nvlist_t *nvl;
+	int error, reset_bootfs = 0;
+	uint64_t objnum;
+	zpool_prop_t prop;
+	nvpair_t *elem;
+	char *propname, *strval;
+	spa_t *spa;
+	vdev_t *rvdev;
+	char *vdev_type;
+	objset_t *os;
+
+	if ((error = get_nvlist(zc, &nvl)) != 0)
+		return (error);
+
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0) {
+		nvlist_free(nvl);
+		return (error);
+	}
+
+	if (spa_version(spa) < ZFS_VERSION_BOOTFS) {
+		nvlist_free(nvl);
+		spa_close(spa, FTAG);
+		return (ENOTSUP);
+	}
+
+	elem = NULL;
+	while ((elem = nvlist_next_nvpair(nvl, elem)) != NULL) {
+
+		propname = nvpair_name(elem);
+
+		if ((prop = zpool_name_to_prop(propname)) ==
+		    ZFS_PROP_INVAL) {
+			nvlist_free(nvl);
+			spa_close(spa, FTAG);
+			return (EINVAL);
+		}
+
+		switch (prop) {
+		case ZFS_PROP_BOOTFS:
+			/*
+			 * A bootable filesystem can not be on a RAIDZ pool
+			 * nor a striped pool with more than 1 device.
+			 */
+			rvdev = spa->spa_root_vdev;
+			vdev_type =
+			    rvdev->vdev_child[0]->vdev_ops->vdev_op_type;
+			if (strcmp(vdev_type, VDEV_TYPE_RAIDZ) == 0 ||
+			    (strcmp(vdev_type, VDEV_TYPE_MIRROR) != 0 &&
+			    rvdev->vdev_children > 1)) {
+				error = ENOTSUP;
+				break;
+			}
+
+			reset_bootfs = 1;
+
+			VERIFY(nvpair_value_string(elem, &strval) == 0);
+			if (strval == NULL || strval[0] == '\0') {
+				objnum =
+				    zfs_prop_default_numeric(ZFS_PROP_BOOTFS);
+				break;
+			}
+
+			if (error = dmu_objset_open(strval, DMU_OST_ZFS,
+			    DS_MODE_STANDARD | DS_MODE_READONLY, &os))
+				break;
+			objnum = dmu_objset_id(os);
+			dmu_objset_close(os);
+			break;
+
+		default:
+			error = EINVAL;
+		}
+
+		if (error)
+			break;
+	}
+	if (error == 0) {
+		if (reset_bootfs) {
+			VERIFY(nvlist_remove(nvl,
+			    zpool_prop_to_name(ZFS_PROP_BOOTFS),
+			    DATA_TYPE_STRING) == 0);
+			VERIFY(nvlist_add_uint64(nvl,
+			    zpool_prop_to_name(ZFS_PROP_BOOTFS), objnum) == 0);
+		}
+		error = spa_set_props(spa, nvl);
+	}
+
+	nvlist_free(nvl);
+	spa_close(spa, FTAG);
+
+	return (error);
+}
+
+static int
+zfs_ioc_pool_props_get(zfs_cmd_t *zc)
+{
+	spa_t *spa;
+	int error;
+	nvlist_t *nvp = NULL;
+
+	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
+		return (error);
+
+	error = spa_get_props(spa, &nvp);
+
+	if (error == 0 && zc->zc_nvlist_dst != NULL)
+		error = put_nvlist(zc, nvp);
+	else
+		error = EFAULT;
+
+	spa_close(spa, FTAG);
+
+	if (nvp)
+		nvlist_free(nvp);
 	return (error);
 }
 
@@ -1379,28 +1582,6 @@ zfs_ioc_clear(zfs_cmd_t *zc)
 }
 
 static int
-zfs_ioc_bookmark_name(zfs_cmd_t *zc)
-{
-	spa_t *spa;
-	int error;
-	nvlist_t *nvl;
-
-	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
-		return (error);
-
-	VERIFY(nvlist_alloc(&nvl, NV_UNIQUE_NAME, KM_SLEEP) == 0);
-
-	error = spa_bookmark_name(spa, &zc->zc_bookmark, nvl);
-	if (error == 0)
-		error = put_nvlist(zc, nvl);
-	nvlist_free(nvl);
-
-	spa_close(spa, FTAG);
-
-	return (error);
-}
-
-static int
 zfs_ioc_promote(zfs_cmd_t *zc)
 {
 	char *cp;
@@ -1454,10 +1635,13 @@ static zfs_ioc_vec_t zfs_ioc_vec[] = {
 	{ zfs_ioc_inject_list_next,	zfs_secpolicy_inject,	no_name },
 	{ zfs_ioc_error_log,		zfs_secpolicy_inject,	pool_name },
 	{ zfs_ioc_clear,		zfs_secpolicy_config,	pool_name },
-	{ zfs_ioc_bookmark_name,	zfs_secpolicy_inject,	pool_name },
 	{ zfs_ioc_promote,		zfs_secpolicy_write,	dataset_name },
 	{ zfs_ioc_destroy_snaps,	zfs_secpolicy_write,	dataset_name },
-	{ zfs_ioc_snapshot,		zfs_secpolicy_write,	dataset_name }
+	{ zfs_ioc_snapshot,		zfs_secpolicy_write,	dataset_name },
+	{ zfs_ioc_dsobj_to_dsname,	zfs_secpolicy_config,	pool_name },
+	{ zfs_ioc_obj_to_path,		zfs_secpolicy_config,	no_name },
+	{ zfs_ioc_pool_props_set,	zfs_secpolicy_config,	pool_name },
+	{ zfs_ioc_pool_props_get,	zfs_secpolicy_read,	pool_name },
 };
 
 static int
@@ -1595,8 +1779,8 @@ static struct cb_ops zfs_cb_ops = {
 	NULL,		/* streamtab */
 	D_NEW | D_MP | D_64BIT,		/* Driver compatibility flag */
 	CB_REV,		/* version */
-	zvol_aread,	/* async read */
-	zvol_awrite,	/* async write */
+	nodev,		/* async read */
+	nodev,		/* async write */
 };
 
 static struct dev_ops zfs_dev_ops = {

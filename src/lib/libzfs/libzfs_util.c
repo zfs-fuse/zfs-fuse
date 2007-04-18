@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -38,6 +38,8 @@
 #include <strings.h>
 #include <unistd.h>
 #include <sys/mnttab.h>
+#include <sys/mntent.h>
+#include <sys/types.h>
 
 #include <libzfs.h>
 
@@ -156,6 +158,15 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_SHAREISCSIFAILED:
 		return (dgettext(TEXT_DOMAIN,
 		    "iscsitgtd failed request to share"));
+	case EZFS_POOLPROPS:
+		return (dgettext(TEXT_DOMAIN, "failed to retrieve "
+		    "pool properties"));
+	case EZFS_POOL_NOTSUP:
+		return (dgettext(TEXT_DOMAIN, "operation not supported "
+		    "on this type of pool"));
+	case EZFS_POOL_INVALARG:
+		return (dgettext(TEXT_DOMAIN, "invalid argument for "
+		    "this pool operation"));
 	case EZFS_UNKNOWN:
 		return (dgettext(TEXT_DOMAIN, "unknown error"));
 	default:
@@ -199,7 +210,7 @@ zfs_verror(libzfs_handle_t *hdl, int error, const char *fmt, va_list ap)
 		}
 
 		(void) fprintf(stderr, "%s: %s\n", hdl->libzfs_action,
-			libzfs_error_description(hdl));
+		    libzfs_error_description(hdl));
 		if (error == EZFS_NOMEM)
 			exit(1);
 	}
@@ -295,7 +306,6 @@ zfs_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 		    "dataset is busy"));
 		zfs_verror(hdl, EZFS_BUSY, fmt, ap);
 		break;
-
 	default:
 		zfs_error_aux(hdl, strerror(errno));
 		zfs_verror(hdl, EZFS_UNKNOWN, fmt, ap);
@@ -331,7 +341,8 @@ zpool_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 		break;
 
 	case ENOENT:
-		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "no such pool"));
+		zfs_error_aux(hdl,
+		    dgettext(TEXT_DOMAIN, "no such pool or dataset"));
 		zfs_verror(hdl, EZFS_NOENT, fmt, ap);
 		break;
 
@@ -354,6 +365,14 @@ zpool_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 
 	case ENAMETOOLONG:
 		zfs_verror(hdl, EZFS_DEVOVERFLOW, fmt, ap);
+		break;
+
+	case ENOTSUP:
+		zfs_verror(hdl, EZFS_POOL_NOTSUP, fmt, ap);
+		break;
+
+	case EINVAL:
+		zfs_verror(hdl, EZFS_POOL_INVALARG, fmt, ap);
 		break;
 
 	default:
@@ -521,6 +540,51 @@ zfs_get_handle(zfs_handle_t *zhp)
 }
 
 /*
+ * Given a name, determine whether or not it's a valid path
+ * (starts with '/' or "./").  If so, walk the mnttab trying
+ * to match the device number.  If not, treat the path as an
+ * fs/vol/snap name.
+ */
+zfs_handle_t *
+zfs_path_to_zhandle(libzfs_handle_t *hdl, char *path, zfs_type_t argtype)
+{
+	struct stat64 statbuf;
+	struct extmnttab entry;
+	int ret;
+
+	if (path[0] != '/' && strncmp(path, "./", strlen("./")) != 0) {
+		/*
+		 * It's not a valid path, assume it's a name of type 'argtype'.
+		 */
+		return (zfs_open(hdl, path, argtype));
+	}
+
+	if (stat64(path, &statbuf) != 0) {
+		(void) fprintf(stderr, "%s: %s\n", path, strerror(errno));
+		return (NULL);
+	}
+
+	rewind(hdl->libzfs_mnttab);
+	while ((ret = getextmntent(hdl->libzfs_mnttab, &entry, 0)) == 0) {
+		if (makedevice(entry.mnt_major, entry.mnt_minor) ==
+		    statbuf.st_dev) {
+			break;
+		}
+	}
+	if (ret != 0) {
+		return (NULL);
+	}
+
+	if (strcmp(entry.mnt_fstype, MNTTYPE_ZFS) != 0) {
+		(void) fprintf(stderr, gettext("'%s': not a ZFS filesystem\n"),
+		    path);
+		return (NULL);
+	}
+
+	return (zfs_open(hdl, entry.mnt_special, ZFS_TYPE_FILESYSTEM));
+}
+
+/*
  * Initialize the zc_nvlist_dst member to prepare for receiving an nvlist from
  * an ioctl().
  */
@@ -597,4 +661,180 @@ zcmd_read_dst_nvlist(libzfs_handle_t *hdl, zfs_cmd_t *zc, nvlist_t **nvlp)
 		return (no_memory(hdl));
 
 	return (0);
+}
+
+static void
+zfs_print_prop_headers(libzfs_get_cbdata_t *cbp)
+{
+	zfs_proplist_t *pl = cbp->cb_proplist;
+	int i;
+	char *title;
+	size_t len;
+
+	cbp->cb_first = B_FALSE;
+	if (cbp->cb_scripted)
+		return;
+
+	/*
+	 * Start with the length of the column headers.
+	 */
+	cbp->cb_colwidths[GET_COL_NAME] = strlen(dgettext(TEXT_DOMAIN, "NAME"));
+	cbp->cb_colwidths[GET_COL_PROPERTY] = strlen(dgettext(TEXT_DOMAIN,
+	    "PROPERTY"));
+	cbp->cb_colwidths[GET_COL_VALUE] = strlen(dgettext(TEXT_DOMAIN,
+	    "VALUE"));
+	cbp->cb_colwidths[GET_COL_SOURCE] = strlen(dgettext(TEXT_DOMAIN,
+	    "SOURCE"));
+
+	/*
+	 * Go through and calculate the widths for each column.  For the
+	 * 'source' column, we kludge it up by taking the worst-case scenario of
+	 * inheriting from the longest name.  This is acceptable because in the
+	 * majority of cases 'SOURCE' is the last column displayed, and we don't
+	 * use the width anyway.  Note that the 'VALUE' column can be oversized,
+	 * if the name of the property is much longer the any values we find.
+	 */
+	for (pl = cbp->cb_proplist; pl != NULL; pl = pl->pl_next) {
+		/*
+		 * 'PROPERTY' column
+		 */
+		if (pl->pl_prop != ZFS_PROP_INVAL) {
+			len = strlen(zfs_prop_to_name(pl->pl_prop));
+			if (len > cbp->cb_colwidths[GET_COL_PROPERTY])
+				cbp->cb_colwidths[GET_COL_PROPERTY] = len;
+		} else {
+			len = strlen(pl->pl_user_prop);
+			if (len > cbp->cb_colwidths[GET_COL_PROPERTY])
+				cbp->cb_colwidths[GET_COL_PROPERTY] = len;
+		}
+
+		/*
+		 * 'VALUE' column
+		 */
+		if ((pl->pl_prop != ZFS_PROP_NAME || !pl->pl_all) &&
+		    pl->pl_width > cbp->cb_colwidths[GET_COL_VALUE])
+			cbp->cb_colwidths[GET_COL_VALUE] = pl->pl_width;
+
+		/*
+		 * 'NAME' and 'SOURCE' columns
+		 */
+		if (pl->pl_prop == ZFS_PROP_NAME &&
+		    pl->pl_width > cbp->cb_colwidths[GET_COL_NAME]) {
+			cbp->cb_colwidths[GET_COL_NAME] = pl->pl_width;
+			cbp->cb_colwidths[GET_COL_SOURCE] = pl->pl_width +
+			    strlen(dgettext(TEXT_DOMAIN, "inherited from"));
+		}
+	}
+
+	/*
+	 * Now go through and print the headers.
+	 */
+	for (i = 0; i < 4; i++) {
+		switch (cbp->cb_columns[i]) {
+		case GET_COL_NAME:
+			title = dgettext(TEXT_DOMAIN, "NAME");
+			break;
+		case GET_COL_PROPERTY:
+			title = dgettext(TEXT_DOMAIN, "PROPERTY");
+			break;
+		case GET_COL_VALUE:
+			title = dgettext(TEXT_DOMAIN, "VALUE");
+			break;
+		case GET_COL_SOURCE:
+			title = dgettext(TEXT_DOMAIN, "SOURCE");
+			break;
+		default:
+			title = NULL;
+		}
+
+		if (title != NULL) {
+			if (i == 3 || cbp->cb_columns[i + 1] == 0)
+				(void) printf("%s", title);
+			else
+				(void) printf("%-*s  ",
+				    cbp->cb_colwidths[cbp->cb_columns[i]],
+				    title);
+		}
+	}
+	(void) printf("\n");
+}
+
+/*
+ * Display a single line of output, according to the settings in the callback
+ * structure.
+ */
+void
+libzfs_print_one_property(const char *name, libzfs_get_cbdata_t *cbp,
+    const char *propname, const char *value, zfs_source_t sourcetype,
+    const char *source)
+{
+	int i;
+	const char *str;
+	char buf[128];
+
+	/*
+	 * Ignore those source types that the user has chosen to ignore.
+	 */
+	if ((sourcetype & cbp->cb_sources) == 0)
+		return;
+
+	if (cbp->cb_first)
+		zfs_print_prop_headers(cbp);
+
+	for (i = 0; i < 4; i++) {
+		switch (cbp->cb_columns[i]) {
+		case GET_COL_NAME:
+			str = name;
+			break;
+
+		case GET_COL_PROPERTY:
+			str = propname;
+			break;
+
+		case GET_COL_VALUE:
+			str = value;
+			break;
+
+		case GET_COL_SOURCE:
+			switch (sourcetype) {
+			case ZFS_SRC_NONE:
+				str = "-";
+				break;
+
+			case ZFS_SRC_DEFAULT:
+				str = "default";
+				break;
+
+			case ZFS_SRC_LOCAL:
+				str = "local";
+				break;
+
+			case ZFS_SRC_TEMPORARY:
+				str = "temporary";
+				break;
+
+			case ZFS_SRC_INHERITED:
+				(void) snprintf(buf, sizeof (buf),
+				    "inherited from %s", source);
+				str = buf;
+				break;
+			}
+			break;
+
+		default:
+			continue;
+		}
+
+		if (cbp->cb_columns[i + 1] == 0)
+			(void) printf("%s", str);
+		else if (cbp->cb_scripted)
+			(void) printf("%s\t", str);
+		else
+			(void) printf("%-*s  ",
+			    cbp->cb_colwidths[cbp->cb_columns[i]],
+			    str);
+
+	}
+
+	(void) printf("\n");
 }

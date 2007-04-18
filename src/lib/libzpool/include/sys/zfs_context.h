@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -71,6 +71,7 @@ extern "C" {
 #include <sys/uio.h>
 #include <sys/zfs_debug.h>
 #include <sys/sdt.h>
+#include <sys/kstat.h>
 
 /*
  * Debugging
@@ -95,6 +96,7 @@ extern void dprintf_setup(int *argc, char **argv);
 #endif /* ZFS_DEBUG */
 
 extern void cmn_err(int, const char *, ...);
+extern void vcmn_err(int, const char *, __va_list);
 extern void panic(const char *, ...);
 extern void vpanic(const char *, __va_list);
 
@@ -260,6 +262,14 @@ extern void cv_wait(kcondvar_t *cv, kmutex_t *mp);
 extern clock_t cv_timedwait(kcondvar_t *cv, kmutex_t *mp, clock_t abstime);
 extern void cv_signal(kcondvar_t *cv);
 extern void cv_broadcast(kcondvar_t *cv);
+
+/*
+ * kstat creation, installation and deletion
+ */
+extern kstat_t *kstat_create(char *, int,
+    char *, char *, uchar_t, ulong_t, uchar_t);
+extern void kstat_install(kstat_t *);
+extern void kstat_delete(kstat_t *);
 
 /*
  * Kernel memory
@@ -433,7 +443,6 @@ extern struct _buf *kobj_open_file(char *name);
 extern int kobj_read_file(struct _buf *file, char *buf, unsigned size,
     unsigned off);
 extern void kobj_close_file(struct _buf *file);
-extern int kobj_fstat(intptr_t, struct bootstat *);
-
+extern int kobj_get_filesize(struct _buf *file, uint64_t *size);
 
 #endif	/* _SYS_ZFS_CONTEXT_H */

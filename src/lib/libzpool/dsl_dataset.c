@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -45,25 +45,25 @@ static dsl_syncfunc_t dsl_dataset_rollback_sync;
 static dsl_checkfunc_t dsl_dataset_destroy_check;
 static dsl_syncfunc_t dsl_dataset_destroy_sync;
 
-#define	DOS_REF_MAX	(1ULL << 62)
+#define	DS_REF_MAX	(1ULL << 62)
 
 #define	DSL_DEADLIST_BLOCKSIZE	SPA_MAXBLOCKSIZE
 
 /*
  * We use weighted reference counts to express the various forms of exclusion
  * between different open modes.  A STANDARD open is 1 point, an EXCLUSIVE open
- * is DOS_REF_MAX, and a PRIMARY open is little more than half of an EXCLUSIVE.
+ * is DS_REF_MAX, and a PRIMARY open is little more than half of an EXCLUSIVE.
  * This makes the exclusion logic simple: the total refcnt for all opens cannot
- * exceed DOS_REF_MAX.  For example, EXCLUSIVE opens are exclusive because their
- * weight (DOS_REF_MAX) consumes the entire refcnt space.  PRIMARY opens consume
+ * exceed DS_REF_MAX.  For example, EXCLUSIVE opens are exclusive because their
+ * weight (DS_REF_MAX) consumes the entire refcnt space.  PRIMARY opens consume
  * just over half of the refcnt space, so there can't be more than one, but it
  * can peacefully coexist with any number of STANDARD opens.
  */
 static uint64_t ds_refcnt_weight[DS_MODE_LEVELS] = {
-	0,			/* DOS_MODE_NONE - invalid		*/
-	1,			/* DOS_MODE_STANDARD - unlimited number	*/
-	(DOS_REF_MAX >> 1) + 1,	/* DOS_MODE_PRIMARY - only one of these	*/
-	DOS_REF_MAX		/* DOS_MODE_EXCLUSIVE - no other opens	*/
+	0,			/* DS_MODE_NONE - invalid		*/
+	1,			/* DS_MODE_STANDARD - unlimited number	*/
+	(DS_REF_MAX >> 1) + 1,	/* DS_MODE_PRIMARY - only one of these	*/
+	DS_REF_MAX		/* DS_MODE_EXCLUSIVE - no other opens	*/
 };
 
 
@@ -105,26 +105,28 @@ dsl_dataset_block_born(dsl_dataset_t *ds, blkptr_t *bp, dmu_tx_t *tx)
 }
 
 void
-dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, dmu_tx_t *tx)
+dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, zio_t *pio,
+    dmu_tx_t *tx)
 {
 	int used = bp_get_dasize(tx->tx_pool->dp_spa, bp);
 	int compressed = BP_GET_PSIZE(bp);
 	int uncompressed = BP_GET_UCSIZE(bp);
 
 	ASSERT(dmu_tx_is_syncing(tx));
+	/* No block pointer => nothing to free */
 	if (BP_IS_HOLE(bp))
 		return;
 
 	ASSERT(used > 0);
 	if (ds == NULL) {
+		int err;
 		/*
 		 * Account for the meta-objset space in its placeholder
 		 * dataset.
 		 */
-		/* XXX this can fail, what do we do when it does? */
-		(void) arc_free(NULL, tx->tx_pool->dp_spa,
-		    tx->tx_txg, bp, NULL, NULL, ARC_WAIT);
-		bzero(bp, sizeof (blkptr_t));
+		err = arc_free(pio, tx->tx_pool->dp_spa,
+		    tx->tx_txg, bp, NULL, NULL, pio ? ARC_NOWAIT: ARC_WAIT);
+		ASSERT(err == 0);
 
 		dsl_dir_diduse_space(tx->tx_pool->dp_mos_dir,
 		    -used, -compressed, -uncompressed, tx);
@@ -136,10 +138,12 @@ dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, dmu_tx_t *tx)
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
 
 	if (bp->blk_birth > ds->ds_phys->ds_prev_snap_txg) {
+		int err;
+
 		dprintf_bp(bp, "freeing: %s", "");
-		/* XXX check return code? */
-		(void) arc_free(NULL, tx->tx_pool->dp_spa,
-		    tx->tx_txg, bp, NULL, NULL, ARC_WAIT);
+		err = arc_free(pio, tx->tx_pool->dp_spa,
+		    tx->tx_txg, bp, NULL, NULL, pio ? ARC_NOWAIT: ARC_WAIT);
+		ASSERT(err == 0);
 
 		mutex_enter(&ds->ds_lock);
 		/* XXX unique_bytes is not accurate for head datasets */
@@ -167,7 +171,6 @@ dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, dmu_tx_t *tx)
 			}
 		}
 	}
-	bzero(bp, sizeof (blkptr_t));
 	mutex_enter(&ds->ds_lock);
 	ASSERT3U(ds->ds_phys->ds_used_bytes, >=, used);
 	ds->ds_phys->ds_used_bytes -= used;
@@ -214,9 +217,9 @@ dsl_dataset_evict(dmu_buf_t *db, void *dsv)
 	dsl_dataset_t *ds = dsv;
 	dsl_pool_t *dp = ds->ds_dir->dd_pool;
 
-	/* open_refcount == DOS_REF_MAX when deleting */
+	/* open_refcount == DS_REF_MAX when deleting */
 	ASSERT(ds->ds_open_refcount == 0 ||
-	    ds->ds_open_refcount == DOS_REF_MAX);
+	    ds->ds_open_refcount == DS_REF_MAX);
 
 	dprintf_ds(ds, "evicting %s\n", "");
 
@@ -381,7 +384,7 @@ dsl_dataset_open_obj(dsl_pool_t *dp, uint64_t dsobj, const char *snapname,
 	if ((DS_MODE_LEVEL(mode) == DS_MODE_PRIMARY &&
 	    (ds->ds_phys->ds_flags & DS_FLAG_INCONSISTENT) &&
 	    !DS_MODE_IS_INCONSISTENT(mode)) ||
-	    (ds->ds_open_refcount + weight > DOS_REF_MAX)) {
+	    (ds->ds_open_refcount + weight > DS_REF_MAX)) {
 		mutex_exit(&ds->ds_lock);
 		dsl_dataset_close(ds, DS_MODE_NONE, tag);
 		return (EBUSY);
@@ -539,7 +542,8 @@ dsl_dataset_create_root(dsl_pool_t *dp, uint64_t *ddobjp, dmu_tx_t *tx)
 
 	VERIFY(0 ==
 	    dsl_dataset_open_obj(dp, dsobj, NULL, DS_MODE_NONE, FTAG, &ds));
-	(void) dmu_objset_create_impl(dp->dp_spa, ds, DMU_OST_ZFS, tx);
+	(void) dmu_objset_create_impl(dp->dp_spa, ds,
+	    &ds->ds_phys->ds_bp, DMU_OST_ZFS, tx);
 	dsl_dataset_close(ds, DS_MODE_NONE, FTAG);
 }
 
@@ -800,7 +804,7 @@ dsl_dataset_destroy(const char *name)
 int
 dsl_dataset_rollback(dsl_dataset_t *ds)
 {
-	ASSERT3U(ds->ds_open_refcount, ==, DOS_REF_MAX);
+	ASSERT3U(ds->ds_open_refcount, ==, DS_REF_MAX);
 	return (dsl_sync_task_do(ds->ds_dir->dd_pool,
 	    dsl_dataset_rollback_check, dsl_dataset_rollback_sync,
 	    ds, NULL, 0));
@@ -829,10 +833,10 @@ dsl_dataset_get_user_ptr(dsl_dataset_t *ds)
 }
 
 
-void
-dsl_dataset_get_blkptr(dsl_dataset_t *ds, blkptr_t *bp)
+blkptr_t *
+dsl_dataset_get_blkptr(dsl_dataset_t *ds)
 {
-	*bp = ds->ds_phys->ds_bp;
+	return (&ds->ds_phys->ds_bp);
 }
 
 void
@@ -1062,7 +1066,7 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, dmu_tx_t *tx)
 	dsl_dataset_t *ds_prev = NULL;
 	uint64_t obj;
 
-	ASSERT3U(ds->ds_open_refcount, ==, DOS_REF_MAX);
+	ASSERT3U(ds->ds_open_refcount, ==, DS_REF_MAX);
 	ASSERT3U(ds->ds_phys->ds_num_children, <=, 1);
 	ASSERT(ds->ds_prev == NULL ||
 	    ds->ds_prev->ds_phys->ds_next_snap_obj != ds->ds_object);
@@ -1290,8 +1294,10 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, dmu_tx_t *tx)
 	if (ds_prev && ds->ds_prev != ds_prev)
 		dsl_dataset_close(ds_prev, DS_MODE_NONE, FTAG);
 
+	spa_clear_bootfs(dp->dp_spa, ds->ds_object, tx);
 	dsl_dataset_close(ds, DS_MODE_EXCLUSIVE, tag);
 	VERIFY(0 == dmu_object_free(mos, obj, tx));
+
 }
 
 /* ARGSUSED */
@@ -1403,17 +1409,15 @@ dsl_dataset_snapshot_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 }
 
 void
-dsl_dataset_sync(dsl_dataset_t *ds, dmu_tx_t *tx)
+dsl_dataset_sync(dsl_dataset_t *ds, zio_t *zio, dmu_tx_t *tx)
 {
 	ASSERT(dmu_tx_is_syncing(tx));
 	ASSERT(ds->ds_user_ptr != NULL);
 	ASSERT(ds->ds_phys->ds_next_snap_obj == 0);
 
-	dmu_objset_sync(ds->ds_user_ptr, tx);
 	dsl_dir_dirty(ds->ds_dir, tx);
-	bplist_close(&ds->ds_deadlist);
-
-	dmu_buf_rele(ds->ds_dbuf, ds);
+	dmu_objset_sync(ds->ds_user_ptr, zio, tx);
+	/* Unneeded? bplist_close(&ds->ds_deadlist); */
 }
 
 void
@@ -1852,4 +1856,34 @@ dsl_dataset_promote(const char *name)
 	    dsl_dataset_promote_sync, ds, &pa, 2 + 2 * doi.doi_physical_blks);
 	dsl_dataset_close(ds, DS_MODE_NONE, FTAG);
 	return (err);
+}
+
+/*
+ * Given a pool name and a dataset object number in that pool,
+ * return the name of that dataset.
+ */
+int
+dsl_dsobj_to_dsname(char *pname, uint64_t obj, char *buf)
+{
+	spa_t *spa;
+	dsl_pool_t *dp;
+	dsl_dataset_t *ds = NULL;
+	int error;
+
+	if ((error = spa_open(pname, &spa, FTAG)) != 0)
+		return (error);
+	dp = spa_get_dsl(spa);
+	rw_enter(&dp->dp_config_rwlock, RW_READER);
+	if ((error = dsl_dataset_open_obj(dp, obj,
+	    NULL, DS_MODE_NONE, FTAG, &ds)) != 0) {
+		rw_exit(&dp->dp_config_rwlock);
+		spa_close(spa, FTAG);
+		return (error);
+	}
+	dsl_dataset_name(ds, buf);
+	dsl_dataset_close(ds, DS_MODE_NONE, FTAG);
+	rw_exit(&dp->dp_config_rwlock);
+	spa_close(spa, FTAG);
+
+	return (0);
 }

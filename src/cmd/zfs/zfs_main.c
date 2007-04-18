@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -239,6 +239,35 @@ safe_malloc(size_t size)
 }
 
 /*
+ * Callback routinue that will print out information for each of the
+ * the properties.
+ */
+static zfs_prop_t
+usage_prop_cb(zfs_prop_t prop, void *cb)
+{
+	FILE *fp = cb;
+
+	(void) fprintf(fp, "\t%-13s  ", zfs_prop_to_name(prop));
+
+	if (zfs_prop_readonly(prop))
+		(void) fprintf(fp, "  NO    ");
+	else
+		(void) fprintf(fp, " YES    ");
+
+	if (zfs_prop_inheritable(prop))
+		(void) fprintf(fp, "  YES   ");
+	else
+		(void) fprintf(fp, "   NO   ");
+
+	if (zfs_prop_values(prop) == NULL)
+		(void) fprintf(fp, "-\n");
+	else
+		(void) fprintf(fp, "%s\n", zfs_prop_values(prop));
+
+	return (ZFS_PROP_CONT);
+}
+
+/*
  * Display usage message.  If we're inside a command, display only the usage for
  * that command.  Otherwise, iterate over the entire command table and display
  * a complete usage message.
@@ -286,24 +315,9 @@ usage(boolean_t requested)
 		(void) fprintf(fp, "\n\t%-13s  %s  %s   %s\n\n",
 		    "PROPERTY", "EDIT", "INHERIT", "VALUES");
 
-		for (i = 0; i < ZFS_NPROP_VISIBLE; i++) {
-			(void) fprintf(fp, "\t%-13s  ", zfs_prop_to_name(i));
+		/* Iterate over all properties */
+		(void) zfs_prop_iter(usage_prop_cb, fp, B_FALSE);
 
-			if (zfs_prop_readonly(i))
-				(void) fprintf(fp, "  NO    ");
-			else
-				(void) fprintf(fp, " YES    ");
-
-			if (zfs_prop_inheritable(i))
-				(void) fprintf(fp, "  YES   ");
-			else
-				(void) fprintf(fp, "   NO   ");
-
-			if (zfs_prop_values(i) == NULL)
-				(void) fprintf(fp, "-\n");
-			else
-				(void) fprintf(fp, "%s\n", zfs_prop_values(i));
-		}
 		(void) fprintf(fp, gettext("\nSizes are specified in bytes "
 		    "with standard units such as K, M, G, etc.\n"));
 		(void) fprintf(fp, gettext("\n\nUser-defined properties can "
@@ -782,6 +796,9 @@ zfs_do_destroy(int argc, char **argv)
 		if (ret) {
 			(void) fprintf(stderr,
 			    gettext("no snapshots destroyed\n"));
+		} else {
+			zpool_log_history(g_zfs, argc + optind, argv - optind,
+			    argv[0], B_FALSE, B_FALSE);
 		}
 		return (ret != 0);
 	}
@@ -858,195 +875,6 @@ zfs_do_destroy(int argc, char **argv)
  *  Prints properties for the given datasets.  The user can control which
  *  columns to display as well as which property types to allow.
  */
-typedef struct get_cbdata {
-	int cb_sources;
-	int cb_columns[4];
-	int cb_colwidths[5];
-	boolean_t cb_scripted;
-	boolean_t cb_literal;
-	boolean_t cb_first;
-	zfs_proplist_t *cb_proplist;
-} get_cbdata_t;
-
-#define	GET_COL_NAME		1
-#define	GET_COL_PROPERTY	2
-#define	GET_COL_VALUE		3
-#define	GET_COL_SOURCE		4
-
-/*
- * Print the column headers for 'zfs get'.
- */
-static void
-print_get_headers(get_cbdata_t *cbp)
-{
-	zfs_proplist_t *pl = cbp->cb_proplist;
-	int i;
-	char *title;
-	size_t len;
-
-	cbp->cb_first = B_FALSE;
-	if (cbp->cb_scripted)
-		return;
-
-	/*
-	 * Start with the length of the column headers.
-	 */
-	cbp->cb_colwidths[GET_COL_NAME] = strlen(gettext("NAME"));
-	cbp->cb_colwidths[GET_COL_PROPERTY] = strlen(gettext("PROPERTY"));
-	cbp->cb_colwidths[GET_COL_VALUE] = strlen(gettext("VALUE"));
-	cbp->cb_colwidths[GET_COL_SOURCE] = strlen(gettext("SOURCE"));
-
-	/*
-	 * Go through and calculate the widths for each column.  For the
-	 * 'source' column, we kludge it up by taking the worst-case scenario of
-	 * inheriting from the longest name.  This is acceptable because in the
-	 * majority of cases 'SOURCE' is the last column displayed, and we don't
-	 * use the width anyway.  Note that the 'VALUE' column can be oversized,
-	 * if the name of the property is much longer the any values we find.
-	 */
-	for (pl = cbp->cb_proplist; pl != NULL; pl = pl->pl_next) {
-		/*
-		 * 'PROPERTY' column
-		 */
-		if (pl->pl_prop != ZFS_PROP_INVAL) {
-			len = strlen(zfs_prop_to_name(pl->pl_prop));
-			if (len > cbp->cb_colwidths[GET_COL_PROPERTY])
-				cbp->cb_colwidths[GET_COL_PROPERTY] = len;
-		} else {
-			len = strlen(pl->pl_user_prop);
-			if (len > cbp->cb_colwidths[GET_COL_PROPERTY])
-				cbp->cb_colwidths[GET_COL_PROPERTY] = len;
-		}
-
-		/*
-		 * 'VALUE' column
-		 */
-		if ((pl->pl_prop != ZFS_PROP_NAME || !pl->pl_all) &&
-		    pl->pl_width > cbp->cb_colwidths[GET_COL_VALUE])
-			cbp->cb_colwidths[GET_COL_VALUE] = pl->pl_width;
-
-		/*
-		 * 'NAME' and 'SOURCE' columns
-		 */
-		if (pl->pl_prop == ZFS_PROP_NAME &&
-		    pl->pl_width > cbp->cb_colwidths[GET_COL_NAME]) {
-			cbp->cb_colwidths[GET_COL_NAME] = pl->pl_width;
-			cbp->cb_colwidths[GET_COL_SOURCE] = pl->pl_width +
-			    strlen(gettext("inherited from"));
-		}
-	}
-
-	/*
-	 * Now go through and print the headers.
-	 */
-	for (i = 0; i < 4; i++) {
-		switch (cbp->cb_columns[i]) {
-		case GET_COL_NAME:
-			title = gettext("NAME");
-			break;
-		case GET_COL_PROPERTY:
-			title = gettext("PROPERTY");
-			break;
-		case GET_COL_VALUE:
-			title = gettext("VALUE");
-			break;
-		case GET_COL_SOURCE:
-			title = gettext("SOURCE");
-			break;
-		default:
-			title = NULL;
-		}
-
-		if (title != NULL) {
-			if (i == 3 || cbp->cb_columns[i + 1] == 0)
-				(void) printf("%s", title);
-			else
-				(void) printf("%-*s  ",
-				    cbp->cb_colwidths[cbp->cb_columns[i]],
-				    title);
-		}
-	}
-	(void) printf("\n");
-}
-
-/*
- * Display a single line of output, according to the settings in the callback
- * structure.
- */
-static void
-print_one_property(zfs_handle_t *zhp, get_cbdata_t *cbp, const char *propname,
-    const char *value, zfs_source_t sourcetype, const char *source)
-{
-	int i;
-	const char *str;
-	char buf[128];
-
-	/*
-	 * Ignore those source types that the user has chosen to ignore.
-	 */
-	if ((sourcetype & cbp->cb_sources) == 0)
-		return;
-
-	if (cbp->cb_first)
-		print_get_headers(cbp);
-
-	for (i = 0; i < 4; i++) {
-		switch (cbp->cb_columns[i]) {
-		case GET_COL_NAME:
-			str = zfs_get_name(zhp);
-			break;
-
-		case GET_COL_PROPERTY:
-			str = propname;
-			break;
-
-		case GET_COL_VALUE:
-			str = value;
-			break;
-
-		case GET_COL_SOURCE:
-			switch (sourcetype) {
-			case ZFS_SRC_NONE:
-				str = "-";
-				break;
-
-			case ZFS_SRC_DEFAULT:
-				str = "default";
-				break;
-
-			case ZFS_SRC_LOCAL:
-				str = "local";
-				break;
-
-			case ZFS_SRC_TEMPORARY:
-				str = "temporary";
-				break;
-
-			case ZFS_SRC_INHERITED:
-				(void) snprintf(buf, sizeof (buf),
-				    "inherited from %s", source);
-				str = buf;
-				break;
-			}
-			break;
-
-		default:
-			continue;
-		}
-
-		if (cbp->cb_columns[i + 1] == 0)
-			(void) printf("%s", str);
-		else if (cbp->cb_scripted)
-			(void) printf("%s\t", str);
-		else
-			(void) printf("%-*s  ",
-			    cbp->cb_colwidths[cbp->cb_columns[i]],
-			    str);
-
-	}
-
-	(void) printf("\n");
-}
 
 /*
  * Invoked to display the properties for a single dataset.
@@ -1057,7 +885,7 @@ get_callback(zfs_handle_t *zhp, void *data)
 	char buf[ZFS_MAXPROPLEN];
 	zfs_source_t sourcetype;
 	char source[ZFS_MAXNAMELEN];
-	get_cbdata_t *cbp = data;
+	libzfs_get_cbdata_t *cbp = data;
 	nvlist_t *userprop = zfs_get_user_props(zhp);
 	zfs_proplist_t *pl = cbp->cb_proplist;
 	nvlist_t *propval;
@@ -1080,11 +908,18 @@ get_callback(zfs_handle_t *zhp, void *data)
 			    cbp->cb_literal) != 0) {
 				if (pl->pl_all)
 					continue;
+				if (!zfs_prop_valid_for_type(pl->pl_prop,
+				    ZFS_TYPE_ANY)) {
+					(void) fprintf(stderr,
+					    gettext("No such property '%s'\n"),
+					    zfs_prop_to_name(pl->pl_prop));
+					continue;
+				}
 				sourcetype = ZFS_SRC_NONE;
 				(void) strlcpy(buf, "-", sizeof (buf));
 			}
 
-			print_one_property(zhp, cbp,
+			libzfs_print_one_property(zfs_get_name(zhp), cbp,
 			    zfs_prop_to_name(pl->pl_prop),
 			    buf, sourcetype, source);
 		} else {
@@ -1110,7 +945,7 @@ get_callback(zfs_handle_t *zhp, void *data)
 				}
 			}
 
-			print_one_property(zhp, cbp,
+			libzfs_print_one_property(zfs_get_name(zhp), cbp,
 			    pl->pl_user_prop, strval, sourcetype,
 			    source);
 		}
@@ -1122,7 +957,7 @@ get_callback(zfs_handle_t *zhp, void *data)
 static int
 zfs_do_get(int argc, char **argv)
 {
-	get_cbdata_t cb = { 0 };
+	libzfs_get_cbdata_t cb = { 0 };
 	boolean_t recurse = B_FALSE;
 	int i, c;
 	char *value, *fields;
@@ -1192,7 +1027,7 @@ zfs_do_get(int argc, char **argv)
 					(void) fprintf(stderr,
 					    gettext("invalid column name "
 					    "'%s'\n"), value);
-					    usage(B_FALSE);
+					usage(B_FALSE);
 				}
 			}
 			break;
@@ -1225,7 +1060,7 @@ zfs_do_get(int argc, char **argv)
 					(void) fprintf(stderr,
 					    gettext("invalid source "
 					    "'%s'\n"), value);
-					    usage(B_FALSE);
+					usage(B_FALSE);
 				}
 			}
 			break;
@@ -1273,7 +1108,7 @@ zfs_do_get(int argc, char **argv)
 
 	/* run for each object */
 	ret = zfs_for_each(argc, argv, recurse, ZFS_TYPE_ANY, NULL,
-	    &cb.cb_proplist, get_callback, &cb);
+	    &cb.cb_proplist, get_callback, &cb, B_FALSE);
 
 	if (cb.cb_proplist == &fake_name)
 		zfs_free_proplist(fake_name.pl_next);
@@ -1378,7 +1213,7 @@ zfs_do_inherit(int argc, char **argv)
 
 	ret = zfs_for_each(argc, argv, recurse,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, NULL, NULL,
-	    inherit_callback, &cb);
+	    inherit_callback, &cb, B_FALSE);
 
 	if (cb.cb_any_successful) {
 		zpool_log_history(g_zfs, argc + optind + 1, argv - optind - 1,
@@ -1628,7 +1463,7 @@ zfs_do_list(int argc, char **argv)
 	cb.cb_first = B_TRUE;
 
 	ret = zfs_for_each(argc, argv, recurse, types, sortcol, &cb.cb_proplist,
-	    list_callback, &cb);
+	    list_callback, &cb, B_TRUE);
 
 	zfs_free_proplist(cb.cb_proplist);
 	zfs_free_sort_columns(sortcol);
@@ -1983,7 +1818,7 @@ zfs_do_set(int argc, char **argv)
 	}
 
 	ret = zfs_for_each(argc - 2, argv + 2, B_FALSE,
-	    ZFS_TYPE_ANY, NULL, NULL, set_callback, &cb);
+	    ZFS_TYPE_ANY, NULL, NULL, set_callback, &cb, B_FALSE);
 
 	if (cb.cb_any_successful) {
 		*(cb.cb_value - 1) = '=';
@@ -2091,7 +1926,7 @@ zfs_do_send(int argc, char **argv)
 	if (isatty(STDOUT_FILENO)) {
 		(void) fprintf(stderr,
 		    gettext("Error: Stream can not be written to a terminal.\n"
-			    "You must redirect standard output.\n"));
+		    "You must redirect standard output.\n"));
 		return (1);
 	}
 
@@ -2118,7 +1953,7 @@ zfs_do_send(int argc, char **argv)
 		}
 	}
 
-	err = zfs_send(zhp, fromname);
+	err = zfs_send(zhp, fromname, STDOUT_FILENO);
 	zfs_close(zhp);
 
 	return (err != 0);
@@ -2181,12 +2016,13 @@ zfs_do_receive(int argc, char **argv)
 	if (isatty(STDIN_FILENO)) {
 		(void) fprintf(stderr,
 		    gettext("Error: Backup stream can not be read "
-			    "from a terminal.\n"
-			    "You must redirect standard input.\n"));
+		    "from a terminal.\n"
+		    "You must redirect standard input.\n"));
 		return (1);
 	}
 
-	err = zfs_receive(g_zfs, argv[0], isprefix, verbose, dryrun, force);
+	err = zfs_receive(g_zfs, argv[0], isprefix, verbose, dryrun, force,
+	    STDIN_FILENO);
 
 	if (!err) {
 		zpool_log_history(g_zfs, argc + optind, argv - optind, argv[0],
@@ -2708,8 +2544,8 @@ unshare_unmount_path(int op, char *path, int flags, boolean_t is_manual)
 		return (1);
 
 	verify(zfs_prop_get(zhp, op == OP_SHARE ?
-		ZFS_PROP_SHARENFS : ZFS_PROP_MOUNTPOINT, property,
-		sizeof (property), NULL, NULL, 0, B_FALSE) == 0);
+	    ZFS_PROP_SHARENFS : ZFS_PROP_MOUNTPOINT, property,
+	    sizeof (property), NULL, NULL, 0, B_FALSE) == 0);
 
 	if (op == OP_SHARE) {
 		if (strcmp(property, "off") == 0) {
@@ -2950,7 +2786,7 @@ unshare_unmount(int op, int argc, char **argv)
 		 */
 		if (argv[0][0] == '/')
 			return (unshare_unmount_path(op, argv[0],
-				flags, B_FALSE));
+			    flags, B_FALSE));
 
 		types = ZFS_TYPE_FILESYSTEM;
 		if (op == OP_SHARE)

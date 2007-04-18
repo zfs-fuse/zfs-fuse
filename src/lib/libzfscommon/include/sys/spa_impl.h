@@ -64,6 +64,11 @@ typedef struct spa_history_phys {
 	uint64_t sh_records_lost;	/* num of records overwritten */
 } spa_history_phys_t;
 
+typedef struct spa_props {
+	nvlist_t	*spa_props_nvp;
+	list_node_t	spa_list_node;
+} spa_props_t;
+
 struct spa {
 	/*
 	 * Fields protected by spa_namespace_lock.
@@ -111,7 +116,7 @@ struct spa {
 	uint64_t	spa_scrub_mintxg;	/* min txg we'll scrub */
 	uint64_t	spa_scrub_maxtxg;	/* max txg we'll scrub */
 	uint64_t	spa_scrub_inflight;	/* in-flight scrub I/Os */
-	int64_t		spa_scrub_throttled;	/* over-throttle scrub I/Os */
+	uint64_t	spa_scrub_maxinflight;	/* max in-flight scrub I/Os */
 	uint64_t	spa_scrub_errors;	/* scrub I/O error count */
 	int		spa_scrub_suspended;	/* tell scrubber to suspend */
 	kcondvar_t	spa_scrub_cv;		/* scrub thread state change */
@@ -141,6 +146,9 @@ struct spa {
 	vdev_t		*spa_pending_vdev;	/* pending vdev additions */
 	nvlist_t	**spa_pending_spares;	/* pending spare additions */
 	uint_t		spa_pending_nspares;	/* # pending spares */
+	kmutex_t	spa_props_lock;		/* property lock */
+	uint64_t	spa_pool_props_object;	/* object for properties */
+	uint64_t	spa_bootfs;		/* default boot filesystem */
 	/*
 	 * spa_refcnt must be the last element because it changes size based on
 	 * compilation options.  In order for the MDB module to function

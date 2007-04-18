@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -668,6 +668,17 @@ metaslab_group_alloc(metaslab_group_t *mg, uint64_t size, uint64_t txg,
 
 		mutex_enter(&msp->ms_lock);
 
+		/*
+		 * Ensure that the metaslab we have selected is still
+		 * capable of handling our request. It's possible that
+		 * another thread may have changed the weight while we
+		 * were blocked on the metaslab lock.
+		 */
+		if (msp->ms_weight < size) {
+			mutex_exit(&msp->ms_lock);
+			continue;
+		}
+
 		if ((msp->ms_weight & METASLAB_WEIGHT_SECONDARY) &&
 		    activation_weight == METASLAB_WEIGHT_PRIMARY) {
 			metaslab_passivate(msp,
@@ -868,6 +879,38 @@ metaslab_free_dva(spa_t *spa, const dva_t *dva, uint64_t txg, boolean_t now)
 		if (msp->ms_freemap[txg & TXG_MASK].sm_space == 0)
 			vdev_dirty(vd, VDD_METASLAB, msp, txg);
 		space_map_add(&msp->ms_freemap[txg & TXG_MASK], offset, size);
+
+		/*
+		 * verify that this region is actually allocated in
+		 * either a ms_allocmap or the ms_map
+		 */
+		if (msp->ms_map.sm_loaded) {
+			boolean_t allocd = B_FALSE;
+			int i;
+
+			if (!space_map_contains(&msp->ms_map, offset, size)) {
+				allocd = B_TRUE;
+			} else {
+				for (i = 0; i < TXG_CONCURRENT_STATES; i++) {
+					space_map_t *sm = &msp->ms_allocmap
+					    [(txg - i) & TXG_MASK];
+					if (space_map_contains(sm,
+					    offset, size)) {
+						allocd = B_TRUE;
+						break;
+					}
+				}
+			}
+
+			if (!allocd) {
+				zfs_panic_recover("freeing free segment "
+				    "(vdev=%llu offset=%llx size=%llx)",
+				    (longlong_t)vdev, (longlong_t)offset,
+				    (longlong_t)size);
+			}
+		}
+
+
 	}
 
 	mutex_exit(&msp->ms_lock);

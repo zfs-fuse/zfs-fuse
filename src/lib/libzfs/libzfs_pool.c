@@ -43,6 +43,7 @@
 #include <strings.h>
 
 #include "zfs_namecheck.h"
+#include "zfs_prop.h"
 #include "libzfs_impl.h"
 
 /*
@@ -131,43 +132,37 @@ zpool_name_valid(libzfs_handle_t *hdl, boolean_t isopen, const char *pool)
 	return (B_TRUE);
 }
 
-/*
- * Set the pool-wide health based on the vdev state of the root vdev.
- */
-int
-set_pool_health(nvlist_t *config)
+static int
+zpool_get_all_props(zpool_handle_t *zhp)
 {
-	nvlist_t *nvroot;
-	vdev_stat_t *vs;
-	uint_t vsc;
-	char *health;
+	zfs_cmd_t zc = { 0 };
+	libzfs_handle_t *hdl = zhp->zpool_hdl;
 
-	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
-	    &nvroot) == 0);
-	verify(nvlist_lookup_uint64_array(nvroot, ZPOOL_CONFIG_STATS,
-	    (uint64_t **)&vs, &vsc) == 0);
+	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 
-	switch (vs->vs_state) {
+	if (zcmd_alloc_dst_nvlist(hdl, &zc, 0) != 0)
+		return (-1);
 
-	case VDEV_STATE_CLOSED:
-	case VDEV_STATE_CANT_OPEN:
-	case VDEV_STATE_OFFLINE:
-		health = dgettext(TEXT_DOMAIN, "FAULTED");
-		break;
-
-	case VDEV_STATE_DEGRADED:
-		health = dgettext(TEXT_DOMAIN, "DEGRADED");
-		break;
-
-	case VDEV_STATE_HEALTHY:
-		health = dgettext(TEXT_DOMAIN, "ONLINE");
-		break;
-
-	default:
-		abort();
+	while (ioctl(hdl->libzfs_fd, ZFS_IOC_POOL_GET_PROPS, &zc) != 0) {
+		if (errno == ENOMEM) {
+			if (zcmd_expand_dst_nvlist(hdl, &zc) != 0) {
+				zcmd_free_nvlists(&zc);
+				return (-1);
+			}
+		} else {
+			zcmd_free_nvlists(&zc);
+			return (-1);
+		}
 	}
 
-	return (nvlist_add_string(config, ZPOOL_CONFIG_POOL_HEALTH, health));
+	if (zcmd_read_dst_nvlist(hdl, &zc, &zhp->zpool_props) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (-1);
+	}
+
+	zcmd_free_nvlists(&zc);
+
+	return (0);
 }
 
 /*
@@ -277,12 +272,8 @@ zpool_close(zpool_handle_t *zhp)
 		nvlist_free(zhp->zpool_config);
 	if (zhp->zpool_old_config)
 		nvlist_free(zhp->zpool_old_config);
-	if (zhp->zpool_error_log) {
-		int i;
-		for (i = 0; i < zhp->zpool_error_count; i++)
-			nvlist_free(zhp->zpool_error_log[i]);
-		free(zhp->zpool_error_log);
-	}
+	if (zhp->zpool_props)
+		nvlist_free(zhp->zpool_props);
 	free(zhp);
 }
 
@@ -592,6 +583,12 @@ zpool_add(zpool_handle_t *zhp, nvlist_t *nvroot)
 			(void) zfs_error(hdl, EZFS_BADVERSION, msg);
 			break;
 
+		case EDOM:
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "root pool can not have concatenated devices"));
+			(void) zfs_error(hdl, EZFS_POOL_NOTSUP, msg);
+			break;
+
 		default:
 			(void) zpool_standard_error(hdl, errno, msg);
 		}
@@ -624,7 +621,6 @@ zpool_export(zpool_handle_t *zhp)
 		return (zpool_standard_error_fmt(zhp->zpool_hdl, errno,
 		    dgettext(TEXT_DOMAIN, "cannot export '%s'"),
 		    zhp->zpool_name));
-
 	return (0);
 }
 
@@ -1573,19 +1569,12 @@ zbookmark_compare(const void *a, const void *b)
  * caller.
  */
 int
-zpool_get_errlog(zpool_handle_t *zhp, nvlist_t ***list, size_t *nelem)
+zpool_get_errlog(zpool_handle_t *zhp, nvlist_t **nverrlistp)
 {
 	zfs_cmd_t zc = { 0 };
 	uint64_t count;
 	zbookmark_t *zb = NULL;
-	libzfs_handle_t *hdl = zhp->zpool_hdl;
-	int i, j;
-
-	if (zhp->zpool_error_log != NULL) {
-		*list = zhp->zpool_error_log;
-		*nelem = zhp->zpool_error_count;
-		return (0);
-	}
+	int i;
 
 	/*
 	 * Retrieve the raw error list from the kernel.  If the number of errors
@@ -1604,9 +1593,10 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t ***list, size_t *nelem)
 		    &zc) != 0) {
 			free((void *)(uintptr_t)zc.zc_nvlist_dst);
 			if (errno == ENOMEM) {
+				count = zc.zc_nvlist_dst_size;
 				if ((zc.zc_nvlist_dst = (uintptr_t)
-				    zfs_alloc(zhp->zpool_hdl,
-				    zc.zc_nvlist_dst_size)) == (uintptr_t)NULL)
+				    zfs_alloc(zhp->zpool_hdl, count *
+				    sizeof (zbookmark_t))) == (uintptr_t)NULL)
 					return (-1);
 			} else {
 				return (-1);
@@ -1626,123 +1616,46 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t ***list, size_t *nelem)
 	zb = ((zbookmark_t *)(uintptr_t)zc.zc_nvlist_dst) +
 	    zc.zc_nvlist_dst_size;
 	count -= zc.zc_nvlist_dst_size;
-	zc.zc_nvlist_dst = 0ULL;
 
 	qsort(zb, count, sizeof (zbookmark_t), zbookmark_compare);
 
+	verify(nvlist_alloc(nverrlistp, 0, KM_SLEEP) == 0);
+
 	/*
-	 * Count the number of unique elements
+	 * Fill in the nverrlistp with nvlist's of dataset and object numbers.
 	 */
-	j = 0;
 	for (i = 0; i < count; i++) {
-		if (i > 0 && memcmp(&zb[i - 1], &zb[i],
-		    sizeof (zbookmark_t)) == 0)
-			continue;
-		j++;
-	}
-
-	/*
-	 * If the user has only requested the number of items, return it now
-	 * without bothering with the extra work.
-	 */
-	if (list == NULL) {
-		*nelem = j;
-		free((void *)(uintptr_t)zc.zc_nvlist_dst);
-		return (0);
-	}
-
-	zhp->zpool_error_count = j;
-
-	/*
-	 * Allocate an array of nvlists to hold the results
-	 */
-	if ((zhp->zpool_error_log = zfs_alloc(zhp->zpool_hdl,
-	    j * sizeof (nvlist_t *))) == NULL) {
-		free((void *)(uintptr_t)zc.zc_nvlist_dst);
-		return (-1);
-	}
-
-	/*
-	 * Fill in the results with names from the kernel.
-	 */
-	j = 0;
-	for (i = 0; i < count; i++) {
-		char buf[64];
 		nvlist_t *nv;
 
-		if (i > 0 && memcmp(&zb[i - 1], &zb[i],
-		    sizeof (zbookmark_t)) == 0)
+		/* ignoring zb_blkid and zb_level for now */
+		if (i > 0 && zb[i-1].zb_objset == zb[i].zb_objset &&
+		    zb[i-1].zb_object == zb[i].zb_object)
 			continue;
 
-		if (zcmd_alloc_dst_nvlist(hdl, &zc, 0) != 0)
+		if (nvlist_alloc(&nv, NV_UNIQUE_NAME, KM_SLEEP) != 0)
 			goto nomem;
-
-		zc.zc_bookmark = zb[i];
-		for (;;) {
-			if (ioctl(zhp->zpool_hdl->libzfs_fd,
-			    ZFS_IOC_BOOKMARK_NAME, &zc) != 0) {
-				if (errno == ENOMEM) {
-					if (zcmd_expand_dst_nvlist(hdl, &zc)
-					    != 0) {
-						zcmd_free_nvlists(&zc);
-						goto nomem;
-					}
-
-					continue;
-				} else {
-					if (nvlist_alloc(&nv, NV_UNIQUE_NAME,
-					    0) != 0)
-						goto nomem;
-
-					zhp->zpool_error_log[j] = nv;
-					(void) snprintf(buf, sizeof (buf),
-					    "%llx", (longlong_t)
-					    zb[i].zb_objset);
-					if (nvlist_add_string(nv,
-					    ZPOOL_ERR_DATASET, buf) != 0)
-						goto nomem;
-					(void) snprintf(buf, sizeof (buf),
-					    "%llx", (longlong_t)
-					    zb[i].zb_object);
-					if (nvlist_add_string(nv,
-					    ZPOOL_ERR_OBJECT, buf) != 0)
-						goto nomem;
-					(void) snprintf(buf, sizeof (buf),
-					    "lvl=%u blkid=%llu",
-					    (int)zb[i].zb_level,
-					    (long long)zb[i].zb_blkid);
-					if (nvlist_add_string(nv,
-					    ZPOOL_ERR_RANGE, buf) != 0)
-						goto nomem;
-				}
-			} else {
-				if (zcmd_read_dst_nvlist(hdl, &zc,
-				    &zhp->zpool_error_log[j]) != 0) {
-					zcmd_free_nvlists(&zc);
-					goto nomem;
-				}
-			}
-
-			break;
+		if (nvlist_add_uint64(nv, ZPOOL_ERR_DATASET,
+		    zb[i].zb_objset) != 0) {
+			nvlist_free(nv);
+			goto nomem;
 		}
-
-		zcmd_free_nvlists(&zc);
-
-		j++;
+		if (nvlist_add_uint64(nv, ZPOOL_ERR_OBJECT,
+		    zb[i].zb_object) != 0) {
+			nvlist_free(nv);
+			goto nomem;
+		}
+		if (nvlist_add_nvlist(*nverrlistp, "ejk", nv) != 0) {
+			nvlist_free(nv);
+			goto nomem;
+		}
+		nvlist_free(nv);
 	}
 
-	*list = zhp->zpool_error_log;
-	*nelem = zhp->zpool_error_count;
 	free((void *)(uintptr_t)zc.zc_nvlist_dst);
-
 	return (0);
 
 nomem:
 	free((void *)(uintptr_t)zc.zc_nvlist_dst);
-	for (i = 0; i < zhp->zpool_error_count; i++)
-		nvlist_free(zhp->zpool_error_log[i]);
-	free(zhp->zpool_error_log);
-	zhp->zpool_error_log = NULL;
 	return (no_memory(zhp->zpool_hdl));
 }
 
@@ -1774,7 +1687,7 @@ zpool_upgrade(zpool_handle_t *zhp)
  */
 void
 zpool_log_history(libzfs_handle_t *hdl, int argc, char **argv, const char *path,
-    boolean_t pool, boolean_t pool_create)
+	boolean_t pool, boolean_t pool_create)
 {
 	char cmd_buf[HIS_MAX_RECORD_LEN];
 	char *dspath;
@@ -1840,6 +1753,10 @@ get_history(zpool_handle_t *zhp, char *buf, uint64_t *off, uint64_t *len)
 			return (zfs_error_fmt(hdl, EZFS_NOHISTORY,
 			    dgettext(TEXT_DOMAIN, "cannot get history for pool "
 			    "'%s'"), zhp->zpool_name));
+		case ENOTSUP:
+			return (zfs_error_fmt(hdl, EZFS_BADVERSION,
+			    dgettext(TEXT_DOMAIN, "cannot get history for pool "
+			    "'%s', pool must be upgraded"), zhp->zpool_name));
 		default:
 			return (zpool_standard_error_fmt(hdl, errno,
 			    dgettext(TEXT_DOMAIN,
@@ -1937,4 +1854,200 @@ zpool_get_history(zpool_handle_t *zhp, nvlist_t **nvhisp)
 	free(records);
 
 	return (err);
+}
+
+void
+zpool_obj_to_path(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
+    char *pathname, size_t len)
+{
+	zfs_cmd_t zc = { 0 };
+	boolean_t mounted = B_FALSE;
+	char *mntpnt = NULL;
+	char dsname[MAXNAMELEN];
+
+	if (dsobj == 0) {
+		/* special case for the MOS */
+		(void) snprintf(pathname, len, "<metadata>:<0x%llx>", obj);
+		return;
+	}
+
+	/* get the dataset's name */
+	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
+	zc.zc_obj = dsobj;
+	if (ioctl(zhp->zpool_hdl->libzfs_fd,
+	    ZFS_IOC_DSOBJ_TO_DSNAME, &zc) != 0) {
+		/* just write out a path of two object numbers */
+		(void) snprintf(pathname, len, "<0x%llx>:<0x%llx>",
+		    dsobj, obj);
+		return;
+	}
+	(void) strlcpy(dsname, zc.zc_value, sizeof (dsname));
+
+	/* find out if the dataset is mounted */
+	mounted = is_mounted(zhp->zpool_hdl, dsname, &mntpnt);
+
+	/* get the corrupted object's path */
+	(void) strlcpy(zc.zc_name, dsname, sizeof (zc.zc_name));
+	zc.zc_obj = obj;
+	if (ioctl(zhp->zpool_hdl->libzfs_fd, ZFS_IOC_OBJ_TO_PATH,
+	    &zc) == 0) {
+		if (mounted) {
+			(void) snprintf(pathname, len, "%s%s", mntpnt,
+			    zc.zc_value);
+		} else {
+			(void) snprintf(pathname, len, "%s:%s",
+			    dsname, zc.zc_value);
+		}
+	} else {
+		(void) snprintf(pathname, len, "%s:<0x%llx>", dsname, obj);
+	}
+	free(mntpnt);
+}
+
+int
+zpool_set_prop(zpool_handle_t *zhp, const char *propname, const char *propval)
+{
+	zfs_cmd_t zc = { 0 };
+	int ret = -1;
+	char errbuf[1024];
+	nvlist_t *nvl = NULL;
+	nvlist_t *realprops;
+
+	(void) snprintf(errbuf, sizeof (errbuf),
+	    dgettext(TEXT_DOMAIN, "cannot set property for '%s'"),
+	    zhp->zpool_name);
+
+	if (zpool_get_version(zhp) < ZFS_VERSION_BOOTFS) {
+		zfs_error_aux(zhp->zpool_hdl,
+		    dgettext(TEXT_DOMAIN, "pool must be "
+		    "upgraded to support pool properties"));
+		return (zfs_error(zhp->zpool_hdl, EZFS_BADVERSION, errbuf));
+	}
+
+	if (zhp->zpool_props == NULL && zpool_get_all_props(zhp))
+		return (zfs_error(zhp->zpool_hdl, EZFS_POOLPROPS, errbuf));
+
+	if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0 ||
+	    nvlist_add_string(nvl, propname, propval) != 0) {
+		return (no_memory(zhp->zpool_hdl));
+	}
+
+	if ((realprops = zfs_validate_properties(zhp->zpool_hdl, ZFS_TYPE_POOL,
+	    zhp->zpool_name, nvl, 0, NULL, errbuf)) == NULL) {
+		nvlist_free(nvl);
+		return (-1);
+	}
+
+	nvlist_free(nvl);
+	nvl = realprops;
+
+	/*
+	 * Execute the corresponding ioctl() to set this property.
+	 */
+	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
+
+	if (zcmd_write_src_nvlist(zhp->zpool_hdl, &zc, nvl, NULL) != 0)
+		return (-1);
+
+	ret = ioctl(zhp->zpool_hdl->libzfs_fd, ZFS_IOC_POOL_SET_PROPS, &zc);
+	zcmd_free_nvlists(&zc);
+
+	if (ret)
+		(void) zpool_standard_error(zhp->zpool_hdl, errno, errbuf);
+
+	return (ret);
+}
+
+int
+zpool_get_prop(zpool_handle_t *zhp, zpool_prop_t prop, char *propbuf,
+    size_t proplen, zfs_source_t *srctype)
+{
+	uint64_t value;
+	char msg[1024], *strvalue;
+	nvlist_t *nvp;
+	zfs_source_t src = ZFS_SRC_NONE;
+
+	(void) snprintf(msg, sizeof (msg), dgettext(TEXT_DOMAIN,
+	    "cannot get property '%s'"), zpool_prop_to_name(prop));
+
+	if (zpool_get_version(zhp) < ZFS_VERSION_BOOTFS) {
+		zfs_error_aux(zhp->zpool_hdl,
+		    dgettext(TEXT_DOMAIN, "pool must be "
+		    "upgraded to support pool properties"));
+		return (zfs_error(zhp->zpool_hdl, EZFS_BADVERSION, msg));
+	}
+
+	if (zhp->zpool_props == NULL && zpool_get_all_props(zhp))
+		return (zfs_error(zhp->zpool_hdl, EZFS_POOLPROPS, msg));
+
+	/*
+	 * the "name" property is special cased
+	 */
+	if (!zfs_prop_valid_for_type(prop, ZFS_TYPE_POOL) &&
+	    prop != ZFS_PROP_NAME)
+		return (-1);
+
+	switch (prop) {
+	case ZFS_PROP_NAME:
+		(void) strlcpy(propbuf, zhp->zpool_name, proplen);
+		break;
+
+	case ZFS_PROP_BOOTFS:
+		if (nvlist_lookup_nvlist(zhp->zpool_props,
+		    zpool_prop_to_name(prop), &nvp) != 0) {
+			strvalue = (char *)zfs_prop_default_string(prop);
+			if (strvalue == NULL)
+				strvalue = "-";
+			src = ZFS_SRC_DEFAULT;
+		} else {
+			VERIFY(nvlist_lookup_uint64(nvp,
+			    ZFS_PROP_SOURCE, &value) == 0);
+			src = value;
+			VERIFY(nvlist_lookup_string(nvp, ZFS_PROP_VALUE,
+			    &strvalue) == 0);
+			if (strlen(strvalue) >= proplen)
+				return (-1);
+		}
+		(void) strcpy(propbuf, strvalue);
+		break;
+
+	default:
+		return (-1);
+	}
+	if (srctype)
+		*srctype = src;
+	return (0);
+}
+
+int
+zpool_get_proplist(libzfs_handle_t *hdl, char *fields, zpool_proplist_t **listp)
+{
+	return (zfs_get_proplist_common(hdl, fields, listp, ZFS_TYPE_POOL));
+}
+
+
+int
+zpool_expand_proplist(zpool_handle_t *zhp, zpool_proplist_t **plp)
+{
+	libzfs_handle_t *hdl = zhp->zpool_hdl;
+	zpool_proplist_t *entry;
+	char buf[ZFS_MAXPROPLEN];
+
+	if (zfs_expand_proplist_common(hdl, plp, ZFS_TYPE_POOL) != 0)
+		return (-1);
+
+	for (entry = *plp; entry != NULL; entry = entry->pl_next) {
+
+		if (entry->pl_fixed)
+			continue;
+
+		if (entry->pl_prop != ZFS_PROP_INVAL &&
+		    zpool_get_prop(zhp, entry->pl_prop, buf, sizeof (buf),
+		    NULL) == 0) {
+			if (strlen(buf) > entry->pl_width)
+				entry->pl_width = strlen(buf);
+		}
+	}
+
+	return (0);
 }

@@ -19,23 +19,24 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 
 
 #include <assert.h>
-#include <sys/zfs_context.h>
+#include <fcntl.h>
 #include <poll.h>
-#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <fcntl.h>
-#include <sys/stat.h>
+#include <string.h>
+#include <zlib.h>
 #include <sys/spa.h>
+#include <sys/stat.h>
 #include <sys/processor.h>
-
+#include <sys/zfs_context.h>
+#include <sys/zmod.h>
 
 /*
  * Emulation of kernel services in userland.
@@ -60,6 +61,29 @@ zk_thread_create(void (*func)(), void *arg)
 
 	return ((void *)(uintptr_t)tid);
 }
+
+/*
+ * =========================================================================
+ * kstats
+ * =========================================================================
+ */
+/*ARGSUSED*/
+kstat_t *
+kstat_create(char *module, int instance, char *name, char *class,
+    uchar_t type, ulong_t ndata, uchar_t ks_flag)
+{
+	return (NULL);
+}
+
+/*ARGSUSED*/
+void
+kstat_install(kstat_t *ksp)
+{}
+
+/*ARGSUSED*/
+void
+kstat_delete(kstat_t *ksp)
+{}
 
 /*
  * =========================================================================
@@ -544,13 +568,9 @@ panic(const char *fmt, ...)
 	va_end(adx);
 }
 
-/*PRINTFLIKE2*/
 void
-cmn_err(int ce, const char *fmt, ...)
+vcmn_err(int ce, const char *fmt, va_list adx)
 {
-	va_list adx;
-
-	va_start(adx, fmt);
 	if (ce == CE_PANIC)
 		vpanic(fmt, adx);
 	if (ce != CE_NOTE) {	/* suppress noise in userland stress testing */
@@ -558,6 +578,16 @@ cmn_err(int ce, const char *fmt, ...)
 		(void) vfprintf(stderr, fmt, adx);
 		(void) fprintf(stderr, "%s", ce_suffix[ce]);
 	}
+}
+
+/*PRINTFLIKE2*/
+void
+cmn_err(int ce, const char *fmt, ...)
+{
+	va_list adx;
+
+	va_start(adx, fmt);
+	vcmn_err(ce, fmt, adx);
 	va_end(adx);
 }
 
@@ -589,7 +619,7 @@ kobj_read_file(struct _buf *file, char *buf, unsigned size, unsigned off)
 	vn_rdwr(UIO_READ, (vnode_t *)file->_fd, buf, size, (offset_t)off,
 	    UIO_SYSSPACE, 0, 0, 0, &resid);
 
-	return (0);
+	return (size - resid);
 }
 
 void
@@ -600,15 +630,16 @@ kobj_close_file(struct _buf *file)
 }
 
 int
-kobj_fstat(intptr_t fd, struct bootstat *bst)
+kobj_get_filesize(struct _buf *file, uint64_t *size)
 {
 	struct stat64 st;
-	vnode_t *vp = (vnode_t *)fd;
+	vnode_t *vp = (vnode_t *)file->_fd;
+
 	if (fstat64(vp->v_fd, &st) == -1) {
 		vn_close(vp);
 		return (errno);
 	}
-	bst->st_size = (uint64_t)st.st_size;
+	*size = st.st_size;
 	return (0);
 }
 
@@ -724,4 +755,29 @@ void
 kernel_fini(void)
 {
 	spa_fini();
+}
+
+int
+z_uncompress(void *dst, size_t *dstlen, const void *src, size_t srclen)
+{
+	int ret;
+	uLongf len = *dstlen;
+
+	if ((ret = uncompress(dst, &len, src, srclen)) == Z_OK)
+		*dstlen = (size_t)len;
+
+	return (ret);
+}
+
+int
+z_compress_level(void *dst, size_t *dstlen, const void *src, size_t srclen,
+    int level)
+{
+	int ret;
+	uLongf len = *dstlen;
+
+	if ((ret = compress2(dst, &len, src, srclen, level)) == Z_OK)
+		*dstlen = (size_t)len;
+
+	return (ret);
 }

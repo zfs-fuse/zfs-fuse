@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -117,6 +117,20 @@ compression_changed_cb(void *arg, uint64_t newval)
 	osi->os_compress = zio_compress_select(newval, ZIO_COMPRESS_ON_VALUE);
 }
 
+static void
+copies_changed_cb(void *arg, uint64_t newval)
+{
+	objset_impl_t *osi = arg;
+
+	/*
+	 * Inheritance and range checking should have been done by now.
+	 */
+	ASSERT(newval > 0);
+	ASSERT(newval <= spa_max_replication(osi->os_spa));
+
+	osi->os_copies = newval;
+}
+
 void
 dmu_objset_byteswap(void *buf, size_t size)
 {
@@ -139,10 +153,8 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	osi->os.os = osi;
 	osi->os_dsl_dataset = ds;
 	osi->os_spa = spa;
-	if (bp)
-		osi->os_rootbp = *bp;
-	osi->os_phys = zio_buf_alloc(sizeof (objset_phys_t));
-	if (!BP_IS_HOLE(&osi->os_rootbp)) {
+	osi->os_rootbp = bp;
+	if (!BP_IS_HOLE(osi->os_rootbp)) {
 		uint32_t aflags = ARC_WAIT;
 		zbookmark_t zb;
 		zb.zb_objset = ds ? ds->ds_object : 0;
@@ -150,17 +162,21 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 		zb.zb_level = -1;
 		zb.zb_blkid = 0;
 
-		dprintf_bp(&osi->os_rootbp, "reading %s", "");
-		err = arc_read(NULL, spa, &osi->os_rootbp,
+		dprintf_bp(osi->os_rootbp, "reading %s", "");
+		err = arc_read(NULL, spa, osi->os_rootbp,
 		    dmu_ot[DMU_OT_OBJSET].ot_byteswap,
-		    arc_bcopy_func, osi->os_phys,
+		    arc_getbuf_func, &osi->os_phys_buf,
 		    ZIO_PRIORITY_SYNC_READ, ZIO_FLAG_CANFAIL, &aflags, &zb);
 		if (err) {
-			zio_buf_free(osi->os_phys, sizeof (objset_phys_t));
 			kmem_free(osi, sizeof (objset_impl_t));
 			return (err);
 		}
+		osi->os_phys = osi->os_phys_buf->b_data;
+		arc_release(osi->os_phys_buf, &osi->os_phys_buf);
 	} else {
+		osi->os_phys_buf = arc_buf_alloc(spa, sizeof (objset_phys_t),
+		    &osi->os_phys_buf, ARC_BUFC_METADATA);
+		osi->os_phys = osi->os_phys_buf->b_data;
 		bzero(osi->os_phys, sizeof (objset_phys_t));
 	}
 
@@ -176,8 +192,12 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 		if (err == 0)
 			err = dsl_prop_register(ds, "compression",
 			    compression_changed_cb, osi);
+		if (err == 0)
+			err = dsl_prop_register(ds, "copies",
+			    copies_changed_cb, osi);
 		if (err) {
-			zio_buf_free(osi->os_phys, sizeof (objset_phys_t));
+			VERIFY(arc_buf_remove_ref(osi->os_phys_buf,
+			    &osi->os_phys_buf) == 1);
 			kmem_free(osi, sizeof (objset_impl_t));
 			return (err);
 		}
@@ -185,6 +205,7 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 		/* It's the meta-objset. */
 		osi->os_checksum = ZIO_CHECKSUM_FLETCHER_4;
 		osi->os_compress = ZIO_COMPRESS_LZJB;
+		osi->os_copies = spa_max_replication(spa);
 	}
 
 	osi->os_zil = zil_alloc(&osi->os, &osi->os_phys->os_zil_header);
@@ -252,11 +273,8 @@ dmu_objset_open(const char *name, dmu_objset_type_t type, int mode,
 
 	osi = dsl_dataset_get_user_ptr(ds);
 	if (osi == NULL) {
-		blkptr_t bp;
-
-		dsl_dataset_get_blkptr(ds, &bp);
 		err = dmu_objset_open_impl(dsl_dataset_get_spa(ds),
-		    ds, &bp, &osi);
+		    ds, &ds->ds_phys->ds_bp, &osi);
 		if (err) {
 			dsl_dataset_close(ds, mode, os);
 			kmem_free(os, sizeof (objset_t));
@@ -348,6 +366,8 @@ dmu_objset_evict(dsl_dataset_t *ds, void *arg)
 		    checksum_changed_cb, osi));
 		VERIFY(0 == dsl_prop_unregister(ds, "compression",
 		    compression_changed_cb, osi));
+		VERIFY(0 == dsl_prop_unregister(ds, "copies",
+		    copies_changed_cb, osi));
 	}
 
 	/*
@@ -364,7 +384,7 @@ dmu_objset_evict(dsl_dataset_t *ds, void *arg)
 	dnode_special_close(osi->os_meta_dnode);
 	zil_free(osi->os_zil);
 
-	zio_buf_free(osi->os_phys, sizeof (objset_phys_t));
+	VERIFY(arc_buf_remove_ref(osi->os_phys_buf, &osi->os_phys_buf) == 1);
 	mutex_destroy(&osi->os_lock);
 	mutex_destroy(&osi->os_obj_lock);
 	kmem_free(osi, sizeof (objset_impl_t));
@@ -372,14 +392,14 @@ dmu_objset_evict(dsl_dataset_t *ds, void *arg)
 
 /* called from dsl for meta-objset */
 objset_impl_t *
-dmu_objset_create_impl(spa_t *spa, dsl_dataset_t *ds, dmu_objset_type_t type,
-    dmu_tx_t *tx)
+dmu_objset_create_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
+    dmu_objset_type_t type, dmu_tx_t *tx)
 {
 	objset_impl_t *osi;
 	dnode_t *mdn;
 
 	ASSERT(dmu_tx_is_syncing(tx));
-	VERIFY(0 == dmu_objset_open_impl(spa, ds, NULL, &osi));
+	VERIFY(0 == dmu_objset_open_impl(spa, ds, bp, &osi));
 	mdn = osi->os_meta_dnode;
 
 	dnode_allocate(mdn, DMU_OT_DNODE, 1 << DNODE_BLOCK_SHIFT,
@@ -467,7 +487,7 @@ dmu_objset_create_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 	dsl_dir_t *dd = arg1;
 	struct oscarg *oa = arg2;
 	dsl_dataset_t *ds;
-	blkptr_t bp;
+	blkptr_t *bp;
 	uint64_t dsobj;
 
 	ASSERT(dmu_tx_is_syncing(tx));
@@ -477,13 +497,13 @@ dmu_objset_create_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 
 	VERIFY(0 == dsl_dataset_open_obj(dd->dd_pool, dsobj, NULL,
 	    DS_MODE_STANDARD | DS_MODE_READONLY, FTAG, &ds));
-	dsl_dataset_get_blkptr(ds, &bp);
-	if (BP_IS_HOLE(&bp)) {
+	bp = dsl_dataset_get_blkptr(ds);
+	if (BP_IS_HOLE(bp)) {
 		objset_impl_t *osi;
 
 		/* This is an empty dmu_objset; not a clone. */
 		osi = dmu_objset_create_impl(dsl_dataset_get_spa(ds),
-		    ds, oa->type, tx);
+		    ds, bp, oa->type, tx);
 
 		if (oa->userfunc)
 			oa->userfunc(&osi->os, oa->userarg, tx);
@@ -585,6 +605,7 @@ dmu_objset_snapshot_one(char *name, void *arg)
 {
 	struct snaparg *sn = arg;
 	objset_t *os;
+	dmu_objset_stats_t stat;
 	int err;
 
 	(void) strcpy(sn->failed, name);
@@ -592,6 +613,15 @@ dmu_objset_snapshot_one(char *name, void *arg)
 	err = dmu_objset_open(name, DMU_OST_ANY, DS_MODE_STANDARD, &os);
 	if (err != 0)
 		return (err);
+
+	/*
+	 * If the objset is in an inconsistent state, return busy.
+	 */
+	dmu_objset_fast_stat(os, &stat);
+	if (stat.dds_inconsistent) {
+		dmu_objset_close(os);
+		return (EBUSY);
+	}
 
 	/*
 	 * NB: we need to wait for all in-flight changes to get to disk,
@@ -602,7 +632,10 @@ dmu_objset_snapshot_one(char *name, void *arg)
 	if (err == 0) {
 		dsl_sync_task_create(sn->dstg, dsl_dataset_snapshot_check,
 		    dsl_dataset_snapshot_sync, os, sn->snapname, 3);
+	} else {
+		dmu_objset_close(os);
 	}
+
 	return (err);
 }
 
@@ -660,41 +693,41 @@ out:
 }
 
 static void
-dmu_objset_sync_dnodes(objset_impl_t *os, list_t *list, dmu_tx_t *tx)
+dmu_objset_sync_dnodes(list_t *list, dmu_tx_t *tx)
 {
-	dnode_t *dn = list_head(list);
-	int level, err;
+	dnode_t *dn;
 
-	for (level = 0; dn = list_head(list); level++) {
-		zio_t *zio;
-		zio = zio_root(os->os_spa, NULL, NULL, ZIO_FLAG_MUSTSUCCEED);
+	while (dn = list_head(list)) {
+		ASSERT(dn->dn_object != DMU_META_DNODE_OBJECT);
+		ASSERT(dn->dn_dbuf->db_data_pending);
+		/*
+		 * Initialize dn_zio outside dnode_sync()
+		 * to accomodate meta-dnode
+		 */
+		dn->dn_zio = dn->dn_dbuf->db_data_pending->dr_zio;
+		ASSERT(dn->dn_zio);
 
-		ASSERT3U(level, <=, DN_MAX_LEVELS);
-
-		while (dn) {
-			dnode_t *next = list_next(list, dn);
-
-			list_remove(list, dn);
-			if (dnode_sync(dn, level, zio, tx) == 0) {
-				/*
-				 * This dnode requires syncing at higher
-				 * levels; put it back onto the list.
-				 */
-				if (next)
-					list_insert_before(list, next, dn);
-				else
-					list_insert_tail(list, dn);
-			}
-			dn = next;
-		}
-
-		DTRACE_PROBE1(wait__begin, zio_t *, zio);
-		err = zio_wait(zio);
-		DTRACE_PROBE4(wait__end, zio_t *, zio,
-		    uint64_t, tx->tx_txg, objset_impl_t *, os, int, level);
-
-		ASSERT(err == 0);
+		ASSERT3U(dn->dn_nlevels, <=, DN_MAX_LEVELS);
+		list_remove(list, dn);
+		dnode_sync(dn, tx);
 	}
+}
+
+/* ARGSUSED */
+static void
+ready(zio_t *zio, arc_buf_t *abuf, void *arg)
+{
+	objset_impl_t *os = arg;
+	blkptr_t *bp = os->os_rootbp;
+	dnode_phys_t *dnp = &os->os_phys->os_meta_dnode;
+	int i;
+
+	/*
+	 * Update rootbp fill count.
+	 */
+	bp->blk_fill = 1;	/* count the meta-dnode */
+	for (i = 0; i < dnp->dn_nblkptr; i++)
+		bp->blk_fill += dnp->dn_blkptr[i].blk_fill;
 }
 
 /* ARGSUSED */
@@ -702,90 +735,91 @@ static void
 killer(zio_t *zio, arc_buf_t *abuf, void *arg)
 {
 	objset_impl_t *os = arg;
-	objset_phys_t *osphys = zio->io_data;
-	dnode_phys_t *dnp = &osphys->os_meta_dnode;
-	int i;
 
 	ASSERT3U(zio->io_error, ==, 0);
-
-	/*
-	 * Update rootbp fill count.
-	 */
-	os->os_rootbp.blk_fill = 1;	/* count the meta-dnode */
-	for (i = 0; i < dnp->dn_nblkptr; i++)
-		os->os_rootbp.blk_fill += dnp->dn_blkptr[i].blk_fill;
 
 	BP_SET_TYPE(zio->io_bp, DMU_OT_OBJSET);
 	BP_SET_LEVEL(zio->io_bp, 0);
 
 	if (!DVA_EQUAL(BP_IDENTITY(zio->io_bp),
 	    BP_IDENTITY(&zio->io_bp_orig))) {
-		dsl_dataset_block_kill(os->os_dsl_dataset, &zio->io_bp_orig,
-		    os->os_synctx);
+		if (zio->io_bp_orig.blk_birth == os->os_synctx->tx_txg)
+			dsl_dataset_block_kill(os->os_dsl_dataset,
+			    &zio->io_bp_orig, NULL, os->os_synctx);
 		dsl_dataset_block_born(os->os_dsl_dataset, zio->io_bp,
 		    os->os_synctx);
 	}
+	arc_release(os->os_phys_buf, &os->os_phys_buf);
 }
 
 /* called from dsl */
 void
-dmu_objset_sync(objset_impl_t *os, dmu_tx_t *tx)
+dmu_objset_sync(objset_impl_t *os, zio_t *pio, dmu_tx_t *tx)
 {
-	extern taskq_t *dbuf_tq;
 	int txgoff;
-	list_t *dirty_list;
-	int err;
 	zbookmark_t zb;
-	arc_buf_t *abuf =
-	    arc_buf_alloc(os->os_spa, sizeof (objset_phys_t), FTAG,
-		ARC_BUFC_METADATA);
-
-	ASSERT(dmu_tx_is_syncing(tx));
-	ASSERT(os->os_synctx == NULL);
-	/* XXX the write_done callback should really give us the tx... */
-	os->os_synctx = tx;
+	zio_t *zio;
+	list_t *list;
+	dbuf_dirty_record_t *dr;
+	int zio_flags;
 
 	dprintf_ds(os->os_dsl_dataset, "txg=%llu\n", tx->tx_txg);
 
-	txgoff = tx->tx_txg & TXG_MASK;
+	ASSERT(dmu_tx_is_syncing(tx));
+	/* XXX the write_done callback should really give us the tx... */
+	os->os_synctx = tx;
 
-	dmu_objset_sync_dnodes(os, &os->os_free_dnodes[txgoff], tx);
-	dmu_objset_sync_dnodes(os, &os->os_dirty_dnodes[txgoff], tx);
-
-	/*
-	 * Free intent log blocks up to this tx.
-	 */
-	zil_sync(os->os_zil, tx);
-
-	/*
-	 * Sync meta-dnode
-	 */
-	dirty_list = &os->os_dirty_dnodes[txgoff];
-	ASSERT(list_head(dirty_list) == NULL);
-	list_insert_tail(dirty_list, os->os_meta_dnode);
-	dmu_objset_sync_dnodes(os, dirty_list, tx);
+	if (os->os_dsl_dataset == NULL) {
+		/*
+		 * This is the MOS.  If we have upgraded,
+		 * spa_max_replication() could change, so reset
+		 * os_copies here.
+		 */
+		os->os_copies = spa_max_replication(os->os_spa);
+	}
 
 	/*
-	 * Sync the root block.
+	 * Create the root block IO
 	 */
-	bcopy(os->os_phys, abuf->b_data, sizeof (objset_phys_t));
 	zb.zb_objset = os->os_dsl_dataset ? os->os_dsl_dataset->ds_object : 0;
 	zb.zb_object = 0;
 	zb.zb_level = -1;
 	zb.zb_blkid = 0;
-	err = arc_write(NULL, os->os_spa, os->os_md_checksum,
+	zio_flags = ZIO_FLAG_MUSTSUCCEED;
+	if (dmu_ot[DMU_OT_OBJSET].ot_metadata || zb.zb_level != 0)
+		zio_flags |= ZIO_FLAG_METADATA;
+	if (BP_IS_OLDER(os->os_rootbp, tx->tx_txg))
+		dsl_dataset_block_kill(os->os_dsl_dataset,
+		    os->os_rootbp, pio, tx);
+	zio = arc_write(pio, os->os_spa, os->os_md_checksum,
 	    os->os_md_compress,
-	    dmu_get_replication_level(os->os_spa, &zb, DMU_OT_OBJSET),
-	    tx->tx_txg, &os->os_rootbp, abuf, killer, os,
-	    ZIO_PRIORITY_ASYNC_WRITE, ZIO_FLAG_MUSTSUCCEED, ARC_WAIT, &zb);
-	ASSERT(err == 0);
-	VERIFY(arc_buf_remove_ref(abuf, FTAG) == 1);
+	    dmu_get_replication_level(os, &zb, DMU_OT_OBJSET),
+	    tx->tx_txg, os->os_rootbp, os->os_phys_buf, ready, killer, os,
+	    ZIO_PRIORITY_ASYNC_WRITE, zio_flags, &zb);
 
-	dsl_dataset_set_blkptr(os->os_dsl_dataset, &os->os_rootbp, tx);
+	/*
+	 * Sync meta-dnode - the parent IO for the sync is the root block
+	 */
+	os->os_meta_dnode->dn_zio = zio;
+	dnode_sync(os->os_meta_dnode, tx);
 
-	ASSERT3P(os->os_synctx, ==, tx);
-	taskq_wait(dbuf_tq);
-	os->os_synctx = NULL;
+	txgoff = tx->tx_txg & TXG_MASK;
+
+	dmu_objset_sync_dnodes(&os->os_free_dnodes[txgoff], tx);
+	dmu_objset_sync_dnodes(&os->os_dirty_dnodes[txgoff], tx);
+
+	list = &os->os_meta_dnode->dn_dirty_records[txgoff];
+	while (dr = list_head(list)) {
+		ASSERT(dr->dr_dbuf->db_level == 0);
+		list_remove(list, dr);
+		if (dr->dr_zio)
+			zio_nowait(dr->dr_zio);
+	}
+	/*
+	 * Free intent log blocks up to this tx.
+	 */
+	zil_sync(os->os_zil, tx);
+	zio_nowait(zio);
 }
 
 void

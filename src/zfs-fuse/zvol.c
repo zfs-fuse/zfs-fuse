@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -42,7 +42,6 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/errno.h>
-#include <sys/aio_req.h>
 #include <sys/uio.h>
 #include <sys/buf.h>
 #include <sys/modctl.h>
@@ -69,6 +68,8 @@
 #include <sys/mkdev.h>
 #include <sys/zil.h>
 #include <sys/refcount.h>
+#include <sys/zfs_znode.h>
+#include <sys/zfs_rlock.h>
 
 #include "zfs_namecheck.h"
 
@@ -102,7 +103,7 @@ typedef struct zvol_state {
 	uint32_t	zv_total_opens;	/* total open count */
 	zilog_t		*zv_zilog;	/* ZIL handle */
 	uint64_t	zv_txg_assign;	/* txg to assign during ZIL replay */
-	krwlock_t	zv_dslock;	/* dmu_sync() rwlock */
+	znode_t		zv_znode;	/* for range locking */
 } zvol_state_t;
 
 /*
@@ -110,7 +111,7 @@ typedef struct zvol_state {
  */
 int zvol_maxphys = DMU_MAX_ACCESS/2;
 
-int zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio);
+static int zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio);
 
 static void
 zvol_size_changed(zvol_state_t *zv, dev_t dev)
@@ -438,15 +439,17 @@ zvol_create_minor(const char *name, dev_t dev)
 	zv->zv_objset = os;
 	zv->zv_mode = ds_mode;
 	zv->zv_zilog = zil_open(os, zvol_get_data);
+	mutex_init(&zv->zv_znode.z_range_lock, NULL, MUTEX_DEFAULT, NULL);
+	avl_create(&zv->zv_znode.z_range_avl, zfs_range_compare,
+	    sizeof (rl_t), offsetof(rl_t, r_node));
+
 
 	/* get and cache the blocksize */
 	error = dmu_object_info(os, ZVOL_OBJ, &doi);
 	ASSERT(error == 0);
 	zv->zv_volblocksize = doi.doi_data_block_size;
 
-	rw_init(&zv->zv_dslock, NULL, RW_DEFAULT, NULL);
-
-	zil_replay(os, zv, &zv->zv_txg_assign, zvol_replay_vector, NULL);
+	zil_replay(os, zv, &zv->zv_txg_assign, zvol_replay_vector);
 
 	zvol_size_changed(zv, dev);
 
@@ -495,6 +498,8 @@ zvol_remove_minor(const char *name)
 	zv->zv_zilog = NULL;
 	dmu_objset_close(zv->zv_objset);
 	zv->zv_objset = NULL;
+	avl_destroy(&zv->zv_znode.z_range_avl);
+	mutex_destroy(&zv->zv_znode.z_range_lock);
 
 	ddi_soft_state_free(zvol_state, zv->zv_minor);
 
@@ -679,34 +684,14 @@ zvol_close(dev_t dev, int flag, int otyp, cred_t *cr)
 	return (0);
 }
 
-/*
- * Create and return an immediate write ZIL transaction.
- */
-itx_t *
-zvol_immediate_itx(offset_t off, ssize_t len, char *addr)
-{
-	itx_t *itx;
-	lr_write_t *lr;
-
-	itx = zil_itx_create(TX_WRITE, sizeof (*lr) + len);
-	lr = (lr_write_t *)&itx->itx_lr;
-	lr->lr_foid = ZVOL_OBJ;
-	lr->lr_offset = off;
-	lr->lr_length = len;
-	lr->lr_blkoff = 0;
-	BP_ZERO(&lr->lr_blkptr);
-	bcopy(addr, (char *)itx + offsetof(itx_t, itx_lr) +
-	    sizeof (*lr), len);
-	itx->itx_wr_state = WR_COPIED;
-	return (itx);
-}
-
-void
+static void
 zvol_get_done(dmu_buf_t *db, void *vzgd)
 {
 	zgd_t *zgd = (zgd_t *)vzgd;
+	rl_t *rl = zgd->zgd_rl;
 
 	dmu_buf_rele(db, vzgd);
+	zfs_range_unlock(rl);
 	zil_add_vdev(zgd->zgd_zilog, DVA_GET_VDEV(BP_IDENTITY(zgd->zgd_bp)));
 	kmem_free(zgd, sizeof (zgd_t));
 }
@@ -714,38 +699,51 @@ zvol_get_done(dmu_buf_t *db, void *vzgd)
 /*
  * Get data to generate a TX_WRITE intent log record.
  */
-int
+static int
 zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 {
 	zvol_state_t *zv = arg;
 	objset_t *os = zv->zv_objset;
 	dmu_buf_t *db;
+	rl_t *rl;
 	zgd_t *zgd;
-	int dlen = lr->lr_length;  		/* length of user data */
+	uint64_t boff; 			/* block starting offset */
+	int dlen = lr->lr_length;	/* length of user data */
 	int error;
 
 	ASSERT(zio);
 	ASSERT(dlen != 0);
-	ASSERT(buf == NULL);
+
+	/*
+	 * Write records come in two flavors: immediate and indirect.
+	 * For small writes it's cheaper to store the data with the
+	 * log record (immediate); for large writes it's cheaper to
+	 * sync the data and get a pointer to it (indirect) so that
+	 * we don't have to write the data twice.
+	 */
+	if (buf != NULL) /* immediate write */
+		return (dmu_read(os, ZVOL_OBJ, lr->lr_offset, dlen, buf));
 
 	zgd = (zgd_t *)kmem_alloc(sizeof (zgd_t), KM_SLEEP);
 	zgd->zgd_zilog = zv->zv_zilog;
 	zgd->zgd_bp = &lr->lr_blkptr;
 
-	VERIFY(0 == dmu_buf_hold(os, ZVOL_OBJ, lr->lr_offset, zgd, &db));
 	/*
-	 * Have to lock to ensure when when the data is
-	 * written out and it's checksum is being calculated
-	 * that no one can change the data.
+	 * Lock the range of the block to ensure that when the data is
+	 * written out and it's checksum is being calculated that no other
+	 * thread can change the block.
 	 */
-	rw_enter(&zv->zv_dslock, RW_READER);
+	boff = P2ALIGN_TYPED(lr->lr_offset, zv->zv_volblocksize, uint64_t);
+	rl = zfs_range_lock(&zv->zv_znode, boff, zv->zv_volblocksize,
+	    RL_READER);
+	zgd->zgd_rl = rl;
+
+	VERIFY(0 == dmu_buf_hold(os, ZVOL_OBJ, lr->lr_offset, zgd, &db));
 	error = dmu_sync(zio, db, &lr->lr_blkptr,
 	    lr->lr_common.lrc_txg, zvol_get_done, zgd);
-	rw_exit(&zv->zv_dslock);
-	if (error == 0) {
+	if (error == 0)
 		zil_add_vdev(zv->zv_zilog,
 		    DVA_GET_VDEV(BP_IDENTITY(&lr->lr_blkptr)));
-	}
 	/*
 	 * If we get EINPROGRESS, then we need to wait for a
 	 * write IO initiated by dmu_sync() to complete before
@@ -755,6 +753,7 @@ zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	if (error == EINPROGRESS)
 		return (0);
 	dmu_buf_rele(db, zgd);
+	zfs_range_unlock(rl);
 	kmem_free(zgd, sizeof (zgd_t));
 	return (error);
 }
@@ -767,42 +766,27 @@ zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
  */
 ssize_t zvol_immediate_write_sz = 32768;
 
-void
-zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx, offset_t off, ssize_t len,
-    char *addr)
+static void
+zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx, offset_t off, ssize_t len)
 {
-	ssize_t nbytes;
-	itx_t *itx;
+	uint32_t blocksize = zv->zv_volblocksize;
 	lr_write_t *lr;
-	zilog_t *zilog = zv->zv_zilog;
-	uint64_t boff;
-	uint32_t blocksize;
-
-	/* handle common case */
-	if (len <= zvol_immediate_write_sz) {
-		itx = zvol_immediate_itx(off, len, addr);
-		(void) zil_itx_assign(zilog, itx, tx);
-	}
-
-	blocksize = zv->zv_volblocksize;
 
 	while (len) {
-		nbytes = MIN(len, blocksize - P2PHASE(off, blocksize));
-		if (nbytes <= zvol_immediate_write_sz) {
-			itx = zvol_immediate_itx(off, nbytes, addr);
-		} else {
-			boff = P2ALIGN_TYPED(off, blocksize, uint64_t);
-			itx = zil_itx_create(TX_WRITE, sizeof (*lr));
-			itx->itx_wr_state = WR_INDIRECT;
-			itx->itx_private = zv;
-			lr = (lr_write_t *)&itx->itx_lr;
-			lr->lr_foid = ZVOL_OBJ;
-			lr->lr_offset = off;
-			lr->lr_length = nbytes;
-			lr->lr_blkoff = off - boff;
-			BP_ZERO(&lr->lr_blkptr);
-		}
-		(void) zil_itx_assign(zilog, itx, tx);
+		ssize_t nbytes = MIN(len, blocksize - P2PHASE(off, blocksize));
+		itx_t *itx = zil_itx_create(TX_WRITE, sizeof (*lr));
+
+		itx->itx_wr_state =
+		    len > zvol_immediate_write_sz ?  WR_INDIRECT : WR_NEED_COPY;
+		itx->itx_private = zv;
+		lr = (lr_write_t *)&itx->itx_lr;
+		lr->lr_foid = ZVOL_OBJ;
+		lr->lr_offset = off;
+		lr->lr_length = nbytes;
+		lr->lr_blkoff = off - P2ALIGN_TYPED(off, blocksize, uint64_t);
+		BP_ZERO(&lr->lr_blkptr);
+
+		(void) zil_itx_assign(zv->zv_zilog, itx, tx);
 		len -= nbytes;
 		off += nbytes;
 	}
@@ -816,9 +800,10 @@ zvol_strategy(buf_t *bp)
 	size_t size, resid;
 	char *addr;
 	objset_t *os;
+	rl_t *rl;
 	int error = 0;
 	int sync;
-	int reading;
+	boolean_t reading;
 
 	if (zv == NULL) {
 		bioerror(bp, ENXIO);
@@ -856,10 +841,8 @@ zvol_strategy(buf_t *bp)
 	 * A better approach than a per zvol rwlock would be to lock ranges.
 	 */
 	reading = bp->b_flags & B_READ;
-	if (reading || resid <= zvol_immediate_write_sz)
-		rw_enter(&zv->zv_dslock, RW_READER);
-	else
-		rw_enter(&zv->zv_dslock, RW_WRITER);
+	rl = zfs_range_lock(&zv->zv_znode, off, resid,
+	    reading ? RL_READER : RL_WRITER);
 
 	while (resid != 0 && off < volsize) {
 
@@ -878,9 +861,7 @@ zvol_strategy(buf_t *bp)
 				dmu_tx_abort(tx);
 			} else {
 				dmu_write(os, ZVOL_OBJ, off, size, addr, tx);
-				/* add a log write transaction */
-				if (sync)
-					zvol_log_write(zv, tx, off, size, addr);
+				zvol_log_write(zv, tx, off, size);
 				dmu_tx_commit(tx);
 			}
 		}
@@ -890,15 +871,15 @@ zvol_strategy(buf_t *bp)
 		addr += size;
 		resid -= size;
 	}
-	rw_exit(&zv->zv_dslock);
+	zfs_range_unlock(rl);
 
 	if ((bp->b_resid = resid) == bp->b_bcount)
 		bioerror(bp, off > volsize ? EINVAL : error);
 
-	biodone(bp);
-
 	if (sync)
-		zil_commit(zv->zv_zilog, UINT64_MAX, 0);
+		zil_commit(zv->zv_zilog, UINT64_MAX, ZVOL_OBJ);
+
+	biodone(bp);
 
 	return (0);
 }
@@ -920,32 +901,56 @@ zvol_minphys(struct buf *bp)
 
 /*ARGSUSED*/
 int
-zvol_read(dev_t dev, uio_t *uiop, cred_t *cr)
+zvol_read(dev_t dev, uio_t *uio, cred_t *cr)
 {
-	return (physio(zvol_strategy, NULL, dev, B_READ, zvol_minphys, uiop));
+	zvol_state_t *zv = ddi_get_soft_state(zvol_state, getminor(dev));
+	rl_t *rl;
+	int error = 0;
+
+	rl = zfs_range_lock(&zv->zv_znode, uio->uio_loffset, uio->uio_resid,
+	    RL_READER);
+	while (uio->uio_resid > 0) {
+		uint64_t bytes = MIN(uio->uio_resid, DMU_MAX_ACCESS >> 1);
+
+		error =  dmu_read_uio(zv->zv_objset, ZVOL_OBJ, uio, bytes);
+		if (error)
+			break;
+	}
+	zfs_range_unlock(rl);
+	return (error);
 }
 
 /*ARGSUSED*/
 int
-zvol_write(dev_t dev, uio_t *uiop, cred_t *cr)
+zvol_write(dev_t dev, uio_t *uio, cred_t *cr)
 {
-	return (physio(zvol_strategy, NULL, dev, B_WRITE, zvol_minphys, uiop));
-}
+	zvol_state_t *zv = ddi_get_soft_state(zvol_state, getminor(dev));
+	rl_t *rl;
+	int error = 0;
 
-/*ARGSUSED*/
-int
-zvol_aread(dev_t dev, struct aio_req *aio, cred_t *cr)
-{
-	return (aphysio(zvol_strategy, anocancel, dev, B_READ, zvol_minphys,
-	    aio));
-}
+	rl = zfs_range_lock(&zv->zv_znode, uio->uio_loffset, uio->uio_resid,
+	    RL_WRITER);
+	while (uio->uio_resid > 0) {
+		uint64_t bytes = MIN(uio->uio_resid, DMU_MAX_ACCESS >> 1);
+		uint64_t off = uio->uio_loffset;
 
-/*ARGSUSED*/
-int
-zvol_awrite(dev_t dev, struct aio_req *aio, cred_t *cr)
-{
-	return (aphysio(zvol_strategy, anocancel, dev, B_WRITE, zvol_minphys,
-	    aio));
+		dmu_tx_t *tx = dmu_tx_create(zv->zv_objset);
+		dmu_tx_hold_write(tx, ZVOL_OBJ, off, bytes);
+		error = dmu_tx_assign(tx, TXG_WAIT);
+		if (error) {
+			dmu_tx_abort(tx);
+			break;
+		}
+		error = dmu_write_uio(zv->zv_objset, ZVOL_OBJ, uio, bytes, tx);
+		if (error == 0)
+			zvol_log_write(zv, tx, off, bytes);
+		dmu_tx_commit(tx);
+
+		if (error)
+			break;
+	}
+	zfs_range_unlock(rl);
+	return (error);
 }
 
 /*
@@ -956,9 +961,10 @@ int
 zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 {
 	zvol_state_t *zv;
-	struct dk_cinfo dkc;
+	struct dk_cinfo dki;
 	struct dk_minfo dkm;
 	dk_efi_t efi;
+	struct dk_callback *dkc;
 	struct uuid uuid = EFI_RESERVED;
 	uint32_t crc;
 	int error = 0;
@@ -975,13 +981,13 @@ zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 	switch (cmd) {
 
 	case DKIOCINFO:
-		bzero(&dkc, sizeof (dkc));
-		(void) strcpy(dkc.dki_cname, "zvol");
-		(void) strcpy(dkc.dki_dname, "zvol");
-		dkc.dki_ctype = DKC_UNKNOWN;
-		dkc.dki_maxtransfer = 1 << (SPA_MAXBLOCKSHIFT - zv->zv_min_bs);
+		bzero(&dki, sizeof (dki));
+		(void) strcpy(dki.dki_cname, "zvol");
+		(void) strcpy(dki.dki_dname, "zvol");
+		dki.dki_ctype = DKC_UNKNOWN;
+		dki.dki_maxtransfer = 1 << (SPA_MAXBLOCKSHIFT - zv->zv_min_bs);
 		mutex_exit(&zvol_state_lock);
-		if (ddi_copyout(&dkc, (void *)arg, sizeof (dkc), flag))
+		if (ddi_copyout(&dki, (void *)arg, sizeof (dki), flag))
 			error = EFAULT;
 		return (error);
 
@@ -1067,6 +1073,15 @@ zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 			error = EINVAL;
 		}
 		return (error);
+
+	case DKIOCFLUSHWRITECACHE:
+		dkc = (struct dk_callback *)arg;
+		zil_commit(zv->zv_zilog, UINT64_MAX, ZVOL_OBJ);
+		if ((flag & FKIOCTL) && dkc != NULL && dkc->dkc_callback) {
+			(*dkc->dkc_callback)(dkc->dkc_cookie, error);
+			error = 0;
+		}
+		break;
 
 	case DKIOCGGEOM:
 	case DKIOCGVTOC:

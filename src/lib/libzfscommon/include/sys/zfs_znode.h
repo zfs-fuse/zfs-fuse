@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -56,7 +56,7 @@ extern "C" {
  */
 
 #define	ZFS_FSID		"FSID"
-#define	ZFS_DELETE_QUEUE	"DELETE_QUEUE"
+#define	ZFS_UNLINKED_SET	"DELETE_QUEUE"
 #define	ZFS_ROOT_OBJ		"ROOT"
 #define	ZPL_VERSION_OBJ		"VERSION"
 #define	ZFS_PROP_BLOCKPERPAGE	"BLOCKPERPAGE"
@@ -83,6 +83,16 @@ extern "C" {
  * true maximum length of a component is, excluding the NULL.
  */
 #define	ZFS_MAXNAMELEN	(MAXNAMELEN - 1)
+
+/*
+ * The directory entry has the type (currently unused on Solaris) in the
+ * top 4 bits, and the object number in the low 48 bits.  The "middle"
+ * 12 bits are unused.
+ */
+#define	ZFS_DIRENT_TYPE(de) BF64_GET(de, 60, 4)
+#define	ZFS_DIRENT_OBJ(de) BF64_GET(de, 0, 48)
+#define	ZFS_DIRENT_MAKE(type, obj) (((uint64_t)type << 60) | obj)
+
 
 /*
  * This is the persistent portion of the znode.  It is stored
@@ -135,15 +145,15 @@ typedef struct zfs_dirlock {
 typedef struct znode {
 	struct zfsvfs	*z_zfsvfs;
 	vnode_t		*z_vnode;
-	list_node_t 	z_list_node;	/* deleted znodes */
 	uint64_t	z_id;		/* object ID for this znode */
 	kmutex_t	z_lock;		/* znode modification lock */
 	krwlock_t	z_map_lock;	/* page map lock */
 	krwlock_t	z_parent_lock;	/* parent lock for directories */
+	krwlock_t	z_name_lock;	/* "master" lock for dirent locks */
 	zfs_dirlock_t	*z_dirlocks;	/* directory entry lock list */
 	kmutex_t	z_range_lock;	/* protects changes to z_range_avl */
 	avl_tree_t	z_range_avl;	/* avl tree of file range locks */
-	uint8_t		z_reap;		/* reap file at last reference */
+	uint8_t		z_unlinked;	/* file has been unlinked */
 	uint8_t		z_atime_dirty;	/* atime needs to be synced */
 	uint8_t		z_dbuf_held;	/* Is z_dbuf already held? */
 	uint8_t		z_zn_prefetch;	/* Prefetch znodes? */
@@ -249,8 +259,6 @@ extern int	zfs_zget(zfsvfs_t *, uint64_t, znode_t **);
 extern void	zfs_zinactive(znode_t *);
 extern void	zfs_znode_delete(znode_t *, dmu_tx_t *);
 extern void	zfs_znode_free(znode_t *);
-extern int	zfs_delete_thread_target(zfsvfs_t *zfsvfs, int nthreads);
-extern void	zfs_delete_wait_empty(zfsvfs_t *zfsvfs);
 extern void	zfs_remove_op_tables();
 extern int	zfs_create_op_tables();
 extern int	zfs_sync(vfs_t *vfsp, short flag, cred_t *cr);
@@ -267,7 +275,7 @@ extern void zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 extern void zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *sdzp, char *sname, znode_t *tdzp, char *dname, znode_t *szp);
 extern void zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
-    znode_t *zp, offset_t off, ssize_t len, int ioflag, uio_t *uio);
+    znode_t *zp, offset_t off, ssize_t len, int ioflag);
 extern void zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, uint64_t off, uint64_t len);
 extern void zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
@@ -280,6 +288,8 @@ extern zil_replay_func_t *zfs_replay_vector[TX_MAX_TYPE];
 extern int zfsfstype;
 
 #endif /* _KERNEL */
+
+extern int zfs_obj_to_path(objset_t *osp, uint64_t obj, char *buf, int len);
 
 #ifdef	__cplusplus
 }

@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -60,6 +60,7 @@ struct drr_end;
 struct zbookmark;
 struct spa;
 struct nvlist;
+struct objset_impl;
 
 typedef struct objset objset_t;
 typedef struct dmu_tx dmu_tx_t;
@@ -94,7 +95,7 @@ typedef enum dmu_object_type {
 	DMU_OT_PLAIN_FILE_CONTENTS,	/* UINT8 */
 	DMU_OT_DIRECTORY_CONTENTS,	/* ZAP */
 	DMU_OT_MASTER_NODE,		/* ZAP */
-	DMU_OT_DELETE_QUEUE,		/* ZAP */
+	DMU_OT_UNLINKED_SET,		/* ZAP */
 	/* zvol: */
 	DMU_OT_ZVOL,			/* UINT8 */
 	DMU_OT_ZVOL_PROP,		/* ZAP */
@@ -106,6 +107,7 @@ typedef enum dmu_object_type {
 	DMU_OT_ERROR_LOG,		/* ZAP */
 	DMU_OT_SPA_HISTORY,		/* UINT8 */
 	DMU_OT_SPA_HISTORY_OFFSETS,	/* spa_his_phys_t */
+	DMU_OT_POOL_PROPS,		/* ZAP */
 
 	DMU_OT_NUMTYPES
 } dmu_object_type_t;
@@ -193,6 +195,7 @@ typedef void dmu_byteswap_func_t(void *buf, size_t size);
 #define	DMU_POOL_SPARES			"spares"
 #define	DMU_POOL_DEFLATE		"deflate"
 #define	DMU_POOL_HISTORY		"history"
+#define	DMU_POOL_PROPS			"pool_props"
 
 /*
  * Allocate an object from this objset.  The range of object numbers
@@ -280,7 +283,7 @@ void dmu_object_set_compress(objset_t *os, uint64_t object, uint8_t compress,
  * Decide how many copies of a given block we should make.  Can be from
  * 1 to SPA_DVAS_PER_BP.
  */
-int dmu_get_replication_level(struct spa *spa, struct zbookmark *zb,
+int dmu_get_replication_level(struct objset_impl *, struct zbookmark *zb,
     dmu_object_type_t ot);
 /*
  * The bonus data is accessed more or less like a regular buffer.
@@ -424,8 +427,9 @@ int dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	void *buf);
 void dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 	const void *buf, dmu_tx_t *tx);
-int dmu_write_uio(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
-    struct uio *uio, dmu_tx_t *tx);
+int dmu_read_uio(objset_t *os, uint64_t object, struct uio *uio, uint64_t size);
+int dmu_write_uio(objset_t *os, uint64_t object, struct uio *uio, uint64_t size,
+    dmu_tx_t *tx);
 int dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset,
     uint64_t size, struct page *pp, dmu_tx_t *tx);
 

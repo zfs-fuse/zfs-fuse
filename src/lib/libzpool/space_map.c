@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -97,6 +97,13 @@ space_map_add(space_map_t *sm, uint64_t start, uint64_t size)
 	ssearch.ss_end = end;
 	ss = avl_find(&sm->sm_root, &ssearch, &where);
 
+	if (ss != NULL && ss->ss_start <= start && ss->ss_end >= end) {
+		zfs_panic_recover("zfs: allocating allocated segment"
+		    "(offset=%llu size=%llu)\n",
+		    (longlong_t)start, (longlong_t)size);
+		return;
+	}
+
 	/* Make sure we don't overlap with either of our neighbors */
 	VERIFY(ss == NULL);
 
@@ -142,7 +149,12 @@ space_map_remove(space_map_t *sm, uint64_t start, uint64_t size)
 	ss = avl_find(&sm->sm_root, &ssearch, &where);
 
 	/* Make sure we completely overlap with someone */
-	VERIFY(ss != NULL);
+	if (ss == NULL) {
+		zfs_panic_recover("zfs: freeing free segment "
+		    "(offset=%llu size=%llu)",
+		    (longlong_t)start, (longlong_t)size);
+		return;
+	}
 	VERIFY3U(ss->ss_start, <=, start);
 	VERIFY3U(ss->ss_end, >=, end);
 	VERIFY(sm->sm_space - size <= sm->sm_size);
@@ -284,10 +296,8 @@ space_map_load(space_map_t *sm, space_map_ops_t *ops, uint8_t maptype,
 	space_map_obj_t *smo, objset_t *os)
 {
 	uint64_t *entry, *entry_map, *entry_map_end;
-	uint64_t bufsize, size, offset;
+	uint64_t bufsize, size, offset, end, space;
 	uint64_t mapstart = sm->sm_start;
-	uint64_t end = smo->smo_objsize;
-	uint64_t space = smo->smo_alloc;
 
 	ASSERT(MUTEX_HELD(sm->sm_lock));
 
@@ -297,6 +307,8 @@ space_map_load(space_map_t *sm, space_map_ops_t *ops, uint8_t maptype,
 		return (0);
 
 	sm->sm_loading = B_TRUE;
+	end = smo->smo_objsize;
+	space = smo->smo_alloc;
 
 	ASSERT(sm->sm_ops == NULL);
 	VERIFY3U(sm->sm_space, ==, 0);

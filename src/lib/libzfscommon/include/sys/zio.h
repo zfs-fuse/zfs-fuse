@@ -18,8 +18,9 @@
  *
  * CDDL HEADER END
  */
+
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -91,6 +92,15 @@ enum zio_compress {
 	ZIO_COMPRESS_OFF,
 	ZIO_COMPRESS_LZJB,
 	ZIO_COMPRESS_EMPTY,
+	ZIO_COMPRESS_GZIP_1,
+	ZIO_COMPRESS_GZIP_2,
+	ZIO_COMPRESS_GZIP_3,
+	ZIO_COMPRESS_GZIP_4,
+	ZIO_COMPRESS_GZIP_5,
+	ZIO_COMPRESS_GZIP_6,
+	ZIO_COMPRESS_GZIP_7,
+	ZIO_COMPRESS_GZIP_8,
+	ZIO_COMPRESS_GZIP_9,
 	ZIO_COMPRESS_FUNCTIONS
 };
 
@@ -113,6 +123,7 @@ enum zio_compress {
 #define	ZIO_FLAG_CANFAIL		0x00001
 #define	ZIO_FLAG_FAILFAST		0x00002
 #define	ZIO_FLAG_CONFIG_HELD		0x00004
+#define	ZIO_FLAG_CONFIG_GRABBED		0x00008
 
 #define	ZIO_FLAG_DONT_CACHE		0x00010
 #define	ZIO_FLAG_DONT_QUEUE		0x00020
@@ -131,6 +142,8 @@ enum zio_compress {
 
 #define	ZIO_FLAG_NOBOOKMARK		0x10000
 #define	ZIO_FLAG_USER			0x20000
+
+#define	ZIO_FLAG_METADATA		0x40000
 
 #define	ZIO_FLAG_GANG_INHERIT		\
 	(ZIO_FLAG_CANFAIL |		\
@@ -206,6 +219,7 @@ struct zio {
 	zio_t		*io_logical;
 
 	/* Callback info */
+	zio_done_func_t	*io_ready;
 	zio_done_func_t	*io_done;
 	void		*io_private;
 	blkptr_t	io_bp_orig;
@@ -261,8 +275,8 @@ extern zio_t *zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
 
 extern zio_t *zio_write(zio_t *pio, spa_t *spa, int checksum, int compress,
     int ncopies, uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
-    zio_done_func_t *done, void *private, int priority, int flags,
-    zbookmark_t *zb);
+    zio_done_func_t *ready, zio_done_func_t *done, void *private, int priority,
+    int flags, zbookmark_t *zb);
 
 extern zio_t *zio_rewrite(zio_t *pio, spa_t *spa, int checksum,
     uint64_t txg, blkptr_t *bp, void *data, uint64_t size,

@@ -272,6 +272,7 @@ typedef struct blkptr {
 #define	BP_IDENTITY(bp)		(&(bp)->blk_dva[0])
 #define	BP_IS_GANG(bp)		DVA_GET_GANG(BP_IDENTITY(bp))
 #define	BP_IS_HOLE(bp)		((bp)->blk_birth == 0)
+#define	BP_IS_OLDER(bp, txg)	(!BP_IS_HOLE(bp) && (bp)->blk_birth < (txg))
 
 #define	BP_ZERO(bp)				\
 {						\
@@ -354,7 +355,6 @@ extern int spa_scrub(spa_t *spa, pool_scrub_type_t type, boolean_t force);
 extern void spa_scrub_suspend(spa_t *spa);
 extern void spa_scrub_resume(spa_t *spa);
 extern void spa_scrub_restart(spa_t *spa, uint64_t txg);
-extern void spa_scrub_throttle(spa_t *spa, int direction);
 
 /* spa syncing */
 extern void spa_sync(spa_t *spa, uint64_t txg); /* only for DMU use */
@@ -457,20 +457,25 @@ extern int spa_get_errlog(spa_t *spa, void *uaddr, size_t *count);
 extern void spa_errlog_rotate(spa_t *spa);
 extern void spa_errlog_drain(spa_t *spa);
 extern void spa_errlog_sync(spa_t *spa, uint64_t txg);
-extern int spa_bookmark_name(spa_t *spa, struct zbookmark *zb,
-    nvlist_t *nvl);
 extern void spa_get_errlists(spa_t *spa, avl_tree_t *last, avl_tree_t *scrub);
 
 /* Initialization and termination */
 extern void spa_init(int flags);
 extern void spa_fini(void);
 
+/* properties */
+extern int spa_set_props(spa_t *spa, nvlist_t *nvp);
+extern int spa_get_props(spa_t *spa, nvlist_t **nvp);
+extern void spa_clear_bootfs(spa_t *spa, uint64_t obj, dmu_tx_t *tx);
+extern boolean_t spa_has_bootfs(spa_t *spa);
+
 #ifdef ZFS_DEBUG
-#define	dprintf_bp(bp, fmt, ...) do {			\
-	if (zfs_flags & ZFS_DEBUG_DPRINTF) { 		\
-	char __blkbuf[BP_SPRINTF_LEN];			\
-	sprintf_blkptr(__blkbuf, BP_SPRINTF_LEN, (bp));	\
-	dprintf(fmt " %s\n", __VA_ARGS__, __blkbuf);	\
+#define	dprintf_bp(bp, fmt, ...) do {				\
+	if (zfs_flags & ZFS_DEBUG_DPRINTF) { 			\
+	char *__blkbuf = kmem_alloc(BP_SPRINTF_LEN, KM_SLEEP);	\
+	sprintf_blkptr(__blkbuf, BP_SPRINTF_LEN, (bp));		\
+	dprintf(fmt " %s\n", __VA_ARGS__, __blkbuf);		\
+	kmem_free(__blkbuf, BP_SPRINTF_LEN);			\
 	} \
 _NOTE(CONSTCOND) } while (0)
 #else

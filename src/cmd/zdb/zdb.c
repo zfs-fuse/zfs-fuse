@@ -802,60 +802,6 @@ dump_bplist(objset_t *mos, uint64_t object, char *name)
 	bplist_close(&bpl);
 }
 
-static char *
-znode_path(objset_t *os, uint64_t object, char *pathbuf, size_t size)
-{
-	dmu_buf_t *db;
-	dmu_object_info_t doi;
-	znode_phys_t *zp;
-	uint64_t parent = 0;
-	size_t complen;
-	char component[MAXNAMELEN + 1];
-	char *path;
-	int error;
-
-	path = pathbuf + size;
-	*--path = '\0';
-
-	for (;;) {
-		error = dmu_bonus_hold(os, object, FTAG, &db);
-		if (error)
-			break;
-
-		dmu_object_info_from_db(db, &doi);
-		zp = db->db_data;
-		parent = zp->zp_parent;
-		dmu_buf_rele(db, FTAG);
-
-		if (doi.doi_bonus_type != DMU_OT_ZNODE)
-			break;
-
-		if (parent == object) {
-			if (path[0] != '/')
-				*--path = '/';
-			return (path);
-		}
-
-		if (zap_value_search(os, parent, object, component) != 0)
-			break;
-
-		complen = strlen(component);
-		path -= complen;
-		bcopy(component, path, complen);
-		*--path = '/';
-
-		object = parent;
-	}
-
-	(void) sprintf(component, "\?\?\?<object#%llu>", (u_longlong_t)object);
-
-	complen = strlen(component);
-	path -= complen;
-	bcopy(component, path, complen);
-
-	return (path);
-}
-
 /*ARGSUSED*/
 static void
 dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
@@ -863,12 +809,18 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 	znode_phys_t *zp = data;
 	time_t z_crtime, z_atime, z_mtime, z_ctime;
 	char path[MAXPATHLEN * 2];	/* allow for xattr and failure prefix */
+	int error;
 
 	ASSERT(size >= sizeof (znode_phys_t));
 
+	error = zfs_obj_to_path(os, object, path, sizeof (path));
+	if (error != 0) {
+		(void) snprintf(path, sizeof (path), "\?\?\?<object#%llu>",
+		    (u_longlong_t)object);
+	}
+
 	if (dump_opt['d'] < 3) {
-		(void) printf("\t%s\n",
-		    znode_path(os, object, path, sizeof (path)));
+		(void) printf("\t%s\n", path);
 		return;
 	}
 
@@ -877,8 +829,7 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 	z_mtime = (time_t)zp->zp_mtime[0];
 	z_ctime = (time_t)zp->zp_ctime[0];
 
-	(void) printf("\tpath	%s\n",
-	    znode_path(os, object, path, sizeof (path)));
+	(void) printf("\tpath	%s\n", path);
 	(void) printf("\tatime	%s", ctime(&z_atime));
 	(void) printf("\tmtime	%s", ctime(&z_mtime));
 	(void) printf("\tctime	%s", ctime(&z_ctime));
@@ -936,6 +887,7 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES] = {
 	dump_zap,		/* persistent error log		*/
 	dump_uint8,		/* SPA history			*/
 	dump_uint64,		/* SPA history offsets		*/
+	dump_zap,		/* Pool properties		*/
 };
 
 static void
@@ -980,11 +932,11 @@ dump_object(objset_t *os, uint64_t object, int verbosity, int *print_header)
 
 	if (doi.doi_checksum != ZIO_CHECKSUM_INHERIT || verbosity >= 6)
 		(void) snprintf(aux + strlen(aux), sizeof (aux), " (K=%s)",
-		zio_checksum_table[doi.doi_checksum].ci_name);
+		    zio_checksum_table[doi.doi_checksum].ci_name);
 
 	if (doi.doi_compress != ZIO_COMPRESS_INHERIT || verbosity >= 6)
 		(void) snprintf(aux + strlen(aux), sizeof (aux), " (Z=%s)",
-		zio_compress_table[doi.doi_compress].ci_name);
+		    zio_compress_table[doi.doi_compress].ci_name);
 
 	(void) printf("%10lld  %3u  %5s  %5s  %5s  %5s  %s%s\n",
 	    (u_longlong_t)object, doi.doi_indirection, iblk, dblk, lsize,
@@ -1066,21 +1018,21 @@ dump_dir(objset_t *os)
 
 	if (dds.dds_type == DMU_OST_META) {
 		dds.dds_creation_txg = TXG_INITIAL;
-		usedobjs = os->os->os_rootbp.blk_fill;
+		usedobjs = os->os->os_rootbp->blk_fill;
 		refdbytes =
 		    os->os->os_spa->spa_dsl_pool->dp_mos_dir->dd_used_bytes;
 	} else {
 		dmu_objset_space(os, &refdbytes, &scratch, &usedobjs, &scratch);
 	}
 
-	ASSERT3U(usedobjs, ==, os->os->os_rootbp.blk_fill);
+	ASSERT3U(usedobjs, ==, os->os->os_rootbp->blk_fill);
 
 	nicenum(refdbytes, numbuf);
 
 	if (verbosity >= 4) {
 		(void) strcpy(blkbuf, ", rootbp ");
 		sprintf_blkptr(blkbuf + strlen(blkbuf),
-		    BP_SPRINTF_LEN - strlen(blkbuf), &os->os->os_rootbp);
+		    BP_SPRINTF_LEN - strlen(blkbuf), os->os->os_rootbp);
 	} else {
 		blkbuf[0] = '\0';
 	}
@@ -1489,7 +1441,7 @@ zdb_blkptr_cb(traverse_blk_cache_t *bc, spa_t *spa, void *arg)
 		    (u_longlong_t)zb->zb_objset,
 		    (u_longlong_t)zb->zb_object,
 		    (u_longlong_t)blkid2offset(bc->bc_dnode,
-			zb->zb_level, zb->zb_blkid),
+		    zb->zb_level, zb->zb_blkid),
 		    blkbuf);
 	}
 

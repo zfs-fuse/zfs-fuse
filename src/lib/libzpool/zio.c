@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -63,6 +63,9 @@ char *zio_type_name[ZIO_TYPES] = {
 
 /* At or above this size, force gang blocking - for testing */
 uint64_t zio_gang_bang = SPA_MAXBLOCKSIZE + 1;
+
+/* Force an allocation failure when non-zero */
+uint16_t zio_zil_fail_shift = 0;
 
 typedef struct zio_sync_pass {
 	int	zp_defer_free;		/* defer frees after this pass */
@@ -230,6 +233,7 @@ zio_data_buf_free(void *buf, size_t size)
 
 	kmem_cache_free(zio_data_buf_cache[c], buf);
 }
+
 /*
  * ==========================================================================
  * Push and pop I/O transform buffers
@@ -320,15 +324,43 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	mutex_init(&zio->io_lock, NULL, MUTEX_DEFAULT, NULL);
 	zio_push_transform(zio, data, size, size);
 
+	/*
+	 * Note on config lock:
+	 *
+	 * If CONFIG_HELD is set, then the caller already has the config
+	 * lock, so we don't need it for this io.
+	 *
+	 * We set CONFIG_GRABBED to indicate that we have grabbed the
+	 * config lock on behalf of this io, so it should be released
+	 * in zio_done.
+	 *
+	 * Unless CONFIG_HELD is set, we will grab the config lock for
+	 * any top-level (parent-less) io, *except* NULL top-level ios.
+	 * The NULL top-level ios rarely have any children, so we delay
+	 * grabbing the lock until the first child is added (but it is
+	 * still grabbed on behalf of the top-level i/o, so additional
+	 * children don't need to also grab it).  This greatly reduces
+	 * contention on the config lock.
+	 */
 	if (pio == NULL) {
-		if (!(flags & ZIO_FLAG_CONFIG_HELD))
+		if (type != ZIO_TYPE_NULL &&
+		    !(flags & ZIO_FLAG_CONFIG_HELD)) {
 			spa_config_enter(zio->io_spa, RW_READER, zio);
+			zio->io_flags |= ZIO_FLAG_CONFIG_GRABBED;
+		}
 		zio->io_root = zio;
 	} else {
 		zio->io_root = pio->io_root;
 		if (!(flags & ZIO_FLAG_NOBOOKMARK))
 			zio->io_logical = pio->io_logical;
 		mutex_enter(&pio->io_lock);
+		if (pio->io_parent == NULL &&
+		    pio->io_type == ZIO_TYPE_NULL &&
+		    !(pio->io_flags & ZIO_FLAG_CONFIG_GRABBED) &&
+		    !(pio->io_flags & ZIO_FLAG_CONFIG_HELD)) {
+			pio->io_flags |= ZIO_FLAG_CONFIG_GRABBED;
+			spa_config_enter(zio->io_spa, RW_READER, pio);
+		}
 		if (stage < ZIO_STAGE_READY)
 			pio->io_children_notready++;
 		pio->io_children_notdone++;
@@ -406,8 +438,8 @@ zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
 zio_t *
 zio_write(zio_t *pio, spa_t *spa, int checksum, int compress, int ncopies,
     uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
-    zio_done_func_t *done, void *private, int priority, int flags,
-    zbookmark_t *zb)
+    zio_done_func_t *ready, zio_done_func_t *done, void *private, int priority,
+    int flags, zbookmark_t *zb)
 {
 	zio_t *zio;
 
@@ -420,6 +452,8 @@ zio_write(zio_t *pio, spa_t *spa, int checksum, int compress, int ncopies,
 	zio = zio_create(pio, spa, txg, bp, data, size, done, private,
 	    ZIO_TYPE_WRITE, priority, flags | ZIO_FLAG_USER,
 	    ZIO_STAGE_OPEN, ZIO_WRITE_PIPELINE);
+
+	zio->io_ready = ready;
 
 	zio->io_bookmark = *zb;
 
@@ -781,6 +815,9 @@ zio_ready(zio_t *zio)
 {
 	zio_t *pio = zio->io_parent;
 
+	if (zio->io_ready)
+		zio->io_ready(zio);
+
 	if (pio != NULL)
 		zio_notify_parent(zio, ZIO_STAGE_WAIT_CHILDREN_READY,
 		    &pio->io_children_notready);
@@ -798,7 +835,6 @@ zio_done(zio_t *zio)
 	spa_t *spa = zio->io_spa;
 	blkptr_t *bp = zio->io_bp;
 	vdev_t *vd = zio->io_vd;
-	char blkbuf[BP_SPRINTF_LEN];
 
 	ASSERT(zio->io_children_notready == 0);
 	ASSERT(zio->io_children_notdone == 0);
@@ -850,18 +886,22 @@ zio_done(zio_t *zio)
 		 * For I/O requests that cannot fail, panic appropriately.
 		 */
 		if (!(zio->io_flags & ZIO_FLAG_CANFAIL)) {
-			sprintf_blkptr(blkbuf, BP_SPRINTF_LEN,
-			    bp ? bp : &zio->io_bp_copy);
+			char *blkbuf;
+
+			blkbuf = kmem_alloc(BP_SPRINTF_LEN, KM_NOSLEEP);
+			if (blkbuf) {
+				sprintf_blkptr(blkbuf, BP_SPRINTF_LEN,
+				    bp ? bp : &zio->io_bp_copy);
+			}
 			panic("ZFS: %s (%s on %s off %llx: zio %p %s): error "
 			    "%d", zio->io_error == ECKSUM ?
 			    "bad checksum" : "I/O failure",
 			    zio_type_name[zio->io_type],
 			    vdev_description(vd),
 			    (u_longlong_t)zio->io_offset,
-			    zio, blkbuf, zio->io_error);
+			    zio, blkbuf ? blkbuf : "", zio->io_error);
 		}
 	}
-
 	zio_clear_transform_stack(zio);
 
 	if (zio->io_done)
@@ -888,7 +928,12 @@ zio_done(zio_t *zio)
 		    &pio->io_children_notdone);
 	}
 
-	if (pio == NULL && !(zio->io_flags & ZIO_FLAG_CONFIG_HELD))
+	/*
+	 * Note: this I/O is now done, and will shortly be
+	 * kmem_free()'d, so there is no need to clear this (or any
+	 * other) flag.
+	 */
+	if (zio->io_flags & ZIO_FLAG_CONFIG_GRABBED)
 		spa_config_exit(spa, zio);
 
 	if (zio->io_waiter != NULL) {
@@ -959,10 +1004,8 @@ zio_write_compress(zio_t *zio)
 		BP_SET_COMPRESS(bp, compress);
 		zio->io_pipeline = ZIO_REWRITE_PIPELINE;
 	} else {
-		if (bp->blk_birth == zio->io_txg) {
-			ASSERT3U(BP_GET_LSIZE(bp), ==, lsize);
-			bzero(bp, sizeof (blkptr_t));
-		}
+		if (bp->blk_birth == zio->io_txg)
+			BP_ZERO(bp);
 		if (csize == 0) {
 			BP_ZERO(bp);
 			zio->io_pipeline = ZIO_WAIT_FOR_CHILDREN_PIPELINE;
@@ -1455,7 +1498,8 @@ zio_vdev_io_assess(zio_t *zio)
 
 		zio->io_retries++;
 		zio->io_error = 0;
-		zio->io_flags &= ZIO_FLAG_VDEV_INHERIT;
+		zio->io_flags &= ZIO_FLAG_VDEV_INHERIT |
+		    ZIO_FLAG_CONFIG_GRABBED;
 		/* XXPOLICY */
 		zio->io_flags &= ~ZIO_FLAG_FAILFAST;
 		zio->io_flags |= ZIO_FLAG_DONT_CACHE;
@@ -1656,7 +1700,18 @@ zio_next_stage(zio_t *zio)
 	ASSERT(zio->io_stage <= ZIO_STAGE_DONE);
 	ASSERT(zio->io_stalled == 0);
 
-	zio_pipeline[zio->io_stage](zio);
+	/*
+	 * See the comment in zio_next_stage_async() about per-CPU taskqs.
+	 */
+	if (((1U << zio->io_stage) & zio->io_async_stages) &&
+	    (zio->io_stage == ZIO_STAGE_WRITE_COMPRESS) &&
+	    !(zio->io_flags & ZIO_FLAG_METADATA)) {
+		taskq_t *tq = zio->io_spa->spa_zio_issue_taskq[zio->io_type];
+		(void) taskq_dispatch(tq,
+		    (task_func_t *)zio_pipeline[zio->io_stage], zio, TQ_SLEEP);
+	} else {
+		zio_pipeline[zio->io_stage](zio);
+	}
 }
 
 void
@@ -1708,6 +1763,14 @@ zio_next_stage_async(zio_t *zio)
 	}
 }
 
+static boolean_t
+zio_alloc_should_fail(void)
+{
+	static uint16_t	allocs = 0;
+
+	return (P2PHASE(allocs++, 1U<<zio_zil_fail_shift) == 0);
+}
+
 /*
  * Try to allocate an intent log block.  Return 0 on success, errno on failure.
  */
@@ -1718,6 +1781,11 @@ zio_alloc_blk(spa_t *spa, uint64_t size, blkptr_t *new_bp, blkptr_t *old_bp,
 	int error;
 
 	spa_config_enter(spa, RW_READER, FTAG);
+
+	if (zio_zil_fail_shift && zio_alloc_should_fail()) {
+		spa_config_exit(spa, FTAG);
+		return (ENOSPC);
+	}
 
 	/*
 	 * We were passed the previous log blocks dva_t in bp->blk_dva[0].
