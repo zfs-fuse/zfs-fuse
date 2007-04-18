@@ -1,0 +1,43 @@
+Status
+------
+
+What should be working:
+- Creation, modification and destruction of ZFS pools, filesystems, snapshots
+and clones.
+- Dynamic striping (RAID-0), mirroring (RAID-1), RAID-Z and RAID-Z2.
+It supports any vdev configuration which is supported by the original Solaris
+implementation.
+- You can use any block device or file as a vdev (except files stored inside ZFS
+itself).
+- Compression, checksumming, error detection, self-healing (on redundant pools).
+- Quotas and reservations.
+- Backups/restores (with zfs send/recv)
+
+What isn't working yet (expected version):
+
+- Mount options (0.4.0).
+- File locks (0.4.0).
+- Maximum memory usage is not adjustable (0.4.0).
+- Nested pools -- creating a pool on a file stored on another
+pool (probably 0.4.0).
+- ACLs and extended attributes (0.5.0). ACLs created in Solaris
+should be enforced.
+- The .zfs control directory is not working, so you can't
+navigate snapshot filesystems (0.5.0). As a workaround, you can clone a
+snapshot (see zfs clone).
+- NFS exporting (probably 0.5.0).
+- ISCSI exporting (I have no idea).
+
+0.5.0 will probably be renamed to 1.0.0 after extensive testing.
+
+What can't be done right now:
+- Remount filesystems (FUSE limitation).
+- Have better than 1-second granularity on file times (FUSE limitation).
+
+What will probably never work:
+- Storing swap files in a ZFS filesystem. This will deadlock your kernel. The
+FUSE support for swap is incompatible with ZFS due to copy-on-write and
+checksumming.
+- ZVols - limited usefulness. Might implement it as a file in the .zfs control
+dir in a future version, if people really want it (swap won't work on ZVols
+anyway).

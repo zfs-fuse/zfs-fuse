@@ -1,0 +1,17 @@
+Import('env')
+
+BuildDir('build-user', '.')
+BuildDir('build-kernel', '.')
+
+objects = Split('adler32.c crc32.c deflate.c inffast.c inflate.c inftrees.c trees.c zmod.c zmod_subr.c zutil.c')
+
+objects_user = ['build-user/' + o for o in objects]
+objects_kernel = ['build-kernel/' + o for o in objects]
+
+cpppath_user = Split('. #lib/libsolcompat/include #lib/libumem/include')
+cpppath_kernel = Split('. #lib/libsolkerncompat/include #lib/libumem/include')
+
+ccflags_kernel = ['-D_KERNEL']
+
+env.StaticLibrary('libzmod-user', objects_user, CPPPATH = env['CPPPATH'] + cpppath_user)
+env.StaticLibrary('libzmod-kernel', objects_kernel, CPPPATH = env['CPPPATH'] + cpppath_kernel, CCFLAGS = env['CCFLAGS'] + ccflags_kernel)

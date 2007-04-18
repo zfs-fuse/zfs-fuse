@@ -87,7 +87,7 @@ zio_sync_pass_t zio_sync_pass = {
 kmem_cache_t *zio_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 kmem_cache_t *zio_data_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 
-#ifdef _KERNEL
+#if 0
 extern vmem_t *zio_alloc_arena;
 #endif
 
@@ -97,7 +97,7 @@ zio_init(void)
 	size_t c;
 	vmem_t *data_alloc_arena = NULL;
 
-#ifdef _KERNEL
+#if 0
 	data_alloc_arena = zio_alloc_arena;
 #endif
 
@@ -822,7 +822,7 @@ zio_ready(zio_t *zio)
 		zio_notify_parent(zio, ZIO_STAGE_WAIT_CHILDREN_READY,
 		    &pio->io_children_notready);
 
-	if (zio->io_bp)
+	if (zio->io_bp && zio->io_bp != &zio->io_bp_copy)
 		zio->io_bp_copy = *zio->io_bp;
 
 	zio_next_stage(zio);

@@ -42,6 +42,7 @@
 #include <unistd.h>
 #include <priv.h>
 #include <sys/fs/zfs.h>
+#include <zfsfuse.h>
 
 #include <sys/stat.h>
 
@@ -1215,7 +1216,7 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
  *       import [-R root] [-D] [-d dir] [-f] -a
  *       import [-R root] [-D] [-d dir] [-f] <pool | id> [newpool]
  *
- *       -d	Scan in a specific directory, other than /dev/dsk.  More than
+ *       -d	Scan in a specific directory, other than /dev.  More than
  *		one directory can be specified using multiple '-d' options.
  *
  *       -D     Scan for previously destroyed pools or import all or only
@@ -1301,7 +1302,7 @@ zpool_do_import(int argc, char **argv)
 
 	if (searchdirs == NULL) {
 		searchdirs = safe_malloc(sizeof (char *));
-		searchdirs[0] = "/dev/dsk";
+		searchdirs[0] = "/dev";
 		nsearch = 1;
 	}
 
@@ -2067,10 +2068,10 @@ zpool_get_vdev_by_name(nvlist_t *nv, char *name)
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) != 0) {
 		verify(nvlist_lookup_string(nv, ZPOOL_CONFIG_PATH, &path) == 0);
-		if (strncmp(name, "/dev/dsk/", 9) == 0)
-			name += 9;
-		if (strncmp(path, "/dev/dsk/", 9) == 0)
-			path += 9;
+		if (strncmp(name, "/dev/", 5) == 0)
+			name += 5;
+		if (strncmp(path, "/dev/", 5) == 0)
+			path += 5;
 		if (strcmp(name, path) == 0)
 			return (nv);
 		return (NULL);
@@ -3539,7 +3540,8 @@ main(int argc, char **argv)
 	 */
 	if (strcmp(cmdname, "freeze") == 0 && argc == 3) {
 		char buf[16384];
-		int fd = open(ZFS_DEV, O_RDWR);
+		/* zfs-fuse: zfsfuse_open() connects to the UNIX domain socket */
+		int fd = zfsfuse_open(ZFS_DEV_NAME, O_RDWR);
 		(void) strcpy((void *)buf, argv[2]);
 		return (!!ioctl(fd, ZFS_IOC_POOL_FREEZE, buf));
 	}

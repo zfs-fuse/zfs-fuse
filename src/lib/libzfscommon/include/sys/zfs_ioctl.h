@@ -46,6 +46,37 @@ extern "C" {
 #define	DMU_BACKUP_MAGIC 0x2F5bacbacULL
 
 /*
+ * zfs-fuse socket messages
+ */
+typedef struct {
+	enum {
+		IOCTL_REQ, IOCTL_ANS, COPYIN_REQ, COPYOUT_REQ, MOUNT_REQ, GETF_REQ
+	} cmd_type;
+	union {
+		struct ioctl_req {
+			int32_t cmd;
+			uint64_t arg;
+		} ioctl_req;
+
+		int32_t ioctl_ans_ret;
+
+		struct copy_req {
+			uint64_t ptr;
+			uint64_t size;
+		} copy_req;
+
+		struct mount_req {
+			uint32_t speclen;
+			uint32_t dirlen;
+			int32_t mflag;
+			int32_t optlen;
+		} mount_req;
+
+		int32_t getf_req_fd;
+	} cmd_u;
+} zfsfuse_cmd_t;
+
+/*
  * zfs ioctl command structure
  */
 typedef struct dmu_replay_record {

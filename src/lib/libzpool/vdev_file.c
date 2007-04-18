@@ -65,13 +65,14 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	    0, &vp, 0, 0, rootdir);
 
 	if (error) {
+		dprintf("vdev_file_open(): vn_openat() returned error %i\n", error);
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
 		return (error);
 	}
 
 	vf->vf_vnode = vp;
 
-#ifdef _KERNEL
+#if 0
 	/*
 	 * Make sure it's a regular file.
 	 */
@@ -87,6 +88,7 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	vattr.va_mask = AT_SIZE;
 	error = VOP_GETATTR(vp, &vattr, 0, kcred);
 	if (error) {
+		dprintf("vdev_file_open(): VOP_GETATTR() returned error %i\n", error);
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
 		return (error);
 	}
@@ -209,7 +211,7 @@ vdev_ops_t vdev_file_ops = {
 /*
  * From userland we access disks just like files.
  */
-#ifndef _KERNEL
+#if 1
 
 vdev_ops_t vdev_disk_ops = {
 	vdev_file_open,
