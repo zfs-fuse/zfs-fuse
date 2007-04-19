@@ -140,6 +140,9 @@ int zpool_iter_zvol(zpool_handle_t *, int (*)(const char *, void *), void *);
 
 void namespace_clear(libzfs_handle_t *);
 
+/* ZFSFUSE */
+int zfsfuse_mount(libzfs_handle_t *hdl, const char *spec, const char *dir, int mflag, char *fstype, char *dataptr, int datalen, char *optptr, int optlen);
+
 #ifdef	__cplusplus
 }
 #endif

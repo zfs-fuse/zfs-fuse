@@ -28,8 +28,20 @@
 
 #include <sys/systm.h>
 #include <sys/cmn_err.h>
-#include <sys/kobj.h>
-#include <sys/kobj_impl.h>
+
+#ifdef _KERNEL
+#include <sys/kmem.h>
+#else
+#include <umem.h>
+
+#define KM_NOSLEEP UMEM_DEFAULT
+
+#define kmem_zalloc(a,b) umem_alloc(a,b)
+#define kmem_free(a,b) umem_free(a,b)
+
+#define panic(a,b,c) abort()
+
+#endif
 
 struct zchdr {
 	uint_t zch_magic;
@@ -43,7 +55,7 @@ void *
 zcalloc(void *opaque, uint_t items, uint_t size)
 {
 	size_t nbytes = sizeof (struct zchdr) + items * size;
-	struct zchdr *z = kobj_zalloc(nbytes, KM_NOWAIT|KM_TMP);
+	struct zchdr *z = kmem_zalloc(nbytes, KM_NOSLEEP);
 
 	if (z == NULL)
 		return (NULL);
@@ -63,7 +75,7 @@ zcfree(void *opaque, void *ptr)
 	if (z->zch_magic != ZCH_MAGIC)
 		panic("zcfree region corrupt: hdr=%p ptr=%p", (void *)z, ptr);
 
-	kobj_free(z, z->zch_size);
+	kmem_free(z, z->zch_size);
 }
 
 void

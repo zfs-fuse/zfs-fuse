@@ -125,6 +125,9 @@ changelist_prefix(prop_changelist_t *clp)
 				 */
 				(void) zfs_unshare_iscsi(cn->cn_handle);
 				break;
+
+			default:
+				break;
 			}
 		} else if (zfs_unmount(cn->cn_handle, NULL, clp->cl_flags) != 0)
 			ret = -1;

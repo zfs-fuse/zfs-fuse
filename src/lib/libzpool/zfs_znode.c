@@ -51,6 +51,8 @@
 #include <sys/zfs_ioctl.h>
 #include <sys/zfs_rlock.h>
 #include <sys/fs/zfs.h>
+
+kmem_cache_t *znode_cache = NULL;
 #endif /* _KERNEL */
 
 #include <sys/dmu.h>
@@ -65,7 +67,6 @@
  * (such as VFS logic) that will not compile easily in userland.
  */
 #ifdef _KERNEL
-struct kmem_cache *znode_cache = NULL;
 
 /*ARGSUSED*/
 static void
@@ -146,7 +147,8 @@ zfs_znode_fini(void)
 	/*
 	 * Cleanup vfs & vnode ops
 	 */
-	zfs_remove_op_tables();
+	/* ZFSFUSE: TODO */
+	/* zfs_remove_op_tables(); */
 
 	/*
 	 * Cleanup zcache
@@ -245,13 +247,10 @@ zfs_create_op_tables()
 int
 zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 {
-	extern int zfsfstype;
-
 	objset_t	*os = zfsvfs->z_os;
 	uint64_t	version = ZPL_VERSION;
 	int		i, error;
 	dmu_object_info_t doi;
-	uint64_t fsid_guid;
 
 	*zpp = NULL;
 
@@ -291,11 +290,14 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 	 * The 8-bit fs type must be put in the low bits of fsid[1]
 	 * because that's where other Solaris filesystems put it.
 	 */
+	/* ZFSFUSE: not needed */
+#if 0
 	fsid_guid = dmu_objset_fsid_guid(os);
 	ASSERT((fsid_guid & ~((1ULL<<56)-1)) == 0);
 	zfsvfs->z_vfs->vfs_fsid.val[0] = fsid_guid;
 	zfsvfs->z_vfs->vfs_fsid.val[1] = ((fsid_guid>>32) << 8) |
 	    zfsfstype & 0xFF;
+#endif
 
 	error = zap_lookup(os, MASTER_NODE_OBJ, ZFS_ROOT_OBJ, 8, 1,
 	    &zfsvfs->z_root);
@@ -351,7 +353,8 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 static uint64_t
 zfs_expldev(dev_t dev)
 {
-#ifndef _LP64
+/* ZFSFUSE: dev_t is always 64 bits in linux */
+#if 0
 	major_t major = (major_t)dev >> NBITSMINOR32 & MAXMAJ32;
 	return (((uint64_t)major << NBITSMINOR64) |
 	    ((minor_t)dev & MAXMIN32));
@@ -370,7 +373,8 @@ zfs_expldev(dev_t dev)
 dev_t
 zfs_cmpldev(uint64_t dev)
 {
-#ifndef _LP64
+/* ZFSFUSE: dev_t is always 64 bits in linux */
+#if 0
 	minor_t minor = (minor_t)dev & MAXMIN64;
 	major_t major = (major_t)(dev >> NBITSMINOR64) & MAXMAJ64;
 
@@ -877,6 +881,7 @@ zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx)
  * a file, the pages being "thrown away* don't need to be written out.
  */
 /* ARGSUSED */
+#if 0
 static int
 zfs_no_putpage(vnode_t *vp, page_t *pp, u_offset_t *offp, size_t *lenp,
     int flags, cred_t *cr)
@@ -884,6 +889,7 @@ zfs_no_putpage(vnode_t *vp, page_t *pp, u_offset_t *offp, size_t *lenp,
 	ASSERT(0);
 	return (0);
 }
+#endif
 
 /*
  * Free space in a file.
@@ -1020,6 +1026,9 @@ zfs_freesp(znode_t *zp, uint64_t off, uint64_t len, int flag, boolean_t log)
 	 */
 	rw_enter(&zp->z_map_lock, RW_WRITER);
 	if (off < size && vn_has_cached_data(vp)) {
+		/* ZFSFUSE: not implemented */
+		abort();
+#if 0
 		page_t *pp;
 		uint64_t start = off & PAGEMASK;
 		int poff = off & PAGEOFFSET;
@@ -1035,6 +1044,7 @@ zfs_freesp(znode_t *zp, uint64_t off, uint64_t len, int flag, boolean_t log)
 		error = pvn_vplist_dirty(vp, start, zfs_no_putpage,
 		    B_INVAL | B_TRUNC, NULL);
 		ASSERT(error == 0);
+#endif
 	}
 	rw_exit(&zp->z_map_lock);
 

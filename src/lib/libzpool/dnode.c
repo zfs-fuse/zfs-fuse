@@ -516,7 +516,6 @@ dnode_buf_pageout(dmu_buf_t *db, void *arg)
 
 	for (i = 0; i < epb; i++) {
 		dnode_t *dn = children_dnodes[i];
-		int n;
 
 		if (dn == NULL)
 			continue;
@@ -531,7 +530,7 @@ dnode_buf_pageout(dmu_buf_t *db, void *arg)
 		ASSERT(list_head(&dn->dn_dbufs) == NULL);
 		ASSERT(refcount_is_zero(&dn->dn_tx_holds));
 
-		for (n = 0; n < TXG_SIZE; n++)
+		for (int n = 0; n < TXG_SIZE; n++)
 			ASSERT(!list_link_active(&dn->dn_dirty_link[n]));
 #endif
 		children_dnodes[i] = NULL;

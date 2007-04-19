@@ -28,6 +28,7 @@
 
 	.file	"%M%"
 
+#define _ASM
 #include <sys/asm_linkage.h>
 
 #if defined(_KERNEL)
@@ -695,3 +696,7 @@
 	SET_SIZE(membar_enter)
 
 #endif	/* !_KERNEL */
+
+#ifdef __ELF__
+.section .note.GNU-stack,"",%progbits
+#endif

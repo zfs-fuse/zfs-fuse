@@ -819,7 +819,7 @@ zpool_find_vdev(zpool_handle_t *zhp, const char *path, boolean_t *avail_spare)
 	if (guid != 0 && *end == '\0') {
 		search = NULL;
 	} else if (path[0] != '/') {
-		(void) snprintf(buf, sizeof (buf), "%s%s", "/dev/dsk/", path);
+		(void) snprintf(buf, sizeof (buf), "%s%s", "/dev/", path);
 		search = buf;
 	} else {
 		search = path;
@@ -1237,6 +1237,9 @@ int
 zpool_iter_zvol(zpool_handle_t *zhp, int (*cb)(const char *, void *),
     void *data)
 {
+	/* ZFSFUSE: not implemented */
+	return 0;
+#if 0
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 	char (*paths)[MAXPATHLEN];
 	size_t size = 4;
@@ -1329,6 +1332,7 @@ err:
 	free(paths);
 	(void) close(base);
 	return (-1);
+#endif
 }
 
 typedef struct zvol_cb {
@@ -1471,7 +1475,7 @@ set_path(zpool_handle_t *zhp, nvlist_t *nv, const char *path)
 
 /*
  * Given a vdev, return the name to display in iostat.  If the vdev has a path,
- * we use that, stripping off any leading "/dev/dsk/"; if not, we use the type.
+ * we use that, stripping off any leading "/dev/"; if not, we use the type.
  * We also check if this is a whole disk, in which case we strip off the
  * trailing 's0' slice name.
  *
@@ -1483,6 +1487,9 @@ set_path(zpool_handle_t *zhp, nvlist_t *nv, const char *path)
  * translation and issue the appropriate ioctl() to update the path of the vdev.
  * If 'zhp' is NULL, then this is an exported pool, and we don't need to do any
  * of these checks.
+ */
+/*
+ * zfs-fuse FIXME: Handle this properly
  */
 char *
 zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv)
@@ -1529,8 +1536,8 @@ zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv)
 				devid_str_free(newdevid);
 		}
 
-		if (strncmp(path, "/dev/dsk/", 9) == 0)
-			path += 9;
+		if (strncmp(path, "/dev/", 5) == 0)
+			path += 5;
 
 		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_WHOLE_DISK,
 		    &value) == 0 && value) {
@@ -1617,6 +1624,8 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t **nverrlistp)
 	    zc.zc_nvlist_dst_size;
 	count -= zc.zc_nvlist_dst_size;
 
+	void *nvlist_dst = (void *)(uintptr_t) zc.zc_nvlist_dst;
+
 	qsort(zb, count, sizeof (zbookmark_t), zbookmark_compare);
 
 	verify(nvlist_alloc(nverrlistp, 0, KM_SLEEP) == 0);
@@ -1651,10 +1660,11 @@ zpool_get_errlog(zpool_handle_t *zhp, nvlist_t **nverrlistp)
 		nvlist_free(nv);
 	}
 
-	free((void *)(uintptr_t)zc.zc_nvlist_dst);
+	free(nvlist_dst);
 	return (0);
 
 nomem:
+	free(nvlist_dst);
 	free((void *)(uintptr_t)zc.zc_nvlist_dst);
 	return (no_memory(zhp->zpool_hdl));
 }
@@ -1867,7 +1877,7 @@ zpool_obj_to_path(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
 
 	if (dsobj == 0) {
 		/* special case for the MOS */
-		(void) snprintf(pathname, len, "<metadata>:<0x%llx>", obj);
+		(void) snprintf(pathname, len, "<metadata>:<0x%llx>", (u_longlong_t) obj);
 		return;
 	}
 
@@ -1878,7 +1888,7 @@ zpool_obj_to_path(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
 	    ZFS_IOC_DSOBJ_TO_DSNAME, &zc) != 0) {
 		/* just write out a path of two object numbers */
 		(void) snprintf(pathname, len, "<0x%llx>:<0x%llx>",
-		    dsobj, obj);
+		    (u_longlong_t) dsobj, (u_longlong_t) obj);
 		return;
 	}
 	(void) strlcpy(dsname, zc.zc_value, sizeof (dsname));
@@ -1899,7 +1909,7 @@ zpool_obj_to_path(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
 			    dsname, zc.zc_value);
 		}
 	} else {
-		(void) snprintf(pathname, len, "%s:<0x%llx>", dsname, obj);
+		(void) snprintf(pathname, len, "%s:<0x%llx>", dsname, (u_longlong_t) obj);
 	}
 	free(mntpnt);
 }

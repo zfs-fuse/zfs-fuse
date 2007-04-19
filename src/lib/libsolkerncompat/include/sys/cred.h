@@ -51,7 +51,7 @@ typedef struct cred cred_t;
 
 #ifdef _KERNEL
 
-#define	CRED()		curthread->t_cred
+#define	CRED()		NULL
 
 struct proc;				/* cred.h is included in proc.h */
 struct prcred;
