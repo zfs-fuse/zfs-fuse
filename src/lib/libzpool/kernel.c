@@ -789,7 +789,6 @@ kernel_fini(void)
 	spa_fini();
 }
 
-#if 0
 int
 z_uncompress(void *dst, size_t *dstlen, const void *src, size_t srclen)
 {
@@ -814,4 +813,3 @@ z_compress_level(void *dst, size_t *dstlen, const void *src, size_t srclen,
 
 	return (ret);
 }
-#endif
