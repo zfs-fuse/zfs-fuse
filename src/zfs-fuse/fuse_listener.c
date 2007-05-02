@@ -63,7 +63,7 @@ char *mountpoints[MAX_FDS];
 pthread_t fuse_threads[NUM_THREADS];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
-kmem_cache_t *file_info_cache;
+kmem_cache_t *file_info_cache = NULL;
 
 int zfsfuse_listener_init()
 {
@@ -84,7 +84,8 @@ int zfsfuse_listener_init()
 
 void zfsfuse_listener_exit()
 {
-	kmem_cache_destroy(file_info_cache);
+	if(file_info_cache != NULL)
+		kmem_cache_destroy(file_info_cache);
 
 	close(newfs_fd[0]);
 	close(newfs_fd[1]);
