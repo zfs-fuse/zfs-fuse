@@ -26,9 +26,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
+#include <getopt.h>
+
 #include "util.h"
 #include "fuse_listener.h"
 
+static const char *cf_pidfile = NULL;
 static int cf_daemonize = 1;
 
 static void exit_handler(int sig)
@@ -54,18 +57,62 @@ static int set_signal_handler(int sig, void (*handler)(int))
 	return 0;
 }
 
-/* fixme: really ugly */
+extern char *optarg;
+extern int optind, opterr, optopt;
+
+static struct option longopts[] = {
+	{ "no-daemon",
+	  0, /* has-arg */
+	  &cf_daemonize, /* flag */
+	  0 /* val */
+	},
+	{ "pidfile",
+	  1,
+	  NULL,
+	  'p'
+	},
+	{ "help",
+	  0,
+	  NULL,
+	  'h'
+	},
+	{ 0, 0, 0, 0 }
+};
+
+void print_usage(int argc, char *argv[]) {
+	const char *progname = "zfs-fuse";
+	if (argc > 0)
+		progname = argv[0];
+	fprintf(stderr, "Usage: %s [--no-daemon] [-p | --pidfile filename] [-h | --help]\n", progname);
+}
+
 static void parse_args(int argc, char *argv[])
 {
-	if (argc == 1) return;
-	if (argc == 2) {
-		if (!strcmp(argv[1], "--no-daemon")) {
-			cf_daemonize = 0;
-			return;
+	int retval;
+	while ((retval = getopt_long(argc, argv, "-hp:", longopts, NULL)) != -1) {
+		switch (retval) {
+			case 1: /* non-option argument passed (due to - in optstring) */
+			case 'h':
+			case '?':
+				print_usage(argc, argv);
+				exit(1);
+			case 'p':
+				if (cf_pidfile != NULL) {
+					print_usage(argc, argv);
+					exit(1);
+				}
+				cf_pidfile = optarg;
+				break;
+			case 0:
+				break; /* flag is not NULL */
+			default:
+				// This should never happen
+				fprintf(stderr, "Internal error: Unrecognized getopt_long return 0x%02x\n", retval);
+				print_usage(argc, argv);
+				exit(1);
+				break;
 		}
 	}
-	fprintf(stderr, "usage: %s [--no-daemon]\n", argv[0]);
-	exit(1);
 }
 
 int main(int argc, char *argv[])
@@ -73,7 +120,7 @@ int main(int argc, char *argv[])
 	parse_args(argc, argv);
 
 	if (cf_daemonize) {
-		do_daemon();
+		do_daemon(cf_pidfile);
 	}
 
 	if(do_init() != 0) {

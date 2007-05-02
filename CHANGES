@@ -7,7 +7,7 @@ Features:
 	* zpool status -v now displays paths of files with permanent errors (upstream).
 	* Ported to the sparc64 architecture (arkadi).
 	* Implemented zfs send/recv.
-	* Turned zfs-fuse into a real daemon (Cameron Patrick).
+	* Turned zfs-fuse into a real daemon (Cameron Patrick, Bryan Donlan).
 Bug fixes:
 	* Fix crash when using 'zpool status -v' to list errors.
 	* Allow suid files and device nodes to be stored on zfs (Cameron Patrick).

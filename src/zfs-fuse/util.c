@@ -54,28 +54,31 @@ int num_filesystems;
 extern vfsops_t *zfs_vfsops;
 extern int zfs_vfsinit(int fstype, char *name);
 
-/* fixme: should write a pid file */
-void do_daemon()
+void do_daemon(const char *pidfile)
 {
-	int n = open("/dev/null", O_RDONLY);
-	if (n < 0) {
-		perror("open /dev/null");
-	} else {
-		dup2(n, 0);
-		dup2(n, 1);
-		dup2(n, 2);
-		close(n);
-	}
-	pid_t pid = fork();
-	if (pid < 0) {
-		perror("fork");
-		return;
-	} else if (pid != 0) {
-		_exit(0);
+	chdir("/");
+	if (pidfile) {
+		struct stat dummy;
+		if (0 == stat(pidfile, &dummy)) {
+			fprintf(stderr, "zfs_fuse: %s already exists; aborting.\n", pidfile);
+			exit(1);
+		}
 	}
 
-	chdir("/");
-	setsid();
+	daemon(0, 0);
+
+	if (pidfile) {
+		FILE *f = fopen(pidfile, "w");
+		if (!f) exit(1); /* XXX: Ideally we should find a way to report this error */
+		if (fprintf(f, "%d\n", getpid()) < 0) {
+			unlink(pidfile);
+			exit(1);
+		}
+		if (fclose(f) != 0) {
+			unlink(pidfile);
+			exit(1);
+		}
+	}
 }
 
 int do_init()
