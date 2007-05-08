@@ -1,7 +1,7 @@
 Import('env')
 
-BuildDir('build-user', '.')
-BuildDir('build-kernel', '.')
+BuildDir('build-user', '.', duplicate = 0)
+BuildDir('build-kernel', '.', duplicate = 0)
 
 objects = Split('compress.c list.c zfs_namecheck.c zfs_prop.c')
 
