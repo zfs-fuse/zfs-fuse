@@ -872,6 +872,10 @@ static int zfsfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	   so we just pass NULL as the cwd parameter (no problem for ZFS) */
 	error = VOP_RMDIR(dvp, (char *) name, NULL, &cred);
 
+	/* Linux uses ENOTEMPTY when trying to remove a non-empty directory */
+	if(error == EEXIST)
+		error = ENOTEMPTY;
+
 	VN_RELE(dvp);
 	ZFS_EXIT(zfsvfs);
 
