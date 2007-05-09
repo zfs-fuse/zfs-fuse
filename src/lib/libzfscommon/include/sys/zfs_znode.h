@@ -52,6 +52,12 @@ extern "C" {
 #define	MASTER_NODE_OBJ	1
 
 /*
+ * zfs_zget_common() flags
+ */
+#define ZFS_ZGET_UNLINKED 0x1
+#define ZFS_ZGET_CREATE   0x2
+
+/*
  * special attributes for master node.
  */
 
@@ -255,6 +261,7 @@ extern void	zfs_grow_blocksize(znode_t *, uint64_t, dmu_tx_t *);
 extern int	zfs_freesp(znode_t *, uint64_t, uint64_t, int, boolean_t);
 extern void	zfs_znode_init(void);
 extern void	zfs_znode_fini(void);
+extern int	zfs_zget_common(zfsvfs_t *, uint64_t, znode_t **, int);
 extern int	zfs_zget(zfsvfs_t *, uint64_t, znode_t **);
 extern void	zfs_zinactive(znode_t *);
 extern void	zfs_znode_delete(znode_t *, dmu_tx_t *);

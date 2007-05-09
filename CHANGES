@@ -13,6 +13,7 @@ Bug fixes:
 	* Allow suid files and device nodes to be stored on zfs (Cameron Patrick).
 	* Fix segfault when trying to run as non-root (Ming Zhang).
 	* Linux compatibility fix when trying to remove non-empty directory.
+	* Fix unexpected return codes when working with unlinked files/directories.
 
 2007/03/06 - Release 0.4.0_beta1
 --------------------------------------------------
