@@ -187,7 +187,7 @@ zfs_dirent_lock(zfs_dirlock_t **dlpp, znode_t *dzp, char *name, znode_t **zpp,
 			zfs_dirent_unlock(dl);
 			return (EEXIST);
 		}
-		error = zfs_zget(zfsvfs, zoid, zpp);
+		error = zfs_zget(zfsvfs, zoid, zpp, B_FALSE);
 		if (error) {
 			zfs_dirent_unlock(dl);
 			return (error);
@@ -261,7 +261,7 @@ zfs_dirlook(znode_t *dzp, char *name, vnode_t **vpp)
 			return (error);
 		}
 		rw_enter(&dzp->z_parent_lock, RW_READER);
-		error = zfs_zget(zfsvfs, dzp->z_phys->zp_parent, &zp);
+		error = zfs_zget(zfsvfs, dzp->z_phys->zp_parent, &zp, B_FALSE);
 		if (error == 0)
 			*vpp = ZTOV(zp);
 		rw_exit(&dzp->z_parent_lock);
@@ -358,7 +358,7 @@ zfs_unlinked_drain(zfsvfs_t *zfsvfs)
 		 * We need to re-mark these list entries for deletion,
 		 * so we pull them back into core and set zp->z_unlinked.
 		 */
-		error = zfs_zget(zfsvfs, zap.za_first_integer, &zp);
+		error = zfs_zget(zfsvfs, zap.za_first_integer, &zp, B_FALSE);
 
 		/*
 		 * We may pick up znodes that are already marked for deletion.
@@ -400,7 +400,7 @@ zfs_purgedir(znode_t *dzp)
 	    (error = zap_cursor_retrieve(&zc, &zap)) == 0;
 	    zap_cursor_advance(&zc)) {
 		error = zfs_zget(zfsvfs,
-		    ZFS_DIRENT_OBJ(zap.za_first_integer), &xzp);
+		    ZFS_DIRENT_OBJ(zap.za_first_integer), &xzp, B_FALSE);
 		ASSERT3U(error, ==, 0);
 
 		ASSERT((ZTOV(xzp)->v_type == VREG) ||
@@ -465,7 +465,7 @@ zfs_rmnode(znode_t *zp)
 	 * the xattr dir.
 	 */
 	if (zp->z_phys->zp_xattr) {
-		error = zfs_zget(zfsvfs, zp->z_phys->zp_xattr, &xzp);
+		error = zfs_zget(zfsvfs, zp->z_phys->zp_xattr, &xzp, B_FALSE);
 		ASSERT(error == 0);
 	}
 

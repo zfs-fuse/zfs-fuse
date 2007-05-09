@@ -315,7 +315,7 @@ zfs_init_fs(zfsvfs_t *zfsvfs, znode_t **zpp, cred_t *cr)
 	for (i = 0; i != ZFS_OBJ_MTX_SZ; i++)
 		mutex_init(&zfsvfs->z_hold_mtx[i], NULL, MUTEX_DEFAULT, NULL);
 
-	error = zfs_zget(zfsvfs, zfsvfs->z_root, zpp);
+	error = zfs_zget(zfsvfs, zfsvfs->z_root, zpp, B_FALSE);
 	if (error)
 		return (error);
 	ASSERT3U((*zpp)->z_id, ==, zfsvfs->z_root);
@@ -639,7 +639,7 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, uint64_t *oid, dmu_tx_t *tx, cred_t *cr,
 }
 
 int
-zfs_zget_common(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp, int zget_flags)
+zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp, boolean_t zget_unlinked)
 {
 	dmu_object_info_t doi;
 	dmu_buf_t	*db;
@@ -674,7 +674,7 @@ zfs_zget_common(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp, int zget_flag
 		mutex_enter(&zp->z_lock);
 
 		ASSERT3U(zp->z_id, ==, obj_num);
-		if (zp->z_unlinked && !(zget_flags & ZFS_ZGET_UNLINKED)) {
+		if (zp->z_unlinked && !zget_unlinked) {
 			dmu_buf_rele(db, NULL);
 			mutex_exit(&zp->z_lock);
 			ZFS_OBJ_HOLD_EXIT(zfsvfs, obj_num);
@@ -697,24 +697,13 @@ zfs_zget_common(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp, int zget_flag
 	/*
 	 * Not found create new znode/vnode
 	 */
-	if(zget_flags & ZFS_ZGET_CREATE) {
-		zp = zfs_znode_alloc(zfsvfs, db, obj_num, doi.doi_data_block_size);
-		ASSERT3U(zp->z_id, ==, obj_num);
-		zfs_znode_dmu_init(zp);
-		ZFS_OBJ_HOLD_EXIT(zfsvfs, obj_num);
-		*zpp = zp;
-	} else {
-		ZFS_OBJ_HOLD_EXIT(zfsvfs, obj_num);
-		return (ENOENT);
-	}
+	zp = zfs_znode_alloc(zfsvfs, db, obj_num, doi.doi_data_block_size);
+	ASSERT3U(zp->z_id, ==, obj_num);
+	zfs_znode_dmu_init(zp);
+	ZFS_OBJ_HOLD_EXIT(zfsvfs, obj_num);
+	*zpp = zp;
 
 	return (0);
-}
-
-int
-zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp)
-{
-	return zfs_zget_common(zfsvfs, obj_num, zpp, ZFS_ZGET_CREATE);
 }
 
 void
