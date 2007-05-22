@@ -6,7 +6,7 @@ configure NFS exports manually, just like any other FUSE filesystem.
 
 You'll need FUSE 2.6.x and you'll need to compile the FUSE module
 manually in order to have NFS capability (the FUSE module in the
-official kernels don't support NFS).
+official kernels doesn't support NFS).
 
 There are also some other things you must do, see the README.NFS
 file in the FUSE-2.6.x source package for instructions.
