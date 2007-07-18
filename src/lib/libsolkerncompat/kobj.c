@@ -38,8 +38,12 @@ kobj_open_file(char *name)
 	struct _buf *file;
 	vnode_t *vp;
 
+	/*
+	 * This is only used by zpool.cache, so we open with FASYNC to indicate we
+	 * don't want direct I/O
+	 */
 	/* set vp as the _fd field of the file */
-	if (vn_openat(name, UIO_SYSSPACE, FREAD, 0, &vp, 0, 0, rootdir) != 0)
+	if (vn_openat(name, UIO_SYSSPACE, FREAD | FASYNC, 0, &vp, 0, 0, rootdir) != 0)
 		return ((void *)-1UL);
 
 	file = kmem_zalloc(sizeof (struct _buf), KM_SLEEP);
