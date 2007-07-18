@@ -378,7 +378,7 @@ vn_open(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2, int x3)
 	 * The construct 'flags - FREAD' conveniently maps combinations of
 	 * FREAD and FWRITE to the corresponding O_RDONLY, O_WRONLY, and O_RDWR.
 	 */
-	fd = open64(path, (flags - FREAD) | O_DIRECT, mode);
+	fd = open64(path, flags - FREAD, mode);
 
 	if (flags & FCREAT)
 		(void) umask(old_umask);
