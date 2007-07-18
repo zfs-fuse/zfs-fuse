@@ -61,7 +61,11 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	 * to local zone users, so the underlying devices should be as well.
 	 */
 	ASSERT(vd->vdev_path != NULL && vd->vdev_path[0] == '/');
-	error = vn_openat(vd->vdev_path + 1, UIO_SYSSPACE, spa_mode | FOFFMAX,
+	int flags = spa_mode | FOFFMAX;
+#ifdef _KERNEL
+	flags |= O_DIRECT;
+#endif
+	error = vn_openat(vd->vdev_path + 1, UIO_SYSSPACE, flags,
 	    0, &vp, 0, 0, rootdir);
 
 	if (error) {
