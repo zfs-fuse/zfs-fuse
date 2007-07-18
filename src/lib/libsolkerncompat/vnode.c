@@ -457,19 +457,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 	 * The construct 'flags - FREAD' conveniently maps combinations of
 	 * FREAD and FWRITE to the corresponding O_RDONLY, O_WRONLY, and O_RDWR.
 	 */
-	int open_flags = flags - FREAD;
-
-	/*
-	 * FASYNC, for the lack of a better flag, is used to signal we don't want
-	 * direct I/O (we can't open zpool.cache with direct I/O because of
-	 * alignment requirements).
-	 */
-	if (flags & FASYNC)
-		open_flags &= ~FASYNC;
-	else
-		open_flags |= O_DIRECT;
-
-	fd = open64(path, open_flags, mode);
+	fd = open64(path, flags - FREAD, mode);
 
 	if (flags & FCREAT)
 		(void) umask(old_umask);
