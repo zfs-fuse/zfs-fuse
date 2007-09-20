@@ -8,6 +8,8 @@ Features:
 	* Ported to the sparc64 architecture (arkadi).
 	* Implemented zfs send/recv.
 	* Turned zfs-fuse into a real daemon (Cameron Patrick, Bryan Donlan).
+Enhancements:
+	* Open block devices with O_EXCL.
 Bug fixes:
 	* Fix crash when using 'zpool status -v' to list errors.
 	* Allow suid files and device nodes to be stored on zfs (Cameron Patrick).

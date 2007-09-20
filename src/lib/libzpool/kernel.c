@@ -374,6 +374,9 @@ vn_open(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2, int x3)
 	if (flags & FCREAT)
 		old_umask = umask(0);
 
+	if (S_ISBLK(st.st_mode))
+		flags |= O_EXCL;
+
 	/*
 	 * The construct 'flags - FREAD' conveniently maps combinations of
 	 * FREAD and FWRITE to the corresponding O_RDONLY, O_WRONLY, and O_RDWR.
