@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -30,7 +30,7 @@
  * include both the status of an active pool, as well as the status exported
  * pools.  Returns one of the ZPOOL_STATUS_* defines describing the status of
  * the pool.  This status is independent (to a certain degree) from the state of
- * the pool.  A pool's state descsribes only whether or not it is capable of
+ * the pool.  A pool's state describes only whether or not it is capable of
  * providing the necessary fault tolerance for data.  The status describes the
  * overall status of devices.  A pool that is online can still have a device
  * that is experiencing errors.
@@ -43,14 +43,15 @@
 
 #include <libzfs.h>
 #include <string.h>
+#include <unistd.h>
 #include "libzfs_impl.h"
 
 /*
- * Message ID table.  This must be kep in sync with the ZPOOL_STATUS_* defines
+ * Message ID table.  This must be kept in sync with the ZPOOL_STATUS_* defines
  * in libzfs.h.  Note that there are some status results which go past the end
  * of this table, and hence have no associated message ID.
  */
-static char *msgid_table[] = {
+static char *zfs_msgid_table[] = {
 	"ZFS-8000-14",
 	"ZFS-8000-2Q",
 	"ZFS-8000-3C",
@@ -60,29 +61,11 @@ static char *msgid_table[] = {
 	"ZFS-8000-72",
 	"ZFS-8000-8A",
 	"ZFS-8000-9P",
-	"ZFS-8000-A5"
+	"ZFS-8000-A5",
+	"ZFS-8000-EY"
 };
 
-/*
- * If the pool is active, a certain class of static errors is overridden by the
- * faults as analayzed by FMA.  These faults have separate knowledge articles,
- * and the article referred to by 'zpool status' must match that indicated by
- * the syslog error message.  We override missing data as well as corrupt pool.
- */
-static char *msgid_table_active[] = {
-	"ZFS-8000-14",
-	"ZFS-8000-D3",		/* overridden */
-	"ZFS-8000-D3",		/* overridden */
-	"ZFS-8000-4J",
-	"ZFS-8000-5E",
-	"ZFS-8000-6X",
-	"ZFS-8000-CS",		/* overridden */
-	"ZFS-8000-8A",
-	"ZFS-8000-9P",
-	"ZFS-8000-CS",		/* overridden */
-};
-
-#define	NMSGID	(sizeof (msgid_table) / sizeof (msgid_table[0]))
+#define	NMSGID	(sizeof (zfs_msgid_table) / sizeof (zfs_msgid_table[0]))
 
 /* ARGSUSED */
 static int
@@ -94,9 +77,16 @@ vdev_missing(uint64_t state, uint64_t aux, uint64_t errs)
 
 /* ARGSUSED */
 static int
+vdev_faulted(uint64_t state, uint64_t aux, uint64_t errs)
+{
+	return (state == VDEV_STATE_FAULTED);
+}
+
+/* ARGSUSED */
+static int
 vdev_errors(uint64_t state, uint64_t aux, uint64_t errs)
 {
-	return (errs != 0);
+	return (state == VDEV_STATE_DEGRADED || errs != 0);
 }
 
 /* ARGSUSED */
@@ -161,9 +151,9 @@ find_vdev_problem(nvlist_t *vdev, int (*func)(uint64_t, uint64_t, uint64_t))
  * following:
  *
  *	- Check for a complete and valid configuration
- *	- Look for any missing devices in a non-replicated config
+ *	- Look for any faulted or missing devices in a non-replicated config
  *	- Check for any data errors
- *	- Check for any missing devices in a replicated config
+ *	- Check for any faulted or missing devices in a replicated config
  *	- Look for any devices showing errors
  *	- Check for any resilvering devices
  *
@@ -178,6 +168,8 @@ check_status(nvlist_t *config, boolean_t isimport)
 	uint_t vsc;
 	uint64_t nerr;
 	uint64_t version;
+	uint64_t stateval;
+	uint64_t hostid = 0;
 
 	verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_VERSION,
 	    &version) == 0);
@@ -185,6 +177,16 @@ check_status(nvlist_t *config, boolean_t isimport)
 	    &nvroot) == 0);
 	verify(nvlist_lookup_uint64_array(nvroot, ZPOOL_CONFIG_STATS,
 	    (uint64_t **)&vs, &vsc) == 0);
+	verify(nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_STATE,
+	    &stateval) == 0);
+	(void) nvlist_lookup_uint64(config, ZPOOL_CONFIG_HOSTID, &hostid);
+
+	/*
+	 * Pool last accessed by another system.
+	 */
+	if (hostid != 0 && (unsigned long)hostid != gethostid() &&
+	    stateval == POOL_STATE_ACTIVE)
+		return (ZPOOL_STATUS_HOSTID_MISMATCH);
 
 	/*
 	 * Newer on-disk version.
@@ -201,8 +203,12 @@ check_status(nvlist_t *config, boolean_t isimport)
 		return (ZPOOL_STATUS_BAD_GUID_SUM);
 
 	/*
-	 * Missing devices in non-replicated config.
+	 * Bad devices in non-replicated config.
 	 */
+	if (vs->vs_state == VDEV_STATE_CANT_OPEN &&
+	    find_vdev_problem(nvroot, vdev_faulted))
+		return (ZPOOL_STATUS_FAULTED_DEV_NR);
+
 	if (vs->vs_state == VDEV_STATE_CANT_OPEN &&
 	    find_vdev_problem(nvroot, vdev_missing))
 		return (ZPOOL_STATUS_MISSING_DEV_NR);
@@ -230,6 +236,8 @@ check_status(nvlist_t *config, boolean_t isimport)
 	/*
 	 * Missing devices in a replicated config.
 	 */
+	if (find_vdev_problem(nvroot, vdev_faulted))
+		return (ZPOOL_STATUS_FAULTED_DEV_R);
 	if (find_vdev_problem(nvroot, vdev_missing))
 		return (ZPOOL_STATUS_MISSING_DEV_R);
 	if (find_vdev_problem(nvroot, vdev_broken))
@@ -256,7 +264,7 @@ check_status(nvlist_t *config, boolean_t isimport)
 	/*
 	 * Outdated, but usable, version
 	 */
-	if (version < ZFS_VERSION)
+	if (version < SPA_VERSION)
 		return (ZPOOL_STATUS_VERSION_OLDER);
 
 	return (ZPOOL_STATUS_OK);
@@ -270,7 +278,7 @@ zpool_get_status(zpool_handle_t *zhp, char **msgid)
 	if (ret >= NMSGID)
 		*msgid = NULL;
 	else
-		*msgid = msgid_table_active[ret];
+		*msgid = zfs_msgid_table[ret];
 
 	return (ret);
 }
@@ -283,7 +291,7 @@ zpool_import_status(nvlist_t *config, char **msgid)
 	if (ret >= NMSGID)
 		*msgid = NULL;
 	else
-		*msgid = msgid_table[ret];
+		*msgid = zfs_msgid_table[ret];
 
 	return (ret);
 }

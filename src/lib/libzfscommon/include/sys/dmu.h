@@ -39,6 +39,7 @@
 #include <sys/inttypes.h>
 #include <sys/types.h>
 #include <sys/param.h>
+#include <sys/cred.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -91,7 +92,7 @@ typedef enum dmu_object_type {
 	DMU_OT_DSL_DATASET,		/* UINT64 */
 	/* zpl: */
 	DMU_OT_ZNODE,			/* ZNODE */
-	DMU_OT_ACL,			/* ACL */
+	DMU_OT_OLDACL,			/* Old ACL */
 	DMU_OT_PLAIN_FILE_CONTENTS,	/* UINT8 */
 	DMU_OT_DIRECTORY_CONTENTS,	/* ZAP */
 	DMU_OT_MASTER_NODE,		/* ZAP */
@@ -108,7 +109,11 @@ typedef enum dmu_object_type {
 	DMU_OT_SPA_HISTORY,		/* UINT8 */
 	DMU_OT_SPA_HISTORY_OFFSETS,	/* spa_his_phys_t */
 	DMU_OT_POOL_PROPS,		/* ZAP */
-
+	DMU_OT_DSL_PERMS,		/* ZAP */
+	DMU_OT_ACL,			/* ACL */
+	DMU_OT_SYSACL,			/* SYSACL */
+	DMU_OT_FUID,			/* FUID table (Packed NVLIST UINT8) */
+	DMU_OT_FUID_SIZE,		/* FUID table size UINT64 */
 	DMU_OT_NUMTYPES
 } dmu_object_type_t;
 
@@ -127,6 +132,7 @@ void byteswap_uint32_array(void *buf, size_t size);
 void byteswap_uint16_array(void *buf, size_t size);
 void byteswap_uint8_array(void *buf, size_t size);
 void zap_byteswap(void *buf, size_t size);
+void zfs_oldacl_byteswap(void *buf, size_t size);
 void zfs_acl_byteswap(void *buf, size_t size);
 void zfs_znode_byteswap(void *buf, size_t size);
 
@@ -155,16 +161,19 @@ void zfs_znode_byteswap(void *buf, size_t size);
  */
 int dmu_objset_open(const char *name, dmu_objset_type_t type, int mode,
     objset_t **osp);
+int dmu_objset_open_ds(struct dsl_dataset *ds, dmu_objset_type_t type,
+    objset_t **osp);
 void dmu_objset_close(objset_t *os);
-int dmu_objset_evict_dbufs(objset_t *os, int try);
+int dmu_objset_evict_dbufs(objset_t *os);
 int dmu_objset_create(const char *name, dmu_objset_type_t type,
     objset_t *clone_parent,
-    void (*func)(objset_t *os, void *arg, dmu_tx_t *tx), void *arg);
+    void (*func)(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx), void *arg);
 int dmu_objset_destroy(const char *name);
 int dmu_snapshots_destroy(char *fsname, char *snapname);
 int dmu_objset_rollback(const char *name);
 int dmu_objset_snapshot(char *fsname, char *snapname, boolean_t recursive);
-int dmu_objset_rename(const char *name, const char *newname);
+int dmu_objset_rename(const char *name, const char *newname,
+    boolean_t recursive);
 int dmu_objset_find(char *name, int func(char *, void *), void *arg,
     int flags);
 void dmu_objset_byteswap(void *buf, size_t size);
@@ -177,11 +186,6 @@ typedef struct dmu_buf {
 } dmu_buf_t;
 
 typedef void dmu_buf_evict_func_t(struct dmu_buf *db, void *user_ptr);
-
-/*
- * Callback function to perform byte swapping on a block.
- */
-typedef void dmu_byteswap_func_t(void *buf, size_t size);
 
 /*
  * The names of zap entries in the DIRECTORY_OBJECT of the MOS.
@@ -297,6 +301,7 @@ int dmu_get_replication_level(struct objset_impl *, struct zbookmark *zb,
  */
 int dmu_bonus_hold(objset_t *os, uint64_t object, void *tag, dmu_buf_t **);
 int dmu_bonus_max(void);
+int dmu_set_bonus(dmu_buf_t *, int, dmu_tx_t *);
 
 /*
  * Obtain the DMU buffer from the specified object which contains the
@@ -457,8 +462,10 @@ typedef struct dmu_object_info {
 	uint64_t doi_max_block_offset;
 } dmu_object_info_t;
 
+typedef void arc_byteswap_func_t(void *buf, size_t size);
+
 typedef struct dmu_object_type_info {
-	dmu_byteswap_func_t	*ot_byteswap;
+	arc_byteswap_func_t	*ot_byteswap;
 	boolean_t		ot_metadata;
 	char			*ot_name;
 } dmu_object_type_info_t;
@@ -481,10 +488,11 @@ void dmu_object_size_from_db(dmu_buf_t *db, uint32_t *blksize,
 typedef struct dmu_objset_stats {
 	uint64_t dds_num_clones; /* number of clones of this */
 	uint64_t dds_creation_txg;
+	uint64_t dds_guid;
 	dmu_objset_type_t dds_type;
 	uint8_t dds_is_snapshot;
 	uint8_t dds_inconsistent;
-	char dds_clone_of[MAXNAMELEN];
+	char dds_origin[MAXNAMELEN];
 } dmu_objset_stats_t;
 
 /*
@@ -533,6 +541,8 @@ extern int dmu_snapshot_list_next(objset_t *os, int namelen, char *name,
     uint64_t *id, uint64_t *offp);
 extern int dmu_dir_list_next(objset_t *os, int namelen, char *name,
     uint64_t *idp, uint64_t *offp);
+extern void dmu_objset_set_user(objset_t *os, void *user_ptr);
+extern void *dmu_objset_get_user(objset_t *os);
 
 /*
  * Return the txg number for the given assigned transaction.
@@ -543,7 +553,7 @@ uint64_t dmu_tx_get_txg(dmu_tx_t *tx);
  * Synchronous write.
  * If a parent zio is provided this function initiates a write on the
  * provided buffer as a child of the parent zio.
- * In the absense of a parent zio, the write is completed synchronously.
+ * In the absence of a parent zio, the write is completed synchronously.
  * At write completion, blk is filled with the bp of the written block.
  * Note that while the data covered by this function will be on stable
  * storage when the write completes this new data does not become a
@@ -571,9 +581,29 @@ typedef void (*dmu_traverse_cb_t)(objset_t *os, void *arg, struct blkptr *bp,
 void dmu_traverse_objset(objset_t *os, uint64_t txg_start,
     dmu_traverse_cb_t cb, void *arg);
 
-int dmu_sendbackup(objset_t *tosnap, objset_t *fromsnap, struct vnode *vp);
-int dmu_recvbackup(char *tosnap, struct drr_begin *drrb, uint64_t *sizep,
-    boolean_t force, struct vnode *vp, uint64_t voffset);
+int dmu_sendbackup(objset_t *tosnap, objset_t *fromsnap, boolean_t fromorigin,
+    struct vnode *vp, offset_t *off);
+
+typedef struct dmu_recv_cookie {
+	/*
+	 * This structure is opaque!
+	 *
+	 * If logical and real are different, we are recving the stream
+	 * into the "real" temporary clone, and then switching it with
+	 * the "logical" target.
+	 */
+	struct dsl_dataset *drc_logical_ds;
+	struct dsl_dataset *drc_real_ds;
+	struct drr_begin *drc_drrb;
+	char *drc_tosnap;
+	boolean_t drc_newfs;
+	boolean_t drc_force;
+} dmu_recv_cookie_t;
+
+int dmu_recv_begin(char *tofs, char *tosnap, struct drr_begin *,
+    boolean_t force, objset_t *origin, boolean_t online, dmu_recv_cookie_t *);
+int dmu_recv_stream(dmu_recv_cookie_t *drc, struct vnode *vp, offset_t *voffp);
+int dmu_recv_end(dmu_recv_cookie_t *drc);
 
 /* CRC64 table */
 #define	ZFS_CRC64_POLY	0xC96C5795D7870F42ULL	/* ECMA-182, reflected form */

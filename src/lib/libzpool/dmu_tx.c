@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -294,6 +294,8 @@ dmu_tx_count_dnode(dmu_tx_hold_t *txh)
 		txh->txh_space_tooverwrite += space;
 	} else {
 		txh->txh_space_towrite += space;
+		if (dn && dn->dn_dbuf->db_blkptr)
+			txh->txh_space_tounref += space;
 	}
 }
 
@@ -319,7 +321,7 @@ static void
 dmu_tx_count_free(dmu_tx_hold_t *txh, uint64_t off, uint64_t len)
 {
 	uint64_t blkid, nblks;
-	uint64_t space = 0;
+	uint64_t space = 0, unref = 0;
 	dnode_t *dn = txh->txh_dnode;
 	dsl_dataset_t *ds = dn->dn_objset->os_dsl_dataset;
 	spa_t *spa = txh->txh_tx->tx_pool->dp_spa;
@@ -383,6 +385,7 @@ dmu_tx_count_free(dmu_tx_hold_t *txh, uint64_t off, uint64_t len)
 				dprintf_bp(bp, "can free old%s", "");
 				space += bp_get_dasize(spa, bp);
 			}
+			unref += BP_GET_ASIZE(bp);
 		}
 		nblks = 0;
 	}
@@ -418,6 +421,7 @@ dmu_tx_count_free(dmu_tx_hold_t *txh, uint64_t off, uint64_t len)
 					    "can free old%s", "");
 					space += bp_get_dasize(spa, &bp[i]);
 				}
+				unref += BP_GET_ASIZE(bp);
 			}
 			dbuf_rele(dbuf, FTAG);
 		}
@@ -432,6 +436,7 @@ dmu_tx_count_free(dmu_tx_hold_t *txh, uint64_t off, uint64_t len)
 	rw_exit(&dn->dn_struct_rwlock);
 
 	txh->txh_space_tofree += space;
+	txh->txh_space_tounref += unref;
 }
 
 void
@@ -550,10 +555,13 @@ dmu_tx_hold_zap(dmu_tx_t *tx, uint64_t object, int add, char *name)
 		 * the size will change between now and the dbuf dirty call.
 		 */
 		if (dsl_dataset_block_freeable(dn->dn_objset->os_dsl_dataset,
-		    dn->dn_phys->dn_blkptr[0].blk_birth))
+		    dn->dn_phys->dn_blkptr[0].blk_birth)) {
 			txh->txh_space_tooverwrite += SPA_MAXBLOCKSIZE;
-		else
+		} else {
 			txh->txh_space_towrite += SPA_MAXBLOCKSIZE;
+			txh->txh_space_tounref +=
+			    BP_GET_ASIZE(dn->dn_phys->dn_blkptr);
+		}
 		return;
 	}
 
@@ -733,11 +741,31 @@ static int
 dmu_tx_try_assign(dmu_tx_t *tx, uint64_t txg_how)
 {
 	dmu_tx_hold_t *txh;
-	uint64_t lsize, asize, fsize, towrite, tofree, tooverwrite;
+	spa_t *spa = tx->tx_pool->dp_spa;
+	uint64_t lsize, asize, fsize, usize;
+	uint64_t towrite, tofree, tooverwrite, tounref;
 
 	ASSERT3U(tx->tx_txg, ==, 0);
+
 	if (tx->tx_err)
 		return (tx->tx_err);
+
+	if (spa_state(spa) == POOL_STATE_IO_FAILURE) {
+		/*
+		 * If the user has indicated a blocking failure mode
+		 * then return ERESTART which will block in dmu_tx_wait().
+		 * Otherwise, return EIO so that an error can get
+		 * propagated back to the VOP calls.
+		 *
+		 * Note that we always honor the txg_how flag regardless
+		 * of the failuremode setting.
+		 */
+		if (spa_get_failmode(spa) == ZIO_FAILURE_MODE_CONTINUE &&
+		    txg_how != TXG_WAIT)
+			return (EIO);
+
+		return (ERESTART);
+	}
 
 	tx->tx_txg = txg_hold_open(tx->tx_pool, &tx->tx_txgh);
 	tx->tx_needassign_txh = NULL;
@@ -748,7 +776,7 @@ dmu_tx_try_assign(dmu_tx_t *tx, uint64_t txg_how)
 	 * dmu_tx_unassign() logic.
 	 */
 
-	towrite = tofree = tooverwrite = 0;
+	towrite = tofree = tooverwrite = tounref = 0;
 	for (txh = list_head(&tx->tx_holds); txh;
 	    txh = list_next(&tx->tx_holds, txh)) {
 		dnode_t *dn = txh->txh_dnode;
@@ -768,6 +796,7 @@ dmu_tx_try_assign(dmu_tx_t *tx, uint64_t txg_how)
 		towrite += txh->txh_space_towrite;
 		tofree += txh->txh_space_tofree;
 		tooverwrite += txh->txh_space_tooverwrite;
+		tounref += txh->txh_space_tounref;
 	}
 
 	/*
@@ -794,16 +823,18 @@ dmu_tx_try_assign(dmu_tx_t *tx, uint64_t txg_how)
 	fsize = spa_get_asize(tx->tx_pool->dp_spa, tooverwrite) + tofree;
 	lsize = towrite + tooverwrite;
 	asize = spa_get_asize(tx->tx_pool->dp_spa, lsize);
+	usize = spa_get_asize(tx->tx_pool->dp_spa, tounref);
 
 #ifdef ZFS_DEBUG
 	tx->tx_space_towrite = asize;
 	tx->tx_space_tofree = tofree;
 	tx->tx_space_tooverwrite = tooverwrite;
+	tx->tx_space_tounref = tounref;
 #endif
 
 	if (tx->tx_dir && asize != 0) {
 		int err = dsl_dir_tempreserve_space(tx->tx_dir,
-		    lsize, asize, fsize, &tx->tx_tempreserve_cookie, tx);
+		    lsize, asize, fsize, usize, &tx->tx_tempreserve_cookie, tx);
 		if (err)
 			return (err);
 	}
@@ -885,10 +916,19 @@ dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how)
 void
 dmu_tx_wait(dmu_tx_t *tx)
 {
-	ASSERT(tx->tx_txg == 0);
-	ASSERT(tx->tx_lasttried_txg != 0);
+	spa_t *spa = tx->tx_pool->dp_spa;
 
-	if (tx->tx_needassign_txh) {
+	ASSERT(tx->tx_txg == 0);
+
+	/*
+	 * It's possible that the pool has become active after this thread
+	 * has tried to obtain a tx. If that's the case then his
+	 * tx_lasttried_txg would not have been assigned.
+	 */
+	if (spa_state(spa) == POOL_STATE_IO_FAILURE ||
+	    tx->tx_lasttried_txg == 0) {
+		txg_wait_synced(tx->tx_pool, spa_last_synced_txg(spa) + 1);
+	} else if (tx->tx_needassign_txh) {
 		dnode_t *dn = tx->tx_needassign_txh->txh_dnode;
 
 		mutex_enter(&dn->dn_mtx);

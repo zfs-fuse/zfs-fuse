@@ -44,6 +44,8 @@
 #include <sys/dsl_dir.h>
 #include <sys/dsl_prop.h>
 #include <sys/fs/zfs.h>
+#include <sys/metaslab_impl.h>
+#include "zfs_prop.h"
 
 /*
  * SPA locking
@@ -75,11 +77,10 @@
  *	some references in the DMU.  Internally we check against SPA_MINREF, but
  *	present the image of a zero/non-zero value to consumers.
  *
- * spa_config_lock (per-spa crazy rwlock)
+ * spa_config_lock (per-spa read-priority rwlock)
  *
- *	This SPA special is a recursive rwlock, capable of being acquired from
- *	asynchronous threads.  It has protects the spa_t from config changes,
- *	and must be held in the following circumstances:
+ *	This protects the spa_t from config changes, and must be held in
+ *	the following circumstances:
  *
  *		- RW_READER to perform I/O to the spa
  *		- RW_WRITER to change the vdev config
@@ -182,7 +183,8 @@ kmem_cache_t *spa_buffer_pool;
 int spa_mode;
 
 #ifdef ZFS_DEBUG
-int zfs_flags = ~0;
+/* Everything except dprintf is on by default in debug builds */
+int zfs_flags = ~ZFS_DEBUG_DPRINTF;
 #else
 int zfs_flags = 0;
 #endif
@@ -211,11 +213,26 @@ spa_lookup(const char *name)
 {
 	spa_t search, *spa;
 	avl_index_t where;
+	char c;
+	char *cp;
 
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 
+	/*
+	 * If it's a full dataset name, figure out the pool name and
+	 * just use that.
+	 */
+	cp = strpbrk(name, "/@");
+	if (cp) {
+		c = *cp;
+		*cp = '\0';
+	}
+
 	search.spa_name = (char *)name;
 	spa = avl_find(&spa_namespace_avl, &search, &where);
+
+	if (cp)
+		*cp = c;
 
 	return (spa);
 }
@@ -234,15 +251,33 @@ spa_add(const char *name, const char *altroot)
 
 	spa = kmem_zalloc(sizeof (spa_t), KM_SLEEP);
 
+	rw_init(&spa->spa_traverse_lock, NULL, RW_DEFAULT, NULL);
+
+	mutex_init(&spa->spa_uberblock_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_async_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_config_cache_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_scrub_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_errlog_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_errlist_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_sync_bplist.bpl_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_history_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_props_lock, NULL, MUTEX_DEFAULT, NULL);
+
+	cv_init(&spa->spa_async_cv, NULL, CV_DEFAULT, NULL);
+	cv_init(&spa->spa_scrub_cv, NULL, CV_DEFAULT, NULL);
+	cv_init(&spa->spa_scrub_io_cv, NULL, CV_DEFAULT, NULL);
+
 	spa->spa_name = spa_strdup(name);
 	spa->spa_state = POOL_STATE_UNINITIALIZED;
 	spa->spa_freeze_txg = UINT64_MAX;
 	spa->spa_final_txg = UINT64_MAX;
 
 	refcount_create(&spa->spa_refcount);
-	refcount_create(&spa->spa_config_lock.scl_count);
+	rprw_init(&spa->spa_config_lock);
 
 	avl_add(&spa_namespace_avl, spa);
+
+	mutex_init(&spa->spa_zio_lock, NULL, MUTEX_DEFAULT, NULL);
 
 	/*
 	 * Set the alternate root, if there is one.
@@ -278,20 +313,33 @@ spa_remove(spa_t *spa)
 	if (spa->spa_name)
 		spa_strfree(spa->spa_name);
 
+	if (spa->spa_config_dir)
+		spa_strfree(spa->spa_config_dir);
+	if (spa->spa_config_file)
+		spa_strfree(spa->spa_config_file);
+
 	spa_config_set(spa, NULL);
 
 	refcount_destroy(&spa->spa_refcount);
-	refcount_destroy(&spa->spa_config_lock.scl_count);
 
-	mutex_destroy(&spa->spa_sync_bplist.bpl_lock);
-	mutex_destroy(&spa->spa_config_lock.scl_lock);
-	mutex_destroy(&spa->spa_errlist_lock);
-	mutex_destroy(&spa->spa_errlog_lock);
-	mutex_destroy(&spa->spa_scrub_lock);
-	mutex_destroy(&spa->spa_config_cache_lock);
+	rprw_destroy(&spa->spa_config_lock);
+
+	rw_destroy(&spa->spa_traverse_lock);
+
+	cv_destroy(&spa->spa_async_cv);
+	cv_destroy(&spa->spa_scrub_cv);
+	cv_destroy(&spa->spa_scrub_io_cv);
+
+	mutex_destroy(&spa->spa_uberblock_lock);
 	mutex_destroy(&spa->spa_async_lock);
+	mutex_destroy(&spa->spa_config_cache_lock);
+	mutex_destroy(&spa->spa_scrub_lock);
+	mutex_destroy(&spa->spa_errlog_lock);
+	mutex_destroy(&spa->spa_errlist_lock);
+	mutex_destroy(&spa->spa_sync_bplist.bpl_lock);
 	mutex_destroy(&spa->spa_history_lock);
 	mutex_destroy(&spa->spa_props_lock);
+	mutex_destroy(&spa->spa_zio_lock);
 
 	kmem_free(spa, sizeof (spa_t));
 }
@@ -501,79 +549,22 @@ spa_spare_activate(vdev_t *vd)
  * SPA config locking
  * ==========================================================================
  */
-
-/*
- * Acquire the config lock.  The config lock is a special rwlock that allows for
- * recursive enters.  Because these enters come from the same thread as well as
- * asynchronous threads working on behalf of the owner, we must unilaterally
- * allow all reads access as long at least one reader is held (even if a write
- * is requested).  This has the side effect of write starvation, but write locks
- * are extremely rare, and a solution to this problem would be significantly
- * more complex (if even possible).
- *
- * We would like to assert that the namespace lock isn't held, but this is a
- * valid use during create.
- */
 void
 spa_config_enter(spa_t *spa, krw_t rw, void *tag)
 {
-	spa_config_lock_t *scl = &spa->spa_config_lock;
-
-	mutex_enter(&scl->scl_lock);
-
-	if (scl->scl_writer != curthread) {
-		if (rw == RW_READER) {
-			while (scl->scl_writer != NULL)
-				cv_wait(&scl->scl_cv, &scl->scl_lock);
-		} else {
-			while (scl->scl_writer != NULL ||
-			    !refcount_is_zero(&scl->scl_count))
-				cv_wait(&scl->scl_cv, &scl->scl_lock);
-			scl->scl_writer = curthread;
-		}
-	}
-
-	(void) refcount_add(&scl->scl_count, tag);
-
-	mutex_exit(&scl->scl_lock);
+	rprw_enter(&spa->spa_config_lock, rw, tag);
 }
 
-/*
- * Release the spa config lock, notifying any waiters in the process.
- */
 void
 spa_config_exit(spa_t *spa, void *tag)
 {
-	spa_config_lock_t *scl = &spa->spa_config_lock;
-
-	mutex_enter(&scl->scl_lock);
-
-	ASSERT(!refcount_is_zero(&scl->scl_count));
-	if (refcount_remove(&scl->scl_count, tag) == 0) {
-		cv_broadcast(&scl->scl_cv);
-		scl->scl_writer = NULL;  /* OK in either case */
-	}
-
-	mutex_exit(&scl->scl_lock);
+	rprw_exit(&spa->spa_config_lock, tag);
 }
 
-/*
- * Returns true if the config lock is held in the given manner.
- */
 boolean_t
 spa_config_held(spa_t *spa, krw_t rw)
 {
-	spa_config_lock_t *scl = &spa->spa_config_lock;
-	boolean_t held;
-
-	mutex_enter(&scl->scl_lock);
-	if (rw == RW_WRITER)
-		held = (scl->scl_writer == curthread);
-	else
-		held = !refcount_is_zero(&scl->scl_count);
-	mutex_exit(&scl->scl_lock);
-
-	return (held);
+	return (rprw_held(&spa->spa_config_lock, rw));
 }
 
 /*
@@ -590,12 +581,14 @@ spa_config_held(spa_t *spa, krw_t rw)
 uint64_t
 spa_vdev_enter(spa_t *spa)
 {
+	mutex_enter(&spa_namespace_lock);
+
 	/*
-	 * Suspend scrub activity while we mess with the config.
+	 * Suspend scrub activity while we mess with the config.  We must do
+	 * this after acquiring the namespace lock to avoid a 3-way deadlock
+	 * with spa_scrub_stop() and the scrub thread.
 	 */
 	spa_scrub_suspend(spa);
-
-	mutex_enter(&spa_namespace_lock);
 
 	spa_config_enter(spa, RW_WRITER, spa);
 
@@ -744,7 +737,7 @@ spa_guid_exists(uint64_t pool_guid, uint64_t device_guid)
 				break;
 
 			/*
-			 * Check any devices we may in the process of adding.
+			 * Check any devices we may be in the process of adding.
 			 */
 			if (spa->spa_pending_vdev) {
 				if (vdev_lookup_by_guid(spa->spa_pending_vdev,
@@ -962,16 +955,6 @@ spa_freeze_txg(spa_t *spa)
 }
 
 /*
- * In the future, this may select among different metaslab classes
- * depending on the zdp.  For now, there's no such distinction.
- */
-metaslab_class_t *
-spa_metaslab_class_select(spa_t *spa)
-{
-	return (spa->spa_normal_class);
-}
-
-/*
  * Return how much space is allocated in the pool (ie. sum of all asize)
  */
 uint64_t
@@ -1014,6 +997,16 @@ spa_get_asize(spa_t *spa, uint64_t lsize)
 	return (lsize * 6);
 }
 
+/*
+ * Return the failure mode that has been set to this pool. The default
+ * behavior will be to block all I/Os when a complete failure occurs.
+ */
+uint8_t
+spa_get_failmode(spa_t *spa)
+{
+	return (spa->spa_failmode);
+}
+
 uint64_t
 spa_version(spa_t *spa)
 {
@@ -1024,11 +1017,11 @@ int
 spa_max_replication(spa_t *spa)
 {
 	/*
-	 * As of ZFS_VERSION == ZFS_VERSION_DITTO_BLOCKS, we are able to
+	 * As of SPA_VERSION == SPA_VERSION_DITTO_BLOCKS, we are able to
 	 * handle BPs with more than one DVA allocated.  Set our max
 	 * replication level accordingly.
 	 */
-	if (spa_version(spa) < ZFS_VERSION_DITTO_BLOCKS)
+	if (spa_version(spa) < SPA_VERSION_DITTO_BLOCKS)
 		return (1);
 	return (MIN(SPA_DVAS_PER_BP, spa_max_replication_override));
 }
@@ -1041,12 +1034,15 @@ bp_get_dasize(spa_t *spa, const blkptr_t *bp)
 	if (!spa->spa_deflate)
 		return (BP_GET_ASIZE(bp));
 
+	spa_config_enter(spa, RW_READER, FTAG);
 	for (i = 0; i < SPA_DVAS_PER_BP; i++) {
 		vdev_t *vd =
 		    vdev_lookup_top(spa, DVA_GET_VDEV(&bp->blk_dva[i]));
-		sz += (DVA_GET_ASIZE(&bp->blk_dva[i]) >> SPA_MINBLOCKSHIFT) *
-		    vd->vdev_deflate_ratio;
+		if (vd)
+			sz += (DVA_GET_ASIZE(&bp->blk_dva[i]) >>
+			    SPA_MINBLOCKSHIFT) * vd->vdev_deflate_ratio;
 	}
+	spa_config_exit(spa, FTAG);
 	return (sz);
 }
 
@@ -1081,6 +1077,7 @@ void
 spa_init(int mode)
 {
 	mutex_init(&spa_namespace_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa_spare_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&spa_namespace_cv, NULL, CV_DEFAULT, NULL);
 
 	avl_create(&spa_namespace_avl, spa_name_compare, sizeof (spa_t),
@@ -1096,6 +1093,8 @@ spa_init(int mode)
 	zio_init();
 	dmu_init();
 	zil_init();
+	zfs_prop_init();
+	zpool_prop_init();
 	spa_config_load();
 }
 
@@ -1107,6 +1106,7 @@ spa_fini(void)
 	zil_fini();
 	dmu_fini();
 	zio_fini();
+	unique_fini();
 	refcount_fini();
 
 	avl_destroy(&spa_namespace_avl);
@@ -1114,4 +1114,16 @@ spa_fini(void)
 
 	cv_destroy(&spa_namespace_cv);
 	mutex_destroy(&spa_namespace_lock);
+	mutex_destroy(&spa_spare_lock);
+}
+
+/*
+ * Return whether this pool has slogs. No locking needed.
+ * It's not a problem if the wrong answer is returned as it's only for
+ * performance and not correctness
+ */
+boolean_t
+spa_has_slogs(spa_t *spa)
+{
+	return (spa->spa_log_class->mc_rotor != NULL);
 }

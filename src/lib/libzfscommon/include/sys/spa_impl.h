@@ -37,18 +37,12 @@
 #include <sys/zfs_context.h>
 #include <sys/avl.h>
 #include <sys/refcount.h>
+#include <sys/rprwlock.h>
 #include <sys/bplist.h>
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
-
-typedef struct spa_config_lock {
-	kmutex_t	scl_lock;
-	refcount_t	scl_count;
-	kthread_t	*scl_writer;
-	kcondvar_t	scl_cv;
-} spa_config_lock_t;
 
 typedef struct spa_error_entry {
 	zbookmark_t	se_bookmark;
@@ -63,11 +57,6 @@ typedef struct spa_history_phys {
 	uint64_t sh_eof;		/* logical EOF */
 	uint64_t sh_records_lost;	/* num of records overwritten */
 } spa_history_phys_t;
-
-typedef struct spa_props {
-	nvlist_t	*spa_props_nvp;
-	list_node_t	spa_list_node;
-} spa_props_t;
 
 struct spa {
 	/*
@@ -89,6 +78,7 @@ struct spa {
 	taskq_t		*spa_zio_intr_taskq[ZIO_TYPES];
 	dsl_pool_t	*spa_dsl_pool;
 	metaslab_class_t *spa_normal_class;	/* normal data class */
+	metaslab_class_t *spa_log_class;	/* intent log data class */
 	uint64_t	spa_first_txg;		/* first txg after spa_open() */
 	uint64_t	spa_final_txg;		/* txg of export/destroy */
 	uint64_t	spa_freeze_txg;		/* freeze pool at this txg */
@@ -149,12 +139,20 @@ struct spa {
 	kmutex_t	spa_props_lock;		/* property lock */
 	uint64_t	spa_pool_props_object;	/* object for properties */
 	uint64_t	spa_bootfs;		/* default boot filesystem */
+	boolean_t	spa_delegation;		/* delegation on/off */
+	char		*spa_config_dir;	/* cache file directory */
+	char		*spa_config_file;	/* cache file name */
+	list_t		spa_zio_list;		/* zio error list */
+	kcondvar_t	spa_zio_cv;		/* resume I/O pipeline */
+	kmutex_t	spa_zio_lock;		/* zio error lock */
+	uint8_t		spa_failmode;		/* failure mode for the pool */
 	/*
-	 * spa_refcnt must be the last element because it changes size based on
-	 * compilation options.  In order for the MDB module to function
-	 * correctly, the other fields must remain in the same location.
+	 * spa_refcnt & spa_config_lock must be the last elements
+	 * because refcount_t changes size based on compilation options.
+	 * In order for the MDB module to function correctly, the other
+	 * fields must remain in the same location.
 	 */
-	spa_config_lock_t spa_config_lock;	/* configuration changes */
+	rprwlock_t	spa_config_lock;	/* configuration changes */
 	refcount_t	spa_refcount;		/* number of opens */
 };
 

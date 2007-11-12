@@ -65,7 +65,7 @@ const dmu_object_type_info_t dmu_ot[DMU_OT_NUMTYPES] = {
 	{	zap_byteswap,		TRUE,	"DSL props"		},
 	{	byteswap_uint64_array,	TRUE,	"DSL dataset"		},
 	{	zfs_znode_byteswap,	TRUE,	"ZFS znode"		},
-	{	zfs_acl_byteswap,	TRUE,	"ZFS ACL"		},
+	{	zfs_oldacl_byteswap,	TRUE,	"ZFS V0 ACL"		},
 	{	byteswap_uint8_array,	FALSE,	"ZFS plain file"	},
 	{	zap_byteswap,		TRUE,	"ZFS directory"		},
 	{	zap_byteswap,		TRUE,	"ZFS master node"	},
@@ -78,7 +78,12 @@ const dmu_object_type_info_t dmu_ot[DMU_OT_NUMTYPES] = {
 	{	zap_byteswap,		TRUE,	"persistent error log"	},
 	{	byteswap_uint8_array,	TRUE,	"SPA history"		},
 	{	byteswap_uint64_array,	TRUE,	"SPA history offsets"	},
-	{	zap_byteswap,	TRUE,	"Pool properties"	},
+	{	zap_byteswap,		TRUE,	"Pool properties"	},
+	{	zap_byteswap,		TRUE,	"DSL permissions"	},
+	{	zfs_acl_byteswap,	TRUE,	"ZFS ACL"		},
+	{	byteswap_uint8_array,	TRUE,	"ZFS SYSACL"		},
+	{	byteswap_uint8_array,	TRUE,	"FUID table"		},
+	{	byteswap_uint64_array,	TRUE,	"FUID table size"	},
 };
 
 int
@@ -118,6 +123,19 @@ dmu_bonus_max(void)
 	return (DN_MAX_BONUSLEN);
 }
 
+int
+dmu_set_bonus(dmu_buf_t *db, int newsize, dmu_tx_t *tx)
+{
+	dnode_t *dn = ((dmu_buf_impl_t *)db)->db_dnode;
+
+	if (dn->dn_bonus != (dmu_buf_impl_t *)db)
+		return (EINVAL);
+	if (newsize < 0 || newsize > db->db_size)
+		return (EINVAL);
+	dnode_setbonuslen(dn, newsize, tx);
+	return (0);
+}
+
 /*
  * returns ENOENT, EIO, or 0.
  */
@@ -125,27 +143,27 @@ int
 dmu_bonus_hold(objset_t *os, uint64_t object, void *tag, dmu_buf_t **dbp)
 {
 	dnode_t *dn;
-	int err, count;
 	dmu_buf_impl_t *db;
+	int error;
 
-	err = dnode_hold(os->os, object, FTAG, &dn);
-	if (err)
-		return (err);
+	error = dnode_hold(os->os, object, FTAG, &dn);
+	if (error)
+		return (error);
 
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
 	if (dn->dn_bonus == NULL) {
 		rw_exit(&dn->dn_struct_rwlock);
 		rw_enter(&dn->dn_struct_rwlock, RW_WRITER);
 		if (dn->dn_bonus == NULL)
-			dn->dn_bonus = dbuf_create_bonus(dn);
+			dbuf_create_bonus(dn);
 	}
 	db = dn->dn_bonus;
 	rw_exit(&dn->dn_struct_rwlock);
-	mutex_enter(&db->db_mtx);
-	count = refcount_add(&db->db_holds, tag);
-	mutex_exit(&db->db_mtx);
-	if (count == 1)
-		dnode_add_ref(dn, db);
+
+	/* as long as the bonus buf is held, the dnode will be held */
+	if (refcount_add(&db->db_holds, tag) == 1)
+		VERIFY(dnode_add_ref(dn, db));
+
 	dnode_rele(dn, FTAG);
 
 	VERIFY(0 == dbuf_read(db, NULL, DB_RF_MUST_SUCCEED));
@@ -387,7 +405,6 @@ dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 
 	while (size > 0) {
 		uint64_t mylen = MIN(size, DMU_MAX_ACCESS / 2);
-		int err;
 
 		/*
 		 * NB: we could do this block-at-a-time, but it's nice
@@ -396,7 +413,7 @@ dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 		err = dmu_buf_hold_array_by_dnode(dn, offset, mylen,
 		    TRUE, FTAG, &numbufs, &dbp);
 		if (err)
-			return (err);
+			break;
 
 		for (i = 0; i < numbufs; i++) {
 			int tocpy;
@@ -417,7 +434,7 @@ dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 		dmu_buf_rele_array(dbp, numbufs, FTAG);
 	}
 	dnode_rele(dn, FTAG);
-	return (0);
+	return (err);
 }
 
 void

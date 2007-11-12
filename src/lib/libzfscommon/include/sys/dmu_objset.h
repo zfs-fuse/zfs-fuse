@@ -86,6 +86,10 @@ typedef struct objset_impl {
 	list_t os_free_dnodes[TXG_SIZE];
 	list_t os_dnodes;
 	list_t os_downgraded_dbufs;
+
+	/* stuff we store for the user */
+	kmutex_t os_user_ptr_lock;
+	void *os_user_ptr;
 } objset_impl_t;
 
 #define	DMU_META_DNODE_OBJECT	0
@@ -96,7 +100,7 @@ int dmu_objset_open(const char *name, dmu_objset_type_t type, int mode,
 void dmu_objset_close(objset_t *os);
 int dmu_objset_create(const char *name, dmu_objset_type_t type,
     objset_t *clone_parent,
-    void (*func)(objset_t *os, void *arg, dmu_tx_t *tx), void *arg);
+    void (*func)(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx), void *arg);
 int dmu_objset_destroy(const char *name);
 int dmu_objset_rollback(const char *name);
 int dmu_objset_snapshot(char *fsname, char *snapname, boolean_t recursive);
@@ -108,7 +112,7 @@ uint64_t dmu_objset_fsid_guid(objset_t *os);
 int dmu_objset_find(char *name, int func(char *, void *), void *arg,
     int flags);
 void dmu_objset_byteswap(void *buf, size_t size);
-int dmu_objset_evict_dbufs(objset_t *os, int try);
+int dmu_objset_evict_dbufs(objset_t *os);
 
 /* called from dsl */
 void dmu_objset_sync(objset_impl_t *os, zio_t *zio, dmu_tx_t *tx);

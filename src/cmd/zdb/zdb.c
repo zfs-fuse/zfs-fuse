@@ -51,6 +51,9 @@
 #include <sys/dmu_traverse.h>
 #include <sys/zio_checksum.h>
 #include <sys/zio_compress.h>
+#undef ZFS_MAXNAMELEN
+#undef verify
+#include <libzfs.h>
 
 const char cmdname[] = "zdb";
 uint8_t dump_opt[256];
@@ -62,6 +65,7 @@ uint64_t *zopt_object = NULL;
 int zopt_objects = 0;
 int zdb_advance = ADVANCE_PRE;
 zbookmark_t zdb_noread = { 0, 0, ZB_NO_LEVEL, 0 };
+libzfs_handle_t *g_zfs;
 
 /*
  * These libumem hooks provide a reasonable set of defaults for the allocator's
@@ -83,12 +87,13 @@ static void
 usage(void)
 {
 	(void) fprintf(stderr,
-	    "Usage: %s [-udibcsvLU] [-O order] [-B os:obj:level:blkid] "
+	    "Usage: %s [-udibcsvLUe] [-O order] [-B os:obj:level:blkid] "
 	    "dataset [object...]\n"
 	    "       %s -C [pool]\n"
 	    "       %s -l dev\n"
-	    "       %s -R vdev:offset:size:flags\n",
-	    cmdname, cmdname, cmdname, cmdname);
+	    "       %s -R vdev:offset:size:flags\n"
+	    "       %s [-p path_to_vdev_dir]\n",
+	    cmdname, cmdname, cmdname, cmdname, cmdname);
 
 	(void) fprintf(stderr, "	-u uberblock\n");
 	(void) fprintf(stderr, "	-d datasets\n");
@@ -107,6 +112,8 @@ usage(void)
 	    "simulate bad block\n");
 	(void) fprintf(stderr, "        -R read and display block from a"
 	    "device\n");
+	(void) fprintf(stderr, "        -e Pool is exported/destroyed\n");
+	(void) fprintf(stderr, "	-p <Path to vdev dir> (use with -e)\n");
 	(void) fprintf(stderr, "Specify an option more than once (e.g. -bb) "
 	    "to make only that option verbose\n");
 	(void) fprintf(stderr, "Default is to dump everything non-verbosely\n");
@@ -363,6 +370,44 @@ dump_zap(objset_t *os, uint64_t object, void *data, size_t size)
 		}
 		(void) printf("\n");
 		umem_free(prop, attr.za_num_integers * attr.za_integer_length);
+	}
+	zap_cursor_fini(&zc);
+}
+
+/*ARGSUSED*/
+static void
+dump_zpldir(objset_t *os, uint64_t object, void *data, size_t size)
+{
+	zap_cursor_t zc;
+	zap_attribute_t attr;
+	const char *typenames[] = {
+		/* 0 */ "not specified",
+		/* 1 */ "FIFO",
+		/* 2 */ "Character Device",
+		/* 3 */ "3 (invalid)",
+		/* 4 */ "Directory",
+		/* 5 */ "5 (invalid)",
+		/* 6 */ "Block Device",
+		/* 7 */ "7 (invalid)",
+		/* 8 */ "Regular File",
+		/* 9 */ "9 (invalid)",
+		/* 10 */ "Symbolic Link",
+		/* 11 */ "11 (invalid)",
+		/* 12 */ "Socket",
+		/* 13 */ "Door",
+		/* 14 */ "Event Port",
+		/* 15 */ "15 (invalid)",
+	};
+
+	dump_zap_stats(os, object);
+	(void) printf("\n");
+
+	for (zap_cursor_init(&zc, os, object);
+	    zap_cursor_retrieve(&zc, &attr) == 0;
+	    zap_cursor_advance(&zc)) {
+		(void) printf("\t\t%s = %lld (type: %s)\n",
+		    attr.za_name, ZFS_DIRENT_OBJ(attr.za_first_integer),
+		    typenames[ZFS_DIRENT_TYPE(attr.za_first_integer)]);
 	}
 	zap_cursor_fini(&zc);
 }
@@ -675,7 +720,7 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	if (dd == NULL)
 		return;
 
-	ASSERT(size == sizeof (*dd));
+	ASSERT3U(size, >=, sizeof (dsl_dir_phys_t));
 
 	crtime = dd->dd_creation_time;
 	nicenum(dd->dd_used_bytes, used);
@@ -689,8 +734,8 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	    (u_longlong_t)dd->dd_head_dataset_obj);
 	(void) printf("\t\tparent_dir_obj = %llu\n",
 	    (u_longlong_t)dd->dd_parent_obj);
-	(void) printf("\t\tclone_parent_obj = %llu\n",
-	    (u_longlong_t)dd->dd_clone_parent_obj);
+	(void) printf("\t\torigin_obj = %llu\n",
+	    (u_longlong_t)dd->dd_origin_obj);
 	(void) printf("\t\tchild_dir_zapobj = %llu\n",
 	    (u_longlong_t)dd->dd_child_dir_zapobj);
 	(void) printf("\t\tused_bytes = %s\n", used);
@@ -700,6 +745,8 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	(void) printf("\t\treserved = %s\n", resv);
 	(void) printf("\t\tprops_zapobj = %llu\n",
 	    (u_longlong_t)dd->dd_props_zapobj);
+	(void) printf("\t\tdeleg_zapobj = %llu\n",
+	    (u_longlong_t)dd->dd_deleg_zapobj);
 }
 
 /*ARGSUSED*/
@@ -765,9 +812,11 @@ dump_bplist(objset_t *mos, uint64_t object, char *name)
 	if (dump_opt['d'] < 3)
 		return;
 
+	mutex_init(&bpl.bpl_lock, NULL, MUTEX_DEFAULT, NULL);
 	VERIFY(0 == bplist_open(&bpl, mos, object));
 	if (bplist_empty(&bpl)) {
 		bplist_close(&bpl);
+		mutex_destroy(&bpl.bpl_lock);
 		return;
 	}
 
@@ -785,6 +834,7 @@ dump_bplist(objset_t *mos, uint64_t object, char *name)
 
 	if (dump_opt['d'] < 5) {
 		bplist_close(&bpl);
+		mutex_destroy(&bpl.bpl_lock);
 		return;
 	}
 
@@ -800,6 +850,7 @@ dump_bplist(objset_t *mos, uint64_t object, char *name)
 	}
 
 	bplist_close(&bpl);
+	mutex_destroy(&bpl.bpl_lock);
 }
 
 /*ARGSUSED*/
@@ -874,9 +925,9 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES] = {
 	dump_zap,		/* DSL props			*/
 	dump_dsl_dataset,	/* DSL dataset			*/
 	dump_znode,		/* ZFS znode			*/
-	dump_acl,		/* ZFS ACL			*/
+	dump_acl,		/* ZFS V0 ACL			*/
 	dump_uint8,		/* ZFS plain file		*/
-	dump_zap,		/* ZFS directory		*/
+	dump_zpldir,		/* ZFS directory		*/
 	dump_zap,		/* ZFS master node		*/
 	dump_zap,		/* ZFS delete queue		*/
 	dump_uint8,		/* zvol object			*/
@@ -888,6 +939,11 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES] = {
 	dump_uint8,		/* SPA history			*/
 	dump_uint64,		/* SPA history offsets		*/
 	dump_zap,		/* Pool properties		*/
+	dump_zap,		/* DSL permissions		*/
+	dump_acl,		/* ZFS ACL			*/
+	dump_uint8,		/* ZFS SYSACL			*/
+	dump_none,		/* FUID nvlist			*/
+	dump_packed_nvlist,	/* FUID nvlist size		*/
 };
 
 static void
@@ -930,13 +986,15 @@ dump_object(objset_t *os, uint64_t object, int verbosity, int *print_header)
 
 	aux[0] = '\0';
 
-	if (doi.doi_checksum != ZIO_CHECKSUM_INHERIT || verbosity >= 6)
+	if (doi.doi_checksum != ZIO_CHECKSUM_INHERIT || verbosity >= 6) {
 		(void) snprintf(aux + strlen(aux), sizeof (aux), " (K=%s)",
 		    zio_checksum_table[doi.doi_checksum].ci_name);
+	}
 
-	if (doi.doi_compress != ZIO_COMPRESS_INHERIT || verbosity >= 6)
+	if (doi.doi_compress != ZIO_COMPRESS_INHERIT || verbosity >= 6) {
 		(void) snprintf(aux + strlen(aux), sizeof (aux), " (Z=%s)",
 		    zio_compress_table[doi.doi_compress].ci_name);
+	}
 
 	(void) printf("%10lld  %3u  %5s  %5s  %5s  %5s  %s%s\n",
 	    (u_longlong_t)object, doi.doi_indirection, iblk, dblk, lsize,
@@ -1441,8 +1499,7 @@ zdb_blkptr_cb(traverse_blk_cache_t *bc, spa_t *spa, void *arg)
 		    (u_longlong_t)zb->zb_objset,
 		    (u_longlong_t)zb->zb_object,
 		    (u_longlong_t)blkid2offset(bc->bc_dnode,
-		    zb->zb_level, zb->zb_blkid),
-		    blkbuf);
+		    zb->zb_level, zb->zb_blkid), blkbuf);
 	}
 
 	zdb_count_block(spa, zcb, bp, type);
@@ -1457,11 +1514,11 @@ dump_block_stats(spa_t *spa)
 	zdb_cb_t zcb = { 0 };
 	traverse_blk_cache_t dummy_cache = { 0 };
 	zdb_blkstats_t *zb, *tzb;
-	uint64_t alloc, space;
+	uint64_t alloc, space, logalloc;
+	vdev_t *rvd = spa->spa_root_vdev;
 	int leaks = 0;
 	int advance = zdb_advance;
-	int flags;
-	int e;
+	int c, e, flags;
 
 	zcb.zcb_cache = &dummy_cache;
 
@@ -1549,17 +1606,27 @@ dump_block_stats(spa_t *spa)
 	alloc = spa_get_alloc(spa);
 	space = spa_get_space(spa);
 
+	/*
+	 * Log blocks allocated from a separate log device don't count
+	 * as part of the normal pool space; factor them in here.
+	 */
+	logalloc = 0;
+
+	for (c = 0; c < rvd->vdev_children; c++)
+		if (rvd->vdev_child[c]->vdev_islog)
+			logalloc += rvd->vdev_child[c]->vdev_stat.vs_alloc;
+
 	tzb = &zcb.zcb_type[ZB_TOTAL][DMU_OT_TOTAL];
 
-	if (tzb->zb_asize == alloc) {
+	if (tzb->zb_asize == alloc + logalloc) {
 		(void) printf("\n\tNo leaks (block sum matches space"
 		    " maps exactly)\n");
 	} else {
 		(void) printf("block traversal size %llu != alloc %llu "
 		    "(leaked %lld)\n",
 		    (u_longlong_t)tzb->zb_asize,
-		    (u_longlong_t)alloc,
-		    (u_longlong_t)(alloc - tzb->zb_asize));
+		    (u_longlong_t)alloc + logalloc,
+		    (u_longlong_t)(alloc + logalloc - tzb->zb_asize));
 		leaks = 1;
 	}
 
@@ -1951,8 +2018,8 @@ zdb_read_block(char *thing, spa_t **spap)
 			spa_close(spa, (void *)zdb_read_block);
 		error = spa_open(spa_name, spap, (void *)zdb_read_block);
 		if (error)
-			fatal("Failed to open pool '%s': errno = %d\n",
-			    spa_name, error);
+			fatal("Failed to open pool '%s': %s",
+			    spa_name, strerror(error));
 		spa = *spap;
 	}
 
@@ -2006,6 +2073,128 @@ out:
 	free(dup);
 }
 
+static boolean_t
+nvlist_string_match(nvlist_t *config, char *name, char *tgt)
+{
+	char *s;
+
+	verify(nvlist_lookup_string(config, name, &s) == 0);
+	return (strcmp(s, tgt) == 0);
+}
+
+static boolean_t
+nvlist_uint64_match(nvlist_t *config, char *name, uint64_t tgt)
+{
+	uint64_t val;
+
+	verify(nvlist_lookup_uint64(config, name, &val) == 0);
+	return (val == tgt);
+}
+
+static boolean_t
+vdev_child_guid_match(nvlist_t *vdev, uint64_t guid)
+{
+	nvlist_t **child;
+	uint_t c, children;
+
+	verify(nvlist_lookup_nvlist_array(vdev, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) == 0);
+	for (c = 0; c < children; ++c)
+		if (nvlist_uint64_match(child[c], ZPOOL_CONFIG_GUID, guid))
+			return (B_TRUE);
+	return (B_FALSE);
+}
+
+static boolean_t
+vdev_child_string_match(nvlist_t *vdev, char *tgt)
+{
+	nvlist_t **child;
+	uint_t c, children;
+
+	verify(nvlist_lookup_nvlist_array(vdev, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) == 0);
+	for (c = 0; c < children; ++c) {
+		if (nvlist_string_match(child[c], ZPOOL_CONFIG_PATH, tgt) ||
+		    nvlist_string_match(child[c], ZPOOL_CONFIG_DEVID, tgt))
+			return (B_TRUE);
+	}
+	return (B_FALSE);
+}
+
+static boolean_t
+vdev_guid_match(nvlist_t *config, uint64_t guid)
+{
+	nvlist_t *nvroot;
+
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+
+	return (nvlist_uint64_match(nvroot, ZPOOL_CONFIG_GUID, guid) ||
+	    vdev_child_guid_match(nvroot, guid));
+}
+
+static boolean_t
+vdev_string_match(nvlist_t *config, char *tgt)
+{
+	nvlist_t *nvroot;
+
+	verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+	    &nvroot) == 0);
+
+	return (vdev_child_string_match(nvroot, tgt));
+}
+
+static boolean_t
+pool_match(nvlist_t *config, char *tgt)
+{
+	uint64_t guid = strtoull(tgt, NULL, 0);
+
+	if (guid != 0) {
+		return (
+		    nvlist_uint64_match(config, ZPOOL_CONFIG_POOL_GUID, guid) ||
+		    vdev_guid_match(config, guid));
+	} else {
+		return (
+		    nvlist_string_match(config, ZPOOL_CONFIG_POOL_NAME, tgt) ||
+		    vdev_string_match(config, tgt));
+	}
+}
+
+static int
+find_exported_zpool(char *pool_id, nvlist_t **configp, char *vdev_dir)
+{
+	nvlist_t *pools;
+	int error = ENOENT;
+	nvlist_t *match = NULL;
+
+	if (vdev_dir != NULL)
+		pools = zpool_find_import(g_zfs, 1, &vdev_dir);
+	else
+		pools = zpool_find_import(g_zfs, 0, NULL);
+
+	if (pools != NULL) {
+		nvpair_t *elem = NULL;
+
+		while ((elem = nvlist_next_nvpair(pools, elem)) != NULL) {
+			verify(nvpair_value_nvlist(elem, configp) == 0);
+			if (pool_match(*configp, pool_id)) {
+				if (match != NULL) {
+					(void) fatal(
+					    "More than one matching pool - "
+					    "specify guid/devid/device path.");
+				} else {
+					match = *configp;
+					error = 0;
+				}
+			}
+		}
+	}
+
+	*configp = error ? NULL : match;
+
+	return (error);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -2018,13 +2207,15 @@ main(int argc, char **argv)
 	int verbose = 0;
 	int error;
 	int flag, set;
+	int exported = 0;
+	char *vdev_dir = NULL;
 
 	(void) setrlimit(RLIMIT_NOFILE, &rl);
 	(void) enable_extended_FILE_stdio(-1, -1);
 
 	dprintf_setup(&argc, argv);
 
-	while ((c = getopt(argc, argv, "udibcsvCLO:B:UlR")) != -1) {
+	while ((c = getopt(argc, argv, "udibcsvCLO:B:UlRep:")) != -1) {
 		switch (c) {
 		case 'u':
 		case 'd':
@@ -2087,13 +2278,24 @@ main(int argc, char **argv)
 		case 'U':
 			spa_config_dir = "/tmp";
 			break;
+		case 'e':
+			exported = 1;
+			break;
+		case 'p':
+			vdev_dir = optarg;
+			break;
 		default:
 			usage();
 			break;
 		}
 	}
 
+	if (vdev_dir != NULL && exported == 0)
+		(void) fatal("-p option requires use of -e\n");
+
 	kernel_init(FREAD);
+	g_zfs = libzfs_init();
+	ASSERT(g_zfs != NULL);
 
 	/*
 	 * Disable vdev caching.  If we don't do this, live pool traversal
@@ -2148,15 +2350,43 @@ main(int argc, char **argv)
 	if (dump_opt['C'])
 		dump_config(argv[0]);
 
-	if (strchr(argv[0], '/') != NULL) {
-		error = dmu_objset_open(argv[0], DMU_OST_ANY,
-		    DS_MODE_STANDARD | DS_MODE_READONLY, &os);
+	if (exported == 0) {
+		if (strchr(argv[0], '/') != NULL) {
+			error = dmu_objset_open(argv[0], DMU_OST_ANY,
+			    DS_MODE_STANDARD | DS_MODE_READONLY, &os);
+		} else {
+			error = spa_open(argv[0], &spa, FTAG);
+		}
 	} else {
-		error = spa_open(argv[0], &spa, FTAG);
+		/*
+		 * Check to see if the name refers to an exported zpool
+		 */
+		nvlist_t *exported_conf = NULL;
+
+		error = find_exported_zpool(argv[0], &exported_conf, vdev_dir);
+		if (error == 0) {
+			nvlist_t *nvl = NULL;
+
+			if (vdev_dir != NULL) {
+				if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0)
+					error = ENOMEM;
+				else if (nvlist_add_string(nvl,
+				    zpool_prop_to_name(ZPOOL_PROP_ALTROOT),
+				    vdev_dir) != 0)
+					error = ENOMEM;
+			}
+
+			if (error == 0)
+				error = spa_import(argv[0], exported_conf, nvl);
+			if (error == 0)
+				error = spa_open(argv[0], &spa, FTAG);
+
+			nvlist_free(nvl);
+		}
 	}
 
 	if (error)
-		fatal("can't open %s: error %d", argv[0], error);
+		fatal("can't open %s: %s", argv[0], strerror(error));
 
 	argv++;
 	if (--argc > 0) {
@@ -2179,6 +2409,7 @@ main(int argc, char **argv)
 		spa_close(spa, FTAG);
 	}
 
+	libzfs_fini(g_zfs);
 	kernel_fini();
 
 	return (0);

@@ -66,6 +66,14 @@ uint64_t zio_gang_bang = SPA_MAXBLOCKSIZE + 1;
 
 /* Force an allocation failure when non-zero */
 uint16_t zio_zil_fail_shift = 0;
+uint16_t zio_io_fail_shift = 0;
+
+/* Enable/disable the write-retry logic */
+int zio_write_retry = 1;
+
+/* Taskq to handle reissuing of I/Os */
+taskq_t *zio_taskq;
+int zio_resume_threads = 4;
 
 typedef struct zio_sync_pass {
 	int	zp_defer_free;		/* defer frees after this pass */
@@ -79,17 +87,48 @@ zio_sync_pass_t zio_sync_pass = {
 	1,	/* zp_rewrite */
 };
 
+static boolean_t zio_io_should_fail(uint16_t);
+
 /*
  * ==========================================================================
  * I/O kmem caches
  * ==========================================================================
  */
+kmem_cache_t *zio_cache;
 kmem_cache_t *zio_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 kmem_cache_t *zio_data_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 
 #ifdef _KERNEL
 extern vmem_t *zio_alloc_arena;
 #endif
+
+/*
+ * Determine if we are allowed to issue the IO based on the
+ * pool state. If we must wait then block until we are told
+ * that we may continue.
+ */
+#define	ZIO_ENTER(spa) {						\
+	if (spa->spa_state == POOL_STATE_IO_FAILURE) {			\
+		mutex_enter(&spa->spa_zio_lock);			\
+		while (spa->spa_state == POOL_STATE_IO_FAILURE)		\
+			cv_wait(&spa->spa_zio_cv, &spa->spa_zio_lock);	\
+		mutex_exit(&spa->spa_zio_lock);				\
+	}								\
+}
+
+/*
+ * An allocation zio is one that either currently has the DVA allocate
+ * stage set or will have it later in it's lifetime.
+ */
+#define	IO_IS_ALLOCATING(zio) \
+	((zio)->io_orig_pipeline == ZIO_WRITE_PIPELINE ||		\
+	(zio)->io_pipeline & (1U << ZIO_STAGE_DVA_ALLOCATE))
+
+/*
+ * The only way to tell is by looking for the gang pipeline stage
+ */
+#define	IO_IS_REWRITE(zio)						\
+	((zio)->io_pipeline & (1U << ZIO_STAGE_GANG_PIPELINE))
 
 void
 zio_init(void)
@@ -100,6 +139,9 @@ zio_init(void)
 #ifdef _KERNEL
 	data_alloc_arena = zio_alloc_arena;
 #endif
+
+	zio_cache = kmem_cache_create("zio_cache", sizeof (zio_t), 0,
+	    NULL, NULL, NULL, NULL, NULL, 0);
 
 	/*
 	 * For small buffers, we want a cache for each multiple of
@@ -149,6 +191,9 @@ zio_init(void)
 			zio_data_buf_cache[c - 1] = zio_data_buf_cache[c];
 	}
 
+	zio_taskq = taskq_create("zio_taskq", zio_resume_threads,
+	    maxclsyspri, 50, INT_MAX, TASKQ_PREPOPULATE);
+
 	zio_inject_init();
 }
 
@@ -172,6 +217,10 @@ zio_fini(void)
 		}
 		zio_data_buf_cache[c] = NULL;
 	}
+
+	taskq_destroy(zio_taskq);
+
+	kmem_cache_destroy(zio_cache);
 
 	zio_inject_fini();
 }
@@ -303,14 +352,19 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	ASSERT3U(size, <=, SPA_MAXBLOCKSIZE);
 	ASSERT(P2PHASE(size, SPA_MINBLOCKSIZE) == 0);
 
-	zio = kmem_zalloc(sizeof (zio_t), KM_SLEEP);
+	zio = kmem_cache_alloc(zio_cache, KM_SLEEP);
+	bzero(zio, sizeof (zio_t));
 	zio->io_parent = pio;
 	zio->io_spa = spa;
 	zio->io_txg = txg;
+	zio->io_flags = flags;
 	if (bp != NULL) {
 		zio->io_bp = bp;
 		zio->io_bp_copy = *bp;
 		zio->io_bp_orig = *bp;
+		if (dmu_ot[BP_GET_TYPE(bp)].ot_metadata ||
+		    BP_GET_LEVEL(bp) != 0)
+			zio->io_flags |= ZIO_FLAG_METADATA;
 	}
 	zio->io_done = done;
 	zio->io_private = private;
@@ -320,8 +374,10 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	zio->io_pipeline = pipeline;
 	zio->io_async_stages = ZIO_ASYNC_PIPELINE_STAGES;
 	zio->io_timestamp = lbolt64;
-	zio->io_flags = flags;
+	if (pio != NULL)
+		zio->io_flags |= (pio->io_flags & ZIO_FLAG_METADATA);
 	mutex_init(&zio->io_lock, NULL, MUTEX_DEFAULT, NULL);
+	cv_init(&zio->io_cv, NULL, CV_DEFAULT, NULL);
 	zio_push_transform(zio, data, size, size);
 
 	/*
@@ -373,7 +429,25 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 		mutex_exit(&pio->io_lock);
 	}
 
+	/*
+	 * Save off the original state incase we need to retry later.
+	 */
+	zio->io_orig_stage = zio->io_stage;
+	zio->io_orig_pipeline = zio->io_pipeline;
+	zio->io_orig_flags = zio->io_flags;
+
 	return (zio);
+}
+
+static void
+zio_reset(zio_t *zio)
+{
+	zio_clear_transform_stack(zio);
+
+	zio->io_flags = zio->io_orig_flags;
+	zio->io_stage = zio->io_orig_stage;
+	zio->io_pipeline = zio->io_orig_pipeline;
+	zio_push_transform(zio, zio->io_data, zio->io_size, zio->io_size);
 }
 
 zio_t *
@@ -404,6 +478,13 @@ zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
 
 	ASSERT3U(size, ==, BP_GET_LSIZE(bp));
 
+	/*
+	 * If the user has specified that we allow I/Os to continue
+	 * then attempt to satisfy the read.
+	 */
+	if (spa_get_failmode(spa) != ZIO_FAILURE_MODE_CONTINUE)
+		ZIO_ENTER(spa);
+
 	zio = zio_create(pio, spa, bp->blk_birth, bp, data, size, done, private,
 	    ZIO_TYPE_READ, priority, flags | ZIO_FLAG_USER,
 	    ZIO_STAGE_OPEN, ZIO_READ_PIPELINE);
@@ -415,22 +496,6 @@ zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
 	 * Work off our copy of the bp so the caller can free it.
 	 */
 	zio->io_bp = &zio->io_bp_copy;
-
-	if (BP_GET_COMPRESS(bp) != ZIO_COMPRESS_OFF) {
-		uint64_t csize = BP_GET_PSIZE(bp);
-		void *cbuf = zio_buf_alloc(csize);
-
-		zio_push_transform(zio, cbuf, csize, csize);
-		zio->io_pipeline |= 1U << ZIO_STAGE_READ_DECOMPRESS;
-	}
-
-	if (BP_IS_GANG(bp)) {
-		uint64_t gsize = SPA_GANGBLOCKSIZE;
-		void *gbuf = zio_buf_alloc(gsize);
-
-		zio_push_transform(zio, gbuf, gsize, gsize);
-		zio->io_pipeline |= 1U << ZIO_STAGE_READ_GANG_MEMBERS;
-	}
 
 	return (zio);
 }
@@ -448,6 +513,8 @@ zio_write(zio_t *pio, spa_t *spa, int checksum, int compress, int ncopies,
 
 	ASSERT(compress >= ZIO_COMPRESS_OFF &&
 	    compress < ZIO_COMPRESS_FUNCTIONS);
+
+	ZIO_ENTER(spa);
 
 	zio = zio_create(pio, spa, txg, bp, data, size, done, private,
 	    ZIO_TYPE_WRITE, priority, flags | ZIO_FLAG_USER,
@@ -502,6 +569,16 @@ zio_rewrite(zio_t *pio, spa_t *spa, int checksum,
 	return (zio);
 }
 
+static void
+zio_write_allocate_ready(zio_t *zio)
+{
+	/* Free up the previous block */
+	if (!BP_IS_HOLE(&zio->io_bp_orig)) {
+		zio_nowait(zio_free(zio, zio->io_spa, zio->io_txg,
+		    &zio->io_bp_orig, NULL, NULL));
+	}
+}
+
 static zio_t *
 zio_write_allocate(zio_t *pio, spa_t *spa, int checksum,
     uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
@@ -520,6 +597,7 @@ zio_write_allocate(zio_t *pio, spa_t *spa, int checksum,
 
 	zio->io_checksum = checksum;
 	zio->io_compress = ZIO_COMPRESS_OFF;
+	zio->io_ready = zio_write_allocate_ready;
 
 	return (zio);
 }
@@ -636,6 +714,8 @@ zio_read_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
 	zio_t *zio;
 	blkptr_t blk;
 
+	ZIO_ENTER(vd->vdev_spa);
+
 	zio_phys_bp_init(vd, &blk, offset, size, checksum);
 
 	zio = zio_create(pio, vd->vdev_spa, 0, &blk, data, size, done, private,
@@ -662,6 +742,8 @@ zio_write_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
 	void *wbuf;
 	zio_t *zio;
 	blkptr_t blk;
+
+	ZIO_ENTER(vd->vdev_spa);
 
 	zio_phys_bp_init(vd, &blk, offset, size, checksum);
 
@@ -749,7 +831,8 @@ zio_wait(zio_t *zio)
 
 	error = zio->io_error;
 	mutex_destroy(&zio->io_lock);
-	kmem_free(zio, sizeof (zio_t));
+	cv_destroy(&zio->io_cv);
+	kmem_cache_free(zio_cache, zio);
 
 	return (error);
 }
@@ -787,6 +870,7 @@ zio_notify_parent(zio_t *zio, uint32_t stage, uint64_t *countp)
 	mutex_enter(&pio->io_lock);
 	if (pio->io_error == 0 && !(zio->io_flags & ZIO_FLAG_DONT_PROPAGATE))
 		pio->io_error = zio->io_error;
+	ASSERT3U(*countp, >, 0);
 	if (--*countp == 0 && pio->io_stalled == stage) {
 		pio->io_stalled = 0;
 		mutex_exit(&pio->io_lock);
@@ -811,6 +895,27 @@ zio_wait_children_done(zio_t *zio)
 }
 
 static void
+zio_read_init(zio_t *zio)
+{
+	if (BP_GET_COMPRESS(zio->io_bp) != ZIO_COMPRESS_OFF) {
+		uint64_t csize = BP_GET_PSIZE(zio->io_bp);
+		void *cbuf = zio_buf_alloc(csize);
+
+		zio_push_transform(zio, cbuf, csize, csize);
+		zio->io_pipeline |= 1U << ZIO_STAGE_READ_DECOMPRESS;
+	}
+
+	if (BP_IS_GANG(zio->io_bp)) {
+		uint64_t gsize = SPA_GANGBLOCKSIZE;
+		void *gbuf = zio_buf_alloc(gsize);
+
+		zio_push_transform(zio, gbuf, gsize, gsize);
+		zio->io_pipeline |= 1U << ZIO_STAGE_READ_GANG_MEMBERS;
+	}
+	zio_next_stage(zio);
+}
+
+static void
 zio_ready(zio_t *zio)
 {
 	zio_t *pio = zio->io_parent;
@@ -829,9 +934,151 @@ zio_ready(zio_t *zio)
 }
 
 static void
-zio_done(zio_t *zio)
+zio_vdev_retry_io(zio_t *zio)
 {
 	zio_t *pio = zio->io_parent;
+
+	/*
+	 * Preserve the failed bp so that the io_ready() callback can
+	 * update the accounting accordingly. The callback will also be
+	 * responsible for freeing the previously allocated block, if one
+	 * exists.
+	 */
+	zio->io_bp_orig = *zio->io_bp;
+
+	/*
+	 * We must zero out the old DVA and blk_birth before reallocating
+	 * the bp. We don't want to do this if this is a rewrite however.
+	 */
+	if (!IO_IS_REWRITE(zio)) {
+		BP_ZERO_DVAS(zio->io_bp);
+	}
+
+	zio_reset(zio);
+
+	if (pio) {
+		/*
+		 * Let the parent know that we will
+		 * re-alloc the write (=> new bp info).
+		 */
+		mutex_enter(&pio->io_lock);
+		pio->io_children_notready++;
+
+		/*
+		 * If the parent I/O is still in the open stage, then
+		 * don't bother telling it to retry since it hasn't
+		 * progressed far enough for it to care.
+		 */
+		if (pio->io_stage > ZIO_STAGE_OPEN && IO_IS_ALLOCATING(pio))
+			pio->io_flags |= ZIO_FLAG_WRITE_RETRY;
+
+		ASSERT(pio->io_stage <= ZIO_STAGE_WAIT_CHILDREN_DONE);
+		mutex_exit(&pio->io_lock);
+	}
+
+	/*
+	 * We are getting ready to process the retry request so clear
+	 * the flag and the zio's current error status.
+	 */
+	zio->io_flags &= ~ZIO_FLAG_WRITE_RETRY;
+	zio->io_error = 0;
+	zio_next_stage_async(zio);
+}
+
+int
+zio_vdev_resume_io(spa_t *spa)
+{
+	zio_t *zio;
+
+	mutex_enter(&spa->spa_zio_lock);
+
+	/*
+	 * Probe all of vdevs that have experienced an I/O error.
+	 * If we are still unable to verify the integrity of the vdev
+	 * then we prevent the resume from proceeeding.
+	 */
+	for (zio = list_head(&spa->spa_zio_list); zio != NULL;
+	    zio = list_next(&spa->spa_zio_list, zio)) {
+		int error = 0;
+
+		/* We only care about I/Os that must succeed */
+		if (zio->io_vd == NULL || zio->io_flags & ZIO_FLAG_CANFAIL)
+			continue;
+		error = vdev_probe(zio->io_vd);
+		if (error) {
+			mutex_exit(&spa->spa_zio_lock);
+			return (error);
+		}
+	}
+
+	/*
+	 * Clear the vdev stats so that I/O can flow.
+	 */
+	vdev_clear(spa, NULL, B_FALSE);
+
+	spa->spa_state = POOL_STATE_ACTIVE;
+	while ((zio = list_head(&spa->spa_zio_list)) != NULL) {
+		list_remove(&spa->spa_zio_list, zio);
+		zio->io_error = 0;
+
+		/*
+		 * If we are resuming an allocating I/O then we force it
+		 * to retry and let it resume operation where it left off.
+		 * Otherwise, go back to the ready stage and pick up from
+		 * there.
+		 */
+		if (zio_write_retry && IO_IS_ALLOCATING(zio)) {
+			zio->io_flags |= ZIO_FLAG_WRITE_RETRY;
+			zio->io_stage--;
+		} else {
+			zio->io_stage = ZIO_STAGE_READY;
+		}
+
+		(void) taskq_dispatch(zio_taskq, zio_resubmit_stage_async,
+		    zio, TQ_SLEEP);
+	}
+	mutex_exit(&spa->spa_zio_lock);
+
+	/*
+	 * Wait for the taskqs to finish and recheck the pool state since
+	 * it's possible that a resumed I/O has failed again.
+	 */
+	taskq_wait(zio_taskq);
+	if (spa_state(spa) == POOL_STATE_IO_FAILURE)
+		return (EIO);
+
+	mutex_enter(&spa->spa_zio_lock);
+	cv_broadcast(&spa->spa_zio_cv);
+	mutex_exit(&spa->spa_zio_lock);
+
+	return (0);
+}
+
+static void
+zio_vdev_suspend_io(zio_t *zio)
+{
+	spa_t *spa = zio->io_spa;
+
+	/*
+	 * We've experienced an unrecoverable failure so
+	 * set the pool state accordingly and queue all
+	 * failed IOs.
+	 */
+	spa->spa_state = POOL_STATE_IO_FAILURE;
+
+	mutex_enter(&spa->spa_zio_lock);
+	list_insert_tail(&spa->spa_zio_list, zio);
+
+#ifndef _KERNEL
+	/* Used to notify ztest that the pool has suspended */
+	cv_broadcast(&spa->spa_zio_cv);
+#endif
+	mutex_exit(&spa->spa_zio_lock);
+}
+
+static void
+zio_assess(zio_t *zio)
+{
 	spa_t *spa = zio->io_spa;
 	blkptr_t *bp = zio->io_bp;
 	vdev_t *vd = zio->io_vd;
@@ -854,6 +1101,14 @@ zio_done(zio_t *zio)
 		}
 	}
 
+	/*
+	 * Some child I/O has indicated that a retry is necessary, so
+	 * we set an error on the I/O and let the logic below do the
+	 * rest.
+	 */
+	if (zio->io_flags & ZIO_FLAG_WRITE_RETRY)
+		zio->io_error = ERESTART;
+
 	if (vd != NULL)
 		vdev_stat_update(zio);
 
@@ -865,8 +1120,7 @@ zio_done(zio_t *zio)
 		 * device is currently unavailable.
 		 */
 		if (zio->io_error != ECKSUM && vd != NULL && !vdev_is_dead(vd))
-			zfs_ereport_post(FM_EREPORT_ZFS_IO,
-			    zio->io_spa, vd, zio, 0, 0);
+			zfs_ereport_post(FM_EREPORT_ZFS_IO, spa, vd, zio, 0, 0);
 
 		if ((zio->io_error == EIO ||
 		    !(zio->io_flags & ZIO_FLAG_SPECULATIVE)) &&
@@ -876,32 +1130,81 @@ zio_done(zio_t *zio)
 			 * appropriately.  Also, generate a logical data
 			 * ereport.
 			 */
-			spa_log_error(zio->io_spa, zio);
+			spa_log_error(spa, zio);
 
-			zfs_ereport_post(FM_EREPORT_ZFS_DATA,
-			    zio->io_spa, NULL, zio, 0, 0);
+			zfs_ereport_post(FM_EREPORT_ZFS_DATA, spa, NULL, zio,
+			    0, 0);
 		}
 
 		/*
-		 * For I/O requests that cannot fail, panic appropriately.
+		 * If we are an allocating I/O or have been told to retry
+		 * then attempt to reissue the I/O on another vdev unless
+		 * the pool is out of space.  We handle this condition
+		 * based on the spa's failmode property.
+		 */
+		if (zio_write_retry && zio->io_error != ENOSPC &&
+		    (IO_IS_ALLOCATING(zio) ||
+		    zio->io_flags & ZIO_FLAG_WRITE_RETRY)) {
+			zio_vdev_retry_io(zio);
+			return;
+		}
+		ASSERT(!(zio->io_flags & ZIO_FLAG_WRITE_RETRY));
+
+		/*
+		 * For I/O requests that cannot fail, we carry out
+		 * the requested behavior based on the failmode pool
+		 * property.
+		 *
+		 * XXX - Need to differentiate between an ENOSPC as
+		 * a result of vdev failures vs. a full pool.
 		 */
 		if (!(zio->io_flags & ZIO_FLAG_CANFAIL)) {
 			char *blkbuf;
 
+#ifdef ZFS_DEBUG
 			blkbuf = kmem_alloc(BP_SPRINTF_LEN, KM_NOSLEEP);
 			if (blkbuf) {
 				sprintf_blkptr(blkbuf, BP_SPRINTF_LEN,
 				    bp ? bp : &zio->io_bp_copy);
 			}
-			panic("ZFS: %s (%s on %s off %llx: zio %p %s): error "
-			    "%d", zio->io_error == ECKSUM ?
+			cmn_err(CE_WARN, "ZFS: %s (%s on %s off %llx: zio %p "
+			    "%s): error %d", zio->io_error == ECKSUM ?
 			    "bad checksum" : "I/O failure",
 			    zio_type_name[zio->io_type],
 			    vdev_description(vd),
 			    (u_longlong_t)zio->io_offset,
-			    zio, blkbuf ? blkbuf : "", zio->io_error);
+			    (void *)zio, blkbuf ? blkbuf : "", zio->io_error);
+#endif
+
+			if (spa_get_failmode(spa) == ZIO_FAILURE_MODE_PANIC) {
+				fm_panic("Pool '%s' has encountered an "
+				    "uncorrectable I/O failure and the "
+				    "failure mode property for this pool "
+				    "is set to panic.", spa_name(spa));
+			} else {
+				cmn_err(CE_WARN, "Pool '%s' has encountered "
+				    "an uncorrectable I/O error. Manual "
+				    "intervention is required.",
+				    spa_name(spa));
+				zio_vdev_suspend_io(zio);
+			}
+			return;
 		}
 	}
+	ASSERT(!(zio->io_flags & ZIO_FLAG_WRITE_RETRY));
+	ASSERT(zio->io_children_notready == 0);
+	zio_next_stage(zio);
+}
+
+static void
+zio_done(zio_t *zio)
+{
+	zio_t *pio = zio->io_parent;
+	spa_t *spa = zio->io_spa;
+
+	ASSERT(zio->io_children_notready == 0);
+	ASSERT(zio->io_children_notdone == 0);
+
 	zio_clear_transform_stack(zio);
 
 	if (zio->io_done)
@@ -929,9 +1232,8 @@ zio_done(zio_t *zio)
 	}
 
 	/*
-	 * Note: this I/O is now done, and will shortly be
-	 * kmem_free()'d, so there is no need to clear this (or any
-	 * other) flag.
+	 * Note: this I/O is now done, and will shortly be freed, so there is no
+	 * need to clear this (or any other) flag.
 	 */
 	if (zio->io_flags & ZIO_FLAG_CONFIG_GRABBED)
 		spa_config_exit(spa, zio);
@@ -943,7 +1245,9 @@ zio_done(zio_t *zio)
 		cv_broadcast(&zio->io_cv);
 		mutex_exit(&zio->io_lock);
 	} else {
-		kmem_free(zio, sizeof (zio_t));
+		mutex_destroy(&zio->io_lock);
+		cv_destroy(&zio->io_cv);
+		kmem_cache_free(zio_cache, zio);
 	}
 }
 
@@ -1084,7 +1388,7 @@ zio_get_gang_header(zio_t *zio)
 	zio_nowait(zio_create(zio, zio->io_spa, bp->blk_birth, bp, gbuf, gsize,
 	    NULL, NULL, ZIO_TYPE_READ, zio->io_priority,
 	    zio->io_flags & ZIO_FLAG_GANG_INHERIT,
-	    ZIO_STAGE_OPEN, ZIO_READ_PIPELINE));
+	    ZIO_STAGE_OPEN, ZIO_READ_GANG_PIPELINE));
 
 	zio_wait_children_done(zio);
 }
@@ -1229,8 +1533,8 @@ zio_write_allocate_gang_member_done(zio_t *zio)
 	mutex_exit(&pio->io_lock);
 }
 
-static void
-zio_write_allocate_gang_members(zio_t *zio)
+static int
+zio_write_allocate_gang_members(zio_t *zio, metaslab_class_t *mc)
 {
 	blkptr_t *bp = zio->io_bp;
 	dva_t *dva = bp->blk_dva;
@@ -1249,10 +1553,10 @@ zio_write_allocate_gang_members(zio_t *zio)
 	gsize = SPA_GANGBLOCKSIZE;
 	gbps_left = SPA_GBH_NBLKPTRS;
 
-	error = metaslab_alloc(spa, gsize, bp, gbh_ndvas, txg, NULL, B_FALSE);
-	if (error == ENOSPC)
-		panic("can't allocate gang block header");
-	ASSERT(error == 0);
+	error = metaslab_alloc(spa, mc, gsize, bp, gbh_ndvas, txg, NULL,
+	    B_FALSE);
+	if (error)
+		return (error);
 
 	for (d = 0; d < gbh_ndvas; d++)
 		DVA_SET_GANG(&dva[d], 1);
@@ -1275,13 +1579,14 @@ zio_write_allocate_gang_members(zio_t *zio)
 		maxalloc = MIN(maxalloc, resid);
 
 		while (resid <= maxalloc * gbps_left) {
-			error = metaslab_alloc(spa, maxalloc, gbp, ndvas,
+			error = metaslab_alloc(spa, mc, maxalloc, gbp, ndvas,
 			    txg, bp, B_FALSE);
 			if (error == 0)
 				break;
 			ASSERT3U(error, ==, ENOSPC);
+			/* XXX - free up previous allocations? */
 			if (maxalloc == SPA_MINBLOCKSIZE)
-				panic("really out of space");
+				return (error);
 			maxalloc = P2ROUNDUP(maxalloc >> 1, SPA_MINBLOCKSIZE);
 		}
 
@@ -1320,6 +1625,7 @@ zio_write_allocate_gang_members(zio_t *zio)
 	 * to be stable.
 	 */
 	zio_wait_children_done(zio);
+	return (0);
 }
 
 /*
@@ -1330,32 +1636,47 @@ zio_write_allocate_gang_members(zio_t *zio)
 static void
 zio_dva_allocate(zio_t *zio)
 {
+	spa_t *spa = zio->io_spa;
+	metaslab_class_t *mc = spa->spa_normal_class;
 	blkptr_t *bp = zio->io_bp;
 	int error;
 
 	ASSERT(BP_IS_HOLE(bp));
 	ASSERT3U(BP_GET_NDVAS(bp), ==, 0);
 	ASSERT3U(zio->io_ndvas, >, 0);
-	ASSERT3U(zio->io_ndvas, <=, spa_max_replication(zio->io_spa));
+	ASSERT3U(zio->io_ndvas, <=, spa_max_replication(spa));
 
 	/* For testing, make some blocks above a certain size be gang blocks */
 	if (zio->io_size >= zio_gang_bang && (lbolt & 0x3) == 0) {
-		zio_write_allocate_gang_members(zio);
+		error = zio_write_allocate_gang_members(zio, mc);
+		if (error)
+			zio->io_error = error;
 		return;
 	}
 
+	/*
+	 * For testing purposes, we force I/Os to retry. We don't allow
+	 * retries beyond the first pass since those I/Os are non-allocating
+	 * writes. We do this after the gang block testing block so that
+	 * they don't inherit the retry flag.
+	 */
+	if (zio_io_fail_shift &&
+	    spa_sync_pass(zio->io_spa) <= zio_sync_pass.zp_rewrite &&
+	    zio_io_should_fail(zio_io_fail_shift))
+		zio->io_flags |= ZIO_FLAG_WRITE_RETRY;
+
 	ASSERT3U(zio->io_size, ==, BP_GET_PSIZE(bp));
 
-	error = metaslab_alloc(zio->io_spa, zio->io_size, bp, zio->io_ndvas,
+	error = metaslab_alloc(spa, mc, zio->io_size, bp, zio->io_ndvas,
 	    zio->io_txg, NULL, B_FALSE);
 
 	if (error == 0) {
 		bp->blk_birth = zio->io_txg;
-	} else if (error == ENOSPC) {
-		if (zio->io_size == SPA_MINBLOCKSIZE)
-			panic("really, truly out of space");
-		zio_write_allocate_gang_members(zio);
-		return;
+	} else if (error == ENOSPC && zio->io_size > SPA_MINBLOCKSIZE) {
+		error = zio_write_allocate_gang_members(zio, mc);
+		if (error == 0)
+			return;
+		zio->io_error = error;
 	} else {
 		zio->io_error = error;
 	}
@@ -1395,6 +1716,18 @@ zio_vdev_io_start(zio_t *zio)
 	vdev_t *tvd = vd ? vd->vdev_top : NULL;
 	blkptr_t *bp = zio->io_bp;
 	uint64_t align;
+	spa_t *spa = zio->io_spa;
+
+	/*
+	 * If the pool is already in a failure state then just suspend
+	 * this IO until the problem is resolved. We will reissue them
+	 * at that time.
+	 */
+	if (spa_state(spa) == POOL_STATE_IO_FAILURE &&
+	    zio->io_type == ZIO_TYPE_WRITE) {
+		zio_vdev_suspend_io(zio);
+		return;
+	}
 
 	if (vd == NULL) {
 		/* The mirror_ops handle multiple DVAs in a single BP */
@@ -1511,25 +1844,6 @@ zio_vdev_io_assess(zio_t *zio)
 
 		zio_next_stage_async(zio);
 		return;
-	}
-
-	if (zio->io_error != 0 && zio->io_error != ECKSUM &&
-	    !(zio->io_flags & ZIO_FLAG_SPECULATIVE) && vd) {
-		/*
-		 * Poor man's hotplug support.  Even if we're done retrying this
-		 * I/O, try to reopen the vdev to see if it's still attached.
-		 * To avoid excessive thrashing, we only try it once a minute.
-		 * This also has the effect of detecting when missing devices
-		 * have come back, by polling the device once a minute.
-		 *
-		 * We need to do this asynchronously because we can't grab
-		 * all the necessary locks way down here.
-		 */
-		if (gethrtime() - vd->vdev_last_try > 60ULL * NANOSEC) {
-			vd->vdev_last_try = gethrtime();
-			tvd->vdev_reopen_wanted = 1;
-			spa_async_request(vd->vdev_spa, SPA_ASYNC_REOPEN);
-		}
 	}
 
 	zio_next_stage(zio);
@@ -1663,6 +1977,7 @@ zio_pipe_stage_t *zio_pipeline[ZIO_STAGE_DONE + 2] = {
 	zio_dva_claim,
 	zio_gang_checksum_generate,
 	zio_ready,
+	zio_read_init,
 	zio_vdev_io_start,
 	zio_vdev_io_done,
 	zio_vdev_io_assess,
@@ -1670,6 +1985,7 @@ zio_pipe_stage_t *zio_pipeline[ZIO_STAGE_DONE + 2] = {
 	zio_checksum_verify,
 	zio_read_gang_members,
 	zio_read_decompress,
+	zio_assess,
 	zio_done,
 	zio_badop
 };
@@ -1763,12 +2079,20 @@ zio_next_stage_async(zio_t *zio)
 	}
 }
 
+void
+zio_resubmit_stage_async(void *arg)
+{
+	zio_t *zio = (zio_t *)(uintptr_t)arg;
+
+	zio_next_stage_async(zio);
+}
+
 static boolean_t
-zio_alloc_should_fail(void)
+zio_io_should_fail(uint16_t range)
 {
 	static uint16_t	allocs = 0;
 
-	return (P2PHASE(allocs++, 1U<<zio_zil_fail_shift) == 0);
+	return (P2PHASE(allocs++, 1U<<range) == 0);
 }
 
 /*
@@ -1782,15 +2106,21 @@ zio_alloc_blk(spa_t *spa, uint64_t size, blkptr_t *new_bp, blkptr_t *old_bp,
 
 	spa_config_enter(spa, RW_READER, FTAG);
 
-	if (zio_zil_fail_shift && zio_alloc_should_fail()) {
+	if (zio_zil_fail_shift && zio_io_should_fail(zio_zil_fail_shift)) {
 		spa_config_exit(spa, FTAG);
 		return (ENOSPC);
 	}
 
 	/*
-	 * We were passed the previous log blocks dva_t in bp->blk_dva[0].
+	 * We were passed the previous log block's DVA in bp->blk_dva[0].
+	 * We use that as a hint for which vdev to allocate from next.
 	 */
-	error = metaslab_alloc(spa, size, new_bp, 1, txg, old_bp, B_TRUE);
+	error = metaslab_alloc(spa, spa->spa_log_class, size,
+	    new_bp, 1, txg, old_bp, B_TRUE);
+
+	if (error)
+		error = metaslab_alloc(spa, spa->spa_normal_class, size,
+		    new_bp, 1, txg, old_bp, B_TRUE);
 
 	if (error == 0) {
 		BP_SET_LSIZE(new_bp, size);
@@ -1820,6 +2150,32 @@ zio_free_blk(spa_t *spa, blkptr_t *bp, uint64_t txg)
 	spa_config_enter(spa, RW_READER, FTAG);
 
 	metaslab_free(spa, bp, txg, B_FALSE);
+
+	spa_config_exit(spa, FTAG);
+}
+
+/*
+ * start an async flush of the write cache for this vdev
+ */
+void
+zio_flush_vdev(spa_t *spa, uint64_t vdev, zio_t **zio)
+{
+	vdev_t *vd;
+
+	/*
+	 * Lock out configuration changes.
+	 */
+	spa_config_enter(spa, RW_READER, FTAG);
+
+	if (*zio == NULL)
+		*zio = zio_root(spa, NULL, NULL, ZIO_FLAG_CANFAIL);
+
+	vd = vdev_lookup_top(spa, vdev);
+	ASSERT(vd);
+
+	(void) zio_nowait(zio_ioctl(*zio, spa, vd, DKIOCFLUSHWRITECACHE,
+	    NULL, NULL, ZIO_PRIORITY_NOW,
+	    ZIO_FLAG_CANFAIL | ZIO_FLAG_DONT_RETRY));
 
 	spa_config_exit(spa, FTAG);
 }

@@ -37,6 +37,7 @@
 #include <sys/processor.h>
 #include <sys/zfs_context.h>
 #include <sys/zmod.h>
+#include <sys/utsname.h>
 
 /*
  * Emulation of kernel services in userland.
@@ -44,6 +45,11 @@
 
 uint64_t physmem;
 vnode_t *rootdir = (vnode_t *)0xabcd1234;
+char hw_serial[11];
+
+struct utsname utsname = {
+	"userland", "libzpool", "1", "1", "na"
+};
 
 /*
  * =========================================================================
@@ -94,20 +100,24 @@ void
 zmutex_init(kmutex_t *mp)
 {
 	mp->m_owner = NULL;
+	mp->initialized = B_TRUE;
 	(void) _mutex_init(&mp->m_lock, USYNC_THREAD, NULL);
 }
 
 void
 zmutex_destroy(kmutex_t *mp)
 {
+	ASSERT(mp->initialized == B_TRUE);
 	ASSERT(mp->m_owner == NULL);
 	(void) _mutex_destroy(&(mp)->m_lock);
 	mp->m_owner = (void *)-1UL;
+	mp->initialized = B_FALSE;
 }
 
 void
 mutex_enter(kmutex_t *mp)
 {
+	ASSERT(mp->initialized == B_TRUE);
 	ASSERT(mp->m_owner != (void *)-1UL);
 	ASSERT(mp->m_owner != curthread);
 	VERIFY(mutex_lock(&mp->m_lock) == 0);
@@ -118,6 +128,7 @@ mutex_enter(kmutex_t *mp)
 int
 mutex_tryenter(kmutex_t *mp)
 {
+	ASSERT(mp->initialized == B_TRUE);
 	ASSERT(mp->m_owner != (void *)-1UL);
 	if (0 == mutex_trylock(&mp->m_lock)) {
 		ASSERT(mp->m_owner == NULL);
@@ -131,6 +142,7 @@ mutex_tryenter(kmutex_t *mp)
 void
 mutex_exit(kmutex_t *mp)
 {
+	ASSERT(mp->initialized == B_TRUE);
 	ASSERT(mutex_owner(mp) == curthread);
 	mp->m_owner = NULL;
 	VERIFY(mutex_unlock(&mp->m_lock) == 0);
@@ -139,6 +151,7 @@ mutex_exit(kmutex_t *mp)
 void *
 mutex_owner(kmutex_t *mp)
 {
+	ASSERT(mp->initialized == B_TRUE);
 	return (mp->m_owner);
 }
 
@@ -153,6 +166,7 @@ rw_init(krwlock_t *rwlp, char *name, int type, void *arg)
 {
 	rwlock_init(&rwlp->rw_lock, USYNC_THREAD, NULL);
 	rwlp->rw_owner = NULL;
+	rwlp->initialized = B_TRUE;
 }
 
 void
@@ -160,12 +174,14 @@ rw_destroy(krwlock_t *rwlp)
 {
 	rwlock_destroy(&rwlp->rw_lock);
 	rwlp->rw_owner = (void *)-1UL;
+	rwlp->initialized = B_FALSE;
 }
 
 void
 rw_enter(krwlock_t *rwlp, krw_t rw)
 {
 	ASSERT(!RW_LOCK_HELD(rwlp));
+	ASSERT(rwlp->initialized == B_TRUE);
 	ASSERT(rwlp->rw_owner != (void *)-1UL);
 	ASSERT(rwlp->rw_owner != curthread);
 
@@ -180,6 +196,7 @@ rw_enter(krwlock_t *rwlp, krw_t rw)
 void
 rw_exit(krwlock_t *rwlp)
 {
+	ASSERT(rwlp->initialized == B_TRUE);
 	ASSERT(rwlp->rw_owner != (void *)-1UL);
 
 	rwlp->rw_owner = NULL;
@@ -191,6 +208,7 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
 {
 	int rv;
 
+	ASSERT(rwlp->initialized == B_TRUE);
 	ASSERT(rwlp->rw_owner != (void *)-1UL);
 
 	if (rw == RW_READER)
@@ -210,6 +228,7 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
 int
 rw_tryupgrade(krwlock_t *rwlp)
 {
+	ASSERT(rwlp->initialized == B_TRUE);
 	ASSERT(rwlp->rw_owner != (void *)-1UL);
 
 	return (0);
@@ -370,9 +389,10 @@ vn_open(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2, int x3)
 	return (0);
 }
 
+/*ARGSUSED*/
 int
 vn_openat(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2,
-    int x3, vnode_t *startvp)
+    int x3, vnode_t *startvp, int fd)
 {
 	char *realpath = umem_alloc(strlen(path) + 2, UMEM_NOFAIL);
 	int ret;
@@ -380,6 +400,7 @@ vn_openat(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2,
 	ASSERT(startvp == rootdir);
 	(void) sprintf(realpath, "/%s", path);
 
+	/* fd ignored for now, need if want to simulate nbmand support */
 	ret = vn_open(realpath, x1, flags, mode, vpp, x2, x3);
 
 	umem_free(realpath, strlen(path) + 2);
@@ -603,7 +624,8 @@ kobj_open_file(char *name)
 	vnode_t *vp;
 
 	/* set vp as the _fd field of the file */
-	if (vn_openat(name, UIO_SYSSPACE, FREAD, 0, &vp, 0, 0, rootdir) != 0)
+	if (vn_openat(name, UIO_SYSSPACE, FREAD, 0, &vp, 0, 0, rootdir,
+	    -1) != 0)
 		return ((void *)-1UL);
 
 	file = umem_zalloc(sizeof (struct _buf), UMEM_NOFAIL);
@@ -723,6 +745,17 @@ random_get_pseudo_bytes(uint8_t *ptr, size_t len)
 	return (random_get_bytes_common(ptr, len, "/dev/urandom"));
 }
 
+int
+ddi_strtoul(const char *hw_serial, char **nptr, int base, unsigned long *result)
+{
+	char *end;
+
+	*result = strtoul(hw_serial, &end, base);
+	if (*result == 0)
+		return (errno);
+	return (0);
+}
+
 /*
  * =========================================================================
  * kernel emulation setup & teardown
@@ -747,6 +780,8 @@ kernel_init(int mode)
 
 	dprintf("physmem = %llu pages (%.2f GB)\n", physmem,
 	    (double)physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
+
+	snprintf(hw_serial, sizeof (hw_serial), "%ld", gethostid());
 
 	spa_init(mode);
 }
@@ -780,4 +815,54 @@ z_compress_level(void *dst, size_t *dstlen, const void *src, size_t srclen,
 		*dstlen = (size_t)len;
 
 	return (ret);
+}
+
+/*ARGSUSED*/
+size_t u8_textprep_str(char *i, size_t *il, char *o, size_t *ol, int nf,
+    size_t vers, int *err)
+{
+	*err = EINVAL;
+	return ((size_t)-1);
+}
+
+uid_t
+crgetuid(cred_t *cr)
+{
+	return (0);
+}
+
+gid_t
+crgetgid(cred_t *cr)
+{
+	return (0);
+}
+
+int
+crgetngroups(cred_t *cr)
+{
+	return (0);
+}
+
+gid_t *
+crgetgroups(cred_t *cr)
+{
+	return (NULL);
+}
+
+int
+zfs_secpolicy_snapshot_perms(const char *name, cred_t *cr)
+{
+	return (0);
+}
+
+int
+zfs_secpolicy_rename_perms(const char *from, const char *to, cred_t *cr)
+{
+	return (0);
+}
+
+int
+zfs_secpolicy_destroy_perms(const char *name, cred_t *cr)
+{
+	return (0);
 }

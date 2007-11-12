@@ -62,7 +62,7 @@
  * or a device was added, we want to update all the labels such that we can deal
  * with fatal failure at any point.  To this end, each disk has two labels which
  * are updated before and after the uberblock is synced.  Assuming we have
- * labels and an uberblock with the following transacation groups:
+ * labels and an uberblock with the following transaction groups:
  *
  *              L1          UB          L2
  *           +------+    +------+    +------+
@@ -153,6 +153,7 @@ uint64_t
 vdev_label_offset(uint64_t psize, int l, uint64_t offset)
 {
 	ASSERT(offset < sizeof (vdev_label_t));
+	ASSERT(P2PHASE_TYPED(psize, sizeof (vdev_label_t), uint64_t) == 0);
 
 	return (offset + l * sizeof (vdev_label_t) + (l < VDEV_LABELS / 2 ?
 	    0 : psize - VDEV_LABELS * sizeof (vdev_label_t)));
@@ -209,6 +210,10 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		VERIFY(nvlist_add_string(nv, ZPOOL_CONFIG_DEVID,
 		    vd->vdev_devid) == 0);
 
+	if (vd->vdev_physpath != NULL)
+		VERIFY(nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH,
+		    vd->vdev_physpath) == 0);
+
 	if (vd->vdev_nparity != 0) {
 		ASSERT(strcmp(vd->vdev_ops->vdev_op_type,
 		    VDEV_TYPE_RAIDZ) == 0);
@@ -219,7 +224,7 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		 */
 		ASSERT(vd->vdev_nparity == 1 ||
 		    (vd->vdev_nparity == 2 &&
-		    spa_version(spa) >= ZFS_VERSION_RAID6));
+		    spa_version(spa) >= SPA_VERSION_RAID6));
 
 		/*
 		 * Note that we'll add the nparity tag even on storage pools
@@ -249,6 +254,8 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		    vd->vdev_ashift) == 0);
 		VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_ASIZE,
 		    vd->vdev_asize) == 0);
+		VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_IS_LOG,
+		    vd->vdev_islog) == 0);
 	}
 
 	if (vd->vdev_dtl.smo_object != 0)
@@ -285,9 +292,18 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		if (vd->vdev_offline && !vd->vdev_tmpoffline)
 			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_OFFLINE,
 			    B_TRUE) == 0);
-		else
-			(void) nvlist_remove(nv, ZPOOL_CONFIG_OFFLINE,
-			    DATA_TYPE_UINT64);
+		if (vd->vdev_faulted)
+			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_FAULTED,
+			    B_TRUE) == 0);
+		if (vd->vdev_degraded)
+			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_DEGRADED,
+			    B_TRUE) == 0);
+		if (vd->vdev_removed)
+			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_REMOVED,
+			    B_TRUE) == 0);
+		if (vd->vdev_unspare)
+			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_UNSPARE,
+			    B_TRUE) == 0);
 	}
 
 	return (nv);
@@ -302,9 +318,10 @@ vdev_label_read_config(vdev_t *vd)
 	zio_t *zio;
 	int l;
 
-	ASSERT(spa_config_held(spa, RW_READER));
+	ASSERT(spa_config_held(spa, RW_READER) ||
+	    spa_config_held(spa, RW_WRITER));
 
-	if (vdev_is_dead(vd))
+	if (!vdev_readable(vd))
 		return (NULL);
 
 	vp = zio_buf_alloc(sizeof (vdev_phys_t));
@@ -496,7 +513,7 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 		/*
 		 * If this is a replacement, then we want to fallthrough to the
 		 * rest of the code.  If we're adding a spare, then it's already
-		 * labelled appropriately and we can just return.
+		 * labeled appropriately and we can just return.
 		 */
 		if (reason == VDEV_LABEL_SPARE)
 			return (0);
@@ -605,7 +622,7 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 
 	/*
 	 * If this vdev hasn't been previously identified as a spare, then we
-	 * mark it as such only if a) we are labelling it as a spare, or b) it
+	 * mark it as such only if a) we are labeling it as a spare, or b) it
 	 * exists as a spare elsewhere in the system.
 	 */
 	if (error == 0 && !vd->vdev_isspare &&
@@ -853,6 +870,14 @@ vdev_sync_labels(vdev_t *vd, int l, uint64_t txg)
 	if (*good_writes == 0 && error == 0)
 		error = ENODEV;
 
+	/*
+	 * Failure to write a label can be fatal for a
+	 * top level vdev. We don't want this for slogs
+	 * as we use the main pool if they go away.
+	 */
+	if (vd->vdev_islog)
+		error = 0;
+
 	kmem_free(good_writes, sizeof (uint64_t));
 
 	return (error);
@@ -877,7 +902,9 @@ vdev_config_sync(vdev_t *uvd, uint64_t txg)
 	vdev_t *rvd = spa->spa_root_vdev;
 	vdev_t *vd;
 	zio_t *zio;
-	int l, error;
+	int l, last_error = 0, error = 0;
+	uint64_t good_writes = 0;
+	boolean_t retry_avail = B_TRUE;
 
 	ASSERT(ub->ub_txg <= txg);
 
@@ -916,6 +943,7 @@ vdev_config_sync(vdev_t *uvd, uint64_t txg)
 	}
 	(void) zio_wait(zio);
 
+retry:
 	/*
 	 * Sync out the even labels (L0, L2) for every dirty vdev.  If the
 	 * system dies in the middle of this process, that's OK: all of the
@@ -929,9 +957,27 @@ vdev_config_sync(vdev_t *uvd, uint64_t txg)
 			if (l & 1)
 				continue;
 			if ((error = vdev_sync_labels(vd, l, txg)) != 0)
-				return (error);
+				last_error = error;
+			else
+				good_writes++;
 		}
 	}
+
+	/*
+	 * If all the vdevs that are currently dirty have failed or the
+	 * spa_dirty_list is empty then we dirty all the vdevs and try again.
+	 * This is a last ditch effort to ensure that we get at least one
+	 * update before proceeding to the uberblock.
+	 */
+	if (good_writes == 0 && retry_avail) {
+		vdev_config_dirty(rvd);
+		retry_avail = B_FALSE;
+		last_error = 0;
+		goto retry;
+	}
+
+	if (good_writes == 0)
+		return (last_error);
 
 	/*
 	 * Flush the new labels to disk.  This ensures that all even-label
@@ -961,8 +1007,15 @@ vdev_config_sync(vdev_t *uvd, uint64_t txg)
 	 *	will be the newest, and the even labels (which had all
 	 *	been successfully committed) will be valid with respect
 	 *	to the new uberblocks.
+	 *
+	 * NOTE: We retry to an uberblock update on the root if we were
+	 * failed our initial update attempt.
 	 */
-	if ((error = vdev_uberblock_sync_tree(spa, ub, uvd, txg)) != 0)
+	error = vdev_uberblock_sync_tree(spa, ub, uvd, txg);
+	if (error && uvd != rvd)
+		error = vdev_uberblock_sync_tree(spa, ub, rvd, txg);
+
+	if (error)
 		return (error);
 
 	/*
@@ -974,6 +1027,7 @@ vdev_config_sync(vdev_t *uvd, uint64_t txg)
 	    NULL, NULL, ZIO_PRIORITY_NOW,
 	    ZIO_FLAG_CONFIG_HELD | ZIO_FLAG_CANFAIL | ZIO_FLAG_DONT_RETRY));
 
+	last_error = 0;
 	/*
 	 * Sync out odd labels for every dirty vdev.  If the system dies
 	 * in the middle of this process, the even labels and the new
@@ -988,9 +1042,14 @@ vdev_config_sync(vdev_t *uvd, uint64_t txg)
 			if ((l & 1) == 0)
 				continue;
 			if ((error = vdev_sync_labels(vd, l, txg)) != 0)
-				return (error);
+				last_error = error;
+			else
+				good_writes++;
 		}
 	}
+
+	if (good_writes == 0)
+		return (last_error);
 
 	/*
 	 * Flush the new labels to disk.  This ensures that all odd-label

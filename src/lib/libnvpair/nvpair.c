@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -1126,13 +1126,15 @@ nvlist_next_nvpair(nvlist_t *nvl, nvpair_t *nvp)
 	curr = NVPAIR2I_NVP(nvp);
 
 	/*
-	 * Ensure that nvp is an valid pointer.
+	 * Ensure that nvp is a valid nvpair on this nvlist.
+	 * NB: nvp_curr is used only as a hint so that we don't always
+	 * have to walk the list to determine if nvp is still on the list.
 	 */
 	if (nvp == NULL)
 		curr = priv->nvp_list;
-	else if (priv->nvp_curr == curr)
+	else if (priv->nvp_curr == curr || nvlist_contains_nvp(nvl, nvp))
 		curr = curr->nvi_next;
-	else if (nvlist_contains_nvp(nvl, nvp) == 0)
+	else
 		curr = NULL;
 
 	priv->nvp_curr = curr;
@@ -1480,6 +1482,53 @@ nvlist_lookup_pairs(nvlist_t *nvl, int flag, ...)
 	va_end(ap);
 
 	return (ret);
+}
+
+int
+nvlist_lookup_nvpair(nvlist_t *nvl, const char *name, nvpair_t **ret)
+{
+	nvpriv_t *priv;
+	nvpair_t *nvp;
+	i_nvp_t *curr;
+
+	if (name == NULL || nvl == NULL ||
+	    (priv = (nvpriv_t *)(uintptr_t)nvl->nvl_priv) == NULL)
+		return (EINVAL);
+
+	if (!(nvl->nvl_nvflag & NV_UNIQUE_NAME))
+		return (ENOTSUP);
+
+	for (curr = priv->nvp_list; curr != NULL; curr = curr->nvi_next) {
+		nvp = &curr->nvi_nvp;
+
+		if (strcmp(name, NVP_NAME(nvp)) == 0) {
+			*ret = nvp;
+			return (0);
+		}
+	}
+
+	return (ENOENT);
+}
+
+boolean_t
+nvlist_exists(nvlist_t *nvl, const char *name)
+{
+	nvpriv_t *priv;
+	nvpair_t *nvp;
+	i_nvp_t *curr;
+
+	if (name == NULL || nvl == NULL ||
+	    (priv = (nvpriv_t *)(uintptr_t)nvl->nvl_priv) == NULL)
+		return (B_FALSE);
+
+	for (curr = priv->nvp_list; curr != NULL; curr = curr->nvi_next) {
+		nvp = &curr->nvi_nvp;
+
+		if (strcmp(name, NVP_NAME(nvp)) == 0)
+			return (B_TRUE);
+	}
+
+	return (B_FALSE);
 }
 
 int

@@ -85,6 +85,7 @@ struct dk_cinfo {
 #define	DKC_DIRECT	20	/* Intel direct attached device i.e. IDE */
 #define	DKC_PCMCIA_MEM	21	/* PCMCIA memory disk-like type */
 #define	DKC_PCMCIA_ATA	22	/* PCMCIA AT Attached type */
+#define	DKC_VBD		23	/* virtual block device */
 
 /*
  * Sun reserves up through 1023
@@ -190,7 +191,13 @@ struct dk_geom {
 struct dk_callback {
 	void (*dkc_callback)(void *dkc_cookie, int error);
 	void *dkc_cookie;
+	int dkc_flag;
 };
+
+/* bit flag definitions for dkc_flag */
+#define	FLUSH_VOLATILE		0x1	/* Bit 0: if set, only flush */
+					/* volatile cache; otherwise, flush */
+					/* volatile and non-volatile cache */
 
 #define	DKIOCGETWCE		(DKIOC|36)	/* Get current write cache */
 						/* enablement status */
