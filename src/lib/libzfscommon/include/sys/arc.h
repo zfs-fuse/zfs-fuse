@@ -35,11 +35,11 @@ extern "C" {
 #endif
 
 #include <sys/zio.h>
+#include <sys/dmu.h>
 
 typedef struct arc_buf_hdr arc_buf_hdr_t;
 typedef struct arc_buf arc_buf_t;
 typedef void arc_done_func_t(zio_t *zio, arc_buf_t *buf, void *private);
-typedef void arc_byteswap_func_t(void *buf, size_t size);
 typedef int arc_evict_func_t(void *private);
 
 /* generic arc_done_func_t's which you can use */
@@ -55,9 +55,9 @@ struct arc_buf {
 };
 
 typedef enum arc_buf_contents {
-	ARC_BUFC_UNDEF,				/* buffer contents undefined */
 	ARC_BUFC_DATA,				/* buffer contains data */
-	ARC_BUFC_METADATA			/* buffer contains metadata */
+	ARC_BUFC_METADATA,			/* buffer contains metadata */
+	ARC_BUFC_NUMTYPES
 } arc_buf_contents_t;
 /*
  * These are the flags we pass into calls to the arc
@@ -67,6 +67,10 @@ typedef enum arc_buf_contents {
 #define	ARC_PREFETCH	(1 << 3)	/* I/O is a prefetch */
 #define	ARC_CACHED	(1 << 4)	/* I/O was already in cache */
 
+void arc_space_consume(uint64_t space);
+void arc_space_return(uint64_t space);
+void *arc_data_buf_alloc(uint64_t space);
+void arc_data_buf_free(void *buf, uint64_t space);
 arc_buf_t *arc_buf_alloc(spa_t *spa, int size, void *tag,
     arc_buf_contents_t type);
 void arc_buf_add_ref(arc_buf_t *buf, void *tag);

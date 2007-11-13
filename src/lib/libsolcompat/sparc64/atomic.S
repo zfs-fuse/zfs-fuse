@@ -2,9 +2,8 @@
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
+ * Common Development and Distribution License (the "License").
+ * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -20,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -50,6 +49,12 @@
 #include "../atomic_asm_weak.h"
 #endif
 
+	/*
+	 * NOTE: If atomic_inc_8 and atomic_inc_8_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_inc_8_nv.
+	 */
 	ENTRY(atomic_inc_8)
 	ALTENTRY(atomic_inc_8_nv)
 	ALTENTRY(atomic_inc_uchar)
@@ -61,6 +66,12 @@
 	SET_SIZE(atomic_inc_8_nv)
 	SET_SIZE(atomic_inc_8)
 
+	/*
+	 * NOTE: If atomic_dec_8 and atomic_dec_8_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_dec_8_nv.
+	 */
 	ENTRY(atomic_dec_8)
 	ALTENTRY(atomic_dec_8_nv)
 	ALTENTRY(atomic_dec_uchar)
@@ -72,6 +83,12 @@
 	SET_SIZE(atomic_dec_8_nv)
 	SET_SIZE(atomic_dec_8)
 
+	/*
+	 * NOTE: If atomic_add_8 and atomic_add_8_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_add_8_nv.
+	 */
 	ENTRY(atomic_add_8)
 	ALTENTRY(atomic_add_8_nv)
 	ALTENTRY(atomic_add_char)
@@ -104,6 +121,12 @@ add_8:
 	SET_SIZE(atomic_add_8_nv)
 	SET_SIZE(atomic_add_8)
 
+	/*
+	 * NOTE: If atomic_inc_16 and atomic_inc_16_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_inc_16_nv.
+	 */
 	ENTRY(atomic_inc_16)
 	ALTENTRY(atomic_inc_16_nv)
 	ALTENTRY(atomic_inc_ushort)
@@ -115,6 +138,12 @@ add_8:
 	SET_SIZE(atomic_inc_16_nv)
 	SET_SIZE(atomic_inc_16)
 
+	/*
+	 * NOTE: If atomic_dec_16 and atomic_dec_16_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_dec_16_nv.
+	 */
 	ENTRY(atomic_dec_16)
 	ALTENTRY(atomic_dec_16_nv)
 	ALTENTRY(atomic_dec_ushort)
@@ -126,6 +155,12 @@ add_8:
 	SET_SIZE(atomic_dec_16_nv)
 	SET_SIZE(atomic_dec_16)
 
+	/*
+	 * NOTE: If atomic_add_16 and atomic_add_16_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_add_16_nv.
+	 */
 	ENTRY(atomic_add_16)
 	ALTENTRY(atomic_add_16_nv)
 	ALTENTRY(atomic_add_short)
@@ -160,6 +195,12 @@ add_16:
 	SET_SIZE(atomic_add_16_nv)
 	SET_SIZE(atomic_add_16)
 
+	/*
+	 * NOTE: If atomic_inc_32 and atomic_inc_32_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_inc_32_nv.
+	 */
 	ENTRY(atomic_inc_32)
 	ALTENTRY(atomic_inc_32_nv)
 	ALTENTRY(atomic_inc_uint)
@@ -175,6 +216,12 @@ add_16:
 	SET_SIZE(atomic_inc_32_nv)
 	SET_SIZE(atomic_inc_32)
 
+	/*
+	 * NOTE: If atomic_dec_32 and atomic_dec_32_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_dec_32_nv.
+	 */
 	ENTRY(atomic_dec_32)
 	ALTENTRY(atomic_dec_32_nv)
 	ALTENTRY(atomic_dec_uint)
@@ -190,6 +237,12 @@ add_16:
 	SET_SIZE(atomic_dec_32_nv)
 	SET_SIZE(atomic_dec_32)
 
+	/*
+	 * NOTE: If atomic_add_32 and atomic_add_32_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_add_32_nv.
+	 */
 	ENTRY(atomic_add_32)
 	ALTENTRY(atomic_add_32_nv)
 	ALTENTRY(atomic_add_int)
@@ -217,6 +270,12 @@ add_32:
 	SET_SIZE(atomic_add_32_nv)
 	SET_SIZE(atomic_add_32)
 
+	/*
+	 * NOTE: If atomic_inc_64 and atomic_inc_64_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_inc_64_nv.
+	 */
 	ENTRY(atomic_inc_64)
 	ALTENTRY(atomic_inc_64_nv)
 	ba	add_64
@@ -224,6 +283,12 @@ add_32:
 	SET_SIZE(atomic_inc_64_nv)
 	SET_SIZE(atomic_inc_64)
 
+	/*
+	 * NOTE: If atomic_dec_64 and atomic_dec_64_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_dec_64_nv.
+	 */
 	ENTRY(atomic_dec_64)
 	ALTENTRY(atomic_dec_64_nv)
 	ba	add_64
@@ -231,6 +296,12 @@ add_32:
 	SET_SIZE(atomic_dec_64_nv)
 	SET_SIZE(atomic_dec_64)
 
+	/*
+	 * NOTE: If atomic_add_64 and atomic_add_64_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_add_64_nv.
+	 */
 	ENTRY(atomic_add_64)
 	ALTENTRY(atomic_add_64_nv)
 	sllx	%o1, 32, %o1		! upper 32 in %o1, lower in %o2
@@ -250,6 +321,12 @@ add_64:
 	SET_SIZE(atomic_add_64_nv)
 	SET_SIZE(atomic_add_64)
 
+	/*
+	 * NOTE: If atomic_or_8 and atomic_or_8_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_or_8_nv.
+	 */
 	ENTRY(atomic_or_8)
 	ALTENTRY(atomic_or_8_nv)
 	ALTENTRY(atomic_or_uchar)
@@ -278,6 +355,12 @@ add_64:
 	SET_SIZE(atomic_or_8_nv)
 	SET_SIZE(atomic_or_8)
 
+	/*
+	 * NOTE: If atomic_or_16 and atomic_or_16_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_or_16_nv.
+	 */
 	ENTRY(atomic_or_16)
 	ALTENTRY(atomic_or_16_nv)
 	ALTENTRY(atomic_or_ushort)
@@ -308,6 +391,12 @@ add_64:
 	SET_SIZE(atomic_or_16_nv)
 	SET_SIZE(atomic_or_16)
 
+	/*
+	 * NOTE: If atomic_or_32 and atomic_or_32_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_or_32_nv.
+	 */
 	ENTRY(atomic_or_32)
 	ALTENTRY(atomic_or_32_nv)
 	ALTENTRY(atomic_or_uint)
@@ -330,6 +419,12 @@ add_64:
 	SET_SIZE(atomic_or_32_nv)
 	SET_SIZE(atomic_or_32)
 
+	/*
+	 * NOTE: If atomic_or_64 and atomic_or_64_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_or_64_nv.
+	 */
 	ENTRY(atomic_or_64)
 	ALTENTRY(atomic_or_64_nv)
 	sllx	%o1, 32, %o1		! upper 32 in %o1, lower in %o2
@@ -348,6 +443,12 @@ add_64:
 	SET_SIZE(atomic_or_64_nv)
 	SET_SIZE(atomic_or_64)
 
+	/*
+	 * NOTE: If atomic_and_8 and atomic_and_8_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_and_8_nv.
+	 */
 	ENTRY(atomic_and_8)
 	ALTENTRY(atomic_and_8_nv)
 	ALTENTRY(atomic_and_uchar)
@@ -376,6 +477,12 @@ add_64:
 	SET_SIZE(atomic_and_8_nv)
 	SET_SIZE(atomic_and_8)
 
+	/*
+	 * NOTE: If atomic_and_16 and atomic_and_16_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_and_16_nv.
+	 */
 	ENTRY(atomic_and_16)
 	ALTENTRY(atomic_and_16_nv)
 	ALTENTRY(atomic_and_ushort)
@@ -406,6 +513,12 @@ add_64:
 	SET_SIZE(atomic_and_16_nv)
 	SET_SIZE(atomic_and_16)
 
+	/*
+	 * NOTE: If atomic_and_32 and atomic_and_32_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_and_32_nv.
+	 */
 	ENTRY(atomic_and_32)
 	ALTENTRY(atomic_and_32_nv)
 	ALTENTRY(atomic_and_uint)
@@ -428,6 +541,12 @@ add_64:
 	SET_SIZE(atomic_and_32_nv)
 	SET_SIZE(atomic_and_32)
 
+	/*
+	 * NOTE: If atomic_and_64 and atomic_and_64_nv are ever
+	 * separated, you need to also edit the libc sparc platform
+	 * specific mapfile and remove the NODYNSORT attribute
+	 * from atomic_and_64_nv.
+	 */
 	ENTRY(atomic_and_64)
 	ALTENTRY(atomic_and_64_nv)
 	sllx	%o1, 32, %o1		! upper 32 in %o1, lower in %o2

@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -44,14 +44,20 @@ dodefault(const char *propname, int intsz, int numint, void *buf)
 {
 	zfs_prop_t prop;
 
-	if ((prop = zfs_name_to_prop(propname)) == ZFS_PROP_INVAL ||
-	    zfs_prop_readonly(prop))
+	/*
+	 * The setonce properties are read-only, BUT they still
+	 * have a default value that can be used as the initial
+	 * value.
+	 */
+	if ((prop = zfs_name_to_prop(propname)) == ZPROP_INVAL ||
+	    (zfs_prop_readonly(prop) && !zfs_prop_setonce(prop)))
 		return (ENOENT);
 
-	if (zfs_prop_get_type(prop) == prop_type_string) {
+	if (zfs_prop_get_type(prop) == PROP_TYPE_STRING) {
 		if (intsz != 1)
 			return (EOVERFLOW);
-		(void) strncpy(buf, zfs_prop_default_string(prop), numint);
+		(void) strncpy(buf, zfs_prop_default_string(prop),
+		    numint);
 	} else {
 		if (intsz != 8 || numint < 1)
 			return (EOVERFLOW);
@@ -92,8 +98,7 @@ dsl_prop_get_impl(dsl_dir_t *dd, const char *propname,
 		/*
 		 * Break out of this loop for non-inheritable properties.
 		 */
-		if (prop != ZFS_PROP_INVAL &&
-		    !zfs_prop_inheritable(prop))
+		if (prop != ZPROP_INVAL && !zfs_prop_inheritable(prop))
 			break;
 	}
 	if (err == ENOENT)
@@ -160,6 +165,16 @@ dsl_prop_get_ds(dsl_dir_t *dd, const char *propname,
 	rw_exit(&dd->dd_pool->dp_config_rwlock);
 
 	return (err);
+}
+
+/*
+ * Get property when config lock is already held.
+ */
+int dsl_prop_get_ds_locked(dsl_dir_t *dd, const char *propname,
+    int intsz, int numints, void *buf, char *setpoint)
+{
+	ASSERT(RW_LOCK_HELD(&dd->dd_pool->dp_config_rwlock));
+	return (dsl_prop_get_impl(dd, propname, intsz, numints, buf, setpoint));
 }
 
 int
@@ -316,7 +331,7 @@ struct prop_set_arg {
 
 
 static void
-dsl_prop_set_sync(void *arg1, void *arg2, dmu_tx_t *tx)
+dsl_prop_set_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 {
 	dsl_dir_t *dd = arg1;
 	struct prop_set_arg *psa = arg2;
@@ -324,6 +339,8 @@ dsl_prop_set_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 	uint64_t zapobj = dd->dd_phys->dd_props_zapobj;
 	uint64_t intval;
 	int isint;
+	char valbuf[32];
+	char *valstr;
 
 	isint = (dodefault(psa->name, 8, 1, &intval) == 0);
 
@@ -345,6 +362,35 @@ dsl_prop_set_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 		dsl_prop_changed_notify(dd->dd_pool,
 		    dd->dd_object, psa->name, intval, TRUE);
 	}
+	if (isint) {
+		(void) snprintf(valbuf, sizeof (valbuf),
+		    "%lld", (longlong_t)intval);
+		valstr = valbuf;
+	} else {
+		valstr = (char *)psa->buf;
+	}
+	spa_history_internal_log((psa->numints == 0) ? LOG_DS_INHERIT :
+	    LOG_DS_PROPSET, dd->dd_pool->dp_spa, tx, cr,
+	    "%s=%s dataset = %llu", psa->name, valstr,
+	    dd->dd_phys->dd_head_dataset_obj);
+}
+
+void
+dsl_prop_set_uint64_sync(dsl_dir_t *dd, const char *name, uint64_t val,
+    cred_t *cr, dmu_tx_t *tx)
+{
+	objset_t *mos = dd->dd_pool->dp_meta_objset;
+	uint64_t zapobj = dd->dd_phys->dd_props_zapobj;
+
+	ASSERT(dmu_tx_is_syncing(tx));
+
+	VERIFY(0 == zap_update(mos, zapobj, name, sizeof (val), 1, &val, tx));
+
+	dsl_prop_changed_notify(dd->dd_pool, dd->dd_object, name, val, TRUE);
+
+	spa_history_internal_log(LOG_DS_PROPSET, dd->dd_pool->dp_spa, tx, cr,
+	    "%s=%llu dataset = %llu", name, (u_longlong_t)val,
+	    dd->dd_phys->dd_head_dataset_obj);
 }
 
 int
@@ -394,14 +440,12 @@ dsl_prop_get_all(objset_t *os, nvlist_t **nvp)
 {
 	dsl_dataset_t *ds = os->os->os_dsl_dataset;
 	dsl_dir_t *dd = ds->ds_dir;
+	boolean_t snapshot;
 	int err = 0;
 	dsl_pool_t *dp;
 	objset_t *mos;
 
-	if (dsl_dataset_is_snapshot(ds)) {
-		VERIFY(nvlist_alloc(nvp, NV_UNIQUE_NAME, KM_SLEEP) == 0);
-		return (0);
-	}
+	snapshot = dsl_dataset_is_snapshot(ds);
 
 	VERIFY(nvlist_alloc(nvp, NV_UNIQUE_NAME, KM_SLEEP) == 0);
 
@@ -425,8 +469,12 @@ dsl_prop_get_all(objset_t *os, nvlist_t **nvp)
 			 * Skip non-inheritable properties.
 			 */
 			if ((prop = zfs_name_to_prop(za.za_name)) !=
-			    ZFS_PROP_INVAL && !zfs_prop_inheritable(prop) &&
+			    ZPROP_INVAL && !zfs_prop_inheritable(prop) &&
 			    dd != ds->ds_dir)
+				continue;
+
+			if (snapshot &&
+			    !zfs_prop_valid_for_type(prop, ZFS_TYPE_SNAPSHOT))
 				continue;
 
 			if (nvlist_lookup_nvlist(*nvp, za.za_name,
@@ -449,20 +497,20 @@ dsl_prop_get_all(objset_t *os, nvlist_t **nvp)
 					kmem_free(tmp, za.za_num_integers);
 					break;
 				}
-				VERIFY(nvlist_add_string(propval,
-				    ZFS_PROP_VALUE, tmp) == 0);
+				VERIFY(nvlist_add_string(propval, ZPROP_VALUE,
+				    tmp) == 0);
 				kmem_free(tmp, za.za_num_integers);
 			} else {
 				/*
 				 * Integer property
 				 */
 				ASSERT(za.za_integer_length == 8);
-				(void) nvlist_add_uint64(propval,
-				    ZFS_PROP_VALUE, za.za_first_integer);
+				(void) nvlist_add_uint64(propval, ZPROP_VALUE,
+				    za.za_first_integer);
 			}
 
-			VERIFY(nvlist_add_string(propval,
-			    ZFS_PROP_SOURCE, setpoint) == 0);
+			VERIFY(nvlist_add_string(propval, ZPROP_SOURCE,
+			    setpoint) == 0);
 			VERIFY(nvlist_add_nvlist(*nvp, za.za_name,
 			    propval) == 0);
 			nvlist_free(propval);
@@ -484,7 +532,7 @@ dsl_prop_nvlist_add_uint64(nvlist_t *nv, zfs_prop_t prop, uint64_t value)
 	nvlist_t *propval;
 
 	VERIFY(nvlist_alloc(&propval, NV_UNIQUE_NAME, KM_SLEEP) == 0);
-	VERIFY(nvlist_add_uint64(propval, ZFS_PROP_VALUE, value) == 0);
+	VERIFY(nvlist_add_uint64(propval, ZPROP_VALUE, value) == 0);
 	VERIFY(nvlist_add_nvlist(nv, zfs_prop_to_name(prop), propval) == 0);
 	nvlist_free(propval);
 }
@@ -495,7 +543,7 @@ dsl_prop_nvlist_add_string(nvlist_t *nv, zfs_prop_t prop, const char *value)
 	nvlist_t *propval;
 
 	VERIFY(nvlist_alloc(&propval, NV_UNIQUE_NAME, KM_SLEEP) == 0);
-	VERIFY(nvlist_add_string(propval, ZFS_PROP_VALUE, value) == 0);
+	VERIFY(nvlist_add_string(propval, ZPROP_VALUE, value) == 0);
 	VERIFY(nvlist_add_nvlist(nv, zfs_prop_to_name(prop), propval) == 0);
 	nvlist_free(propval);
 }

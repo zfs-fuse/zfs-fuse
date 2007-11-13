@@ -423,6 +423,16 @@ zil_destroy(zilog_t *zilog, boolean_t keep_first)
 
 	mutex_enter(&zilog->zl_lock);
 
+	/*
+	 * It is possible for the ZIL to get the previously mounted zilog
+	 * structure of the same dataset if quickly remounted and the dbuf
+	 * eviction has not completed. In this case we can see a non
+	 * empty lwb list and keep_first will be set. We fix this by
+	 * clearing the keep_first. This will be slower but it's very rare.
+	 */
+	if (!list_is_empty(&zilog->zl_lwb_list) && keep_first)
+		keep_first = B_FALSE;
+
 	ASSERT3U(zilog->zl_destroy_txg, <, txg);
 	zilog->zl_destroy_txg = txg;
 	zilog->zl_keep_first = keep_first;
@@ -452,6 +462,32 @@ zil_destroy(zilog_t *zilog, boolean_t keep_first)
 
 	txg_wait_synced(zilog->zl_dmu_pool, txg);
 	ASSERT(BP_IS_HOLE(&zh->zh_log));
+}
+
+/*
+ * zil_rollback_destroy() is only called by the rollback code.
+ * We already have a syncing tx. Rollback has exclusive access to the
+ * dataset, so we don't have to worry about concurrent zil access.
+ * The actual freeing of any log blocks occurs in zil_sync() later in
+ * this txg syncing phase.
+ */
+void
+zil_rollback_destroy(zilog_t *zilog, dmu_tx_t *tx)
+{
+	const zil_header_t *zh = zilog->zl_header;
+	uint64_t txg;
+
+	if (BP_IS_HOLE(&zh->zh_log))
+		return;
+
+	txg = dmu_tx_get_txg(tx);
+	ASSERT3U(zilog->zl_destroy_txg, <, txg);
+	zilog->zl_destroy_txg = txg;
+	zilog->zl_keep_first = B_FALSE;
+
+	ASSERT(list_is_empty(&zilog->zl_lwb_list));
+	(void) zil_parse(zilog, zil_free_log_block, zil_free_log_record,
+	    tx, zh->zh_claim_txg);
 }
 
 int
@@ -538,23 +574,6 @@ zil_add_vdev(zilog_t *zilog, uint64_t vdev)
 	}
 }
 
-/* start an async flush of the write cache for this vdev */
-void
-zil_flush_vdev(spa_t *spa, uint64_t vdev, zio_t **zio)
-{
-	vdev_t *vd;
-
-	if (*zio == NULL)
-		*zio = zio_root(spa, NULL, NULL, ZIO_FLAG_CANFAIL);
-
-	vd = vdev_lookup_top(spa, vdev);
-	ASSERT(vd);
-
-	(void) zio_nowait(zio_ioctl(*zio, spa, vd, DKIOCFLUSHWRITECACHE,
-	    NULL, NULL, ZIO_PRIORITY_NOW,
-	    ZIO_FLAG_CANFAIL | ZIO_FLAG_DONT_RETRY));
-}
-
 void
 zil_flush_vdevs(zilog_t *zilog)
 {
@@ -574,14 +593,14 @@ zil_flush_vdevs(zilog_t *zilog)
 		for (j = 0; j < 8; j++) {
 			if (b & (1 << j)) {
 				vdev = (i << 3) + j;
-				zil_flush_vdev(spa, vdev, &zio);
+				zio_flush_vdev(spa, vdev, &zio);
 			}
 		}
 		zilog->zl_vdev_bmap[i] = 0;
 	}
 
 	while ((zv = list_head(&zilog->zl_vdev_list)) != NULL) {
-		zil_flush_vdev(spa, zv->vdev, &zio);
+		zio_flush_vdev(spa, zv->vdev, &zio);
 		list_remove(&zilog->zl_vdev_list, zv);
 		kmem_free(zv, sizeof (zil_vdev_t));
 	}
@@ -612,11 +631,8 @@ zil_lwb_write_done(zio_t *zio)
 	zio_buf_free(lwb->lwb_buf, lwb->lwb_sz);
 	mutex_enter(&zilog->zl_lock);
 	lwb->lwb_buf = NULL;
-	if (zio->io_error) {
+	if (zio->io_error)
 		zilog->zl_log_error = B_TRUE;
-		mutex_exit(&zilog->zl_lock);
-		return;
-	}
 	mutex_exit(&zilog->zl_lock);
 }
 
@@ -644,7 +660,7 @@ zil_lwb_write_init(zilog_t *zilog, lwb_t *lwb)
 		lwb->lwb_zio = zio_rewrite(zilog->zl_root_zio, zilog->zl_spa,
 		    ZIO_CHECKSUM_ZILOG, 0, &lwb->lwb_blk, lwb->lwb_buf,
 		    lwb->lwb_sz, zil_lwb_write_done, lwb,
-		    ZIO_PRIORITY_LOG_WRITE, ZIO_FLAG_MUSTSUCCEED, &zb);
+		    ZIO_PRIORITY_LOG_WRITE, ZIO_FLAG_CANFAIL, &zb);
 	}
 }
 
@@ -841,7 +857,7 @@ zil_lwb_commit(zilog_t *zilog, itx_t *itx, lwb_t *lwb)
 }
 
 itx_t *
-zil_itx_create(int txtype, size_t lrsize)
+zil_itx_create(uint64_t txtype, size_t lrsize)
 {
 	itx_t *itx;
 
@@ -1380,6 +1396,9 @@ zil_replay_log_record(zilog_t *zilog, lr_t *lr, void *zra, uint64_t claim_txg)
 	if (lr->lrc_seq <= zh->zh_replay_seq)	/* already replayed */
 		return;
 
+	/* Strip case-insensitive bit, still present in log record */
+	txtype &= ~TX_CI;
+
 	/*
 	 * Make a copy of the data so we can revise and extend it.
 	 */
@@ -1499,8 +1518,9 @@ zil_replay_log_record(zilog_t *zilog, lr_t *lr, void *zra, uint64_t claim_txg)
 	name = kmem_alloc(MAXNAMELEN, KM_SLEEP);
 	dmu_objset_name(zr->zr_os, name);
 	cmn_err(CE_WARN, "ZFS replay transaction error %d, "
-	    "dataset %s, seq 0x%llx, txtype %llu\n",
-	    error, name, (u_longlong_t)lr->lrc_seq, (u_longlong_t)txtype);
+	    "dataset %s, seq 0x%llx, txtype %llu %s\n",
+	    error, name, (u_longlong_t)lr->lrc_seq, (u_longlong_t)txtype,
+	    (lr->lrc_txtype & TX_CI) ? "CI" : "");
 	zilog->zl_stop_replay = 1;
 	kmem_free(name, MAXNAMELEN);
 }

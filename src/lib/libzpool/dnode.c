@@ -240,6 +240,23 @@ free_range_compar(const void *node1, const void *node2)
 	else return (0);
 }
 
+void
+dnode_setbonuslen(dnode_t *dn, int newsize, dmu_tx_t *tx)
+{
+	ASSERT3U(refcount_count(&dn->dn_holds), >=, 1);
+
+	dnode_setdirty(dn, tx);
+	rw_enter(&dn->dn_struct_rwlock, RW_WRITER);
+	ASSERT3U(newsize, <=, DN_MAX_BONUSLEN -
+	    (dn->dn_nblkptr-1) * sizeof (blkptr_t));
+	dn->dn_bonuslen = newsize;
+	if (newsize == 0)
+		dn->dn_next_bonuslen[tx->tx_txg & TXG_MASK] = DN_ZERO_BONUSLEN;
+	else
+		dn->dn_next_bonuslen[tx->tx_txg & TXG_MASK] = dn->dn_bonuslen;
+	rw_exit(&dn->dn_struct_rwlock);
+}
+
 static void
 dnode_setdblksz(dnode_t *dn, int size)
 {
@@ -284,6 +301,7 @@ dnode_create(objset_impl_t *os, dnode_phys_t *dnp, dmu_buf_impl_t *db,
 	list_insert_head(&os->os_dnodes, dn);
 	mutex_exit(&os->os_lock);
 
+	arc_space_consume(sizeof (dnode_t));
 	return (dn);
 }
 
@@ -318,6 +336,7 @@ dnode_destroy(dnode_t *dn)
 		dn->dn_bonus = NULL;
 	}
 	kmem_cache_free(dnode_cache, dn);
+	arc_space_return(sizeof (dnode_t));
 }
 
 void
@@ -361,6 +380,7 @@ dnode_allocate(dnode_t *dn, dmu_object_type_t ot, int blocksize, int ibs,
 	for (i = 0; i < TXG_SIZE; i++) {
 		ASSERT3U(dn->dn_next_nlevels[i], ==, 0);
 		ASSERT3U(dn->dn_next_indblkshift[i], ==, 0);
+		ASSERT3U(dn->dn_next_bonuslen[i], ==, 0);
 		ASSERT3U(dn->dn_next_blksz[i], ==, 0);
 		ASSERT(!list_link_active(&dn->dn_dirty_link[i]));
 		ASSERT3P(list_head(&dn->dn_dirty_records[i]), ==, NULL);
@@ -388,6 +408,7 @@ dnode_allocate(dnode_t *dn, dmu_object_type_t ot, int blocksize, int ibs,
 
 	dnode_setdirty(dn, tx);
 	dn->dn_next_indblkshift[tx->tx_txg & TXG_MASK] = ibs;
+	dn->dn_next_bonuslen[tx->tx_txg & TXG_MASK] = dn->dn_bonuslen;
 	dn->dn_next_blksz[tx->tx_txg & TXG_MASK] = dn->dn_datablksz;
 }
 
@@ -395,7 +416,7 @@ void
 dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
     dmu_object_type_t bonustype, int bonuslen, dmu_tx_t *tx)
 {
-	int i;
+	int i, old_nblkptr;
 	dmu_buf_impl_t *db = NULL;
 
 	ASSERT3U(blocksize, >=, SPA_MINBLOCKSIZE);
@@ -412,7 +433,7 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
 		ASSERT(!list_link_active(&dn->dn_dirty_link[i]));
 
 	/* clean up any unreferenced dbufs */
-	(void) dnode_evict_dbufs(dn, 0);
+	dnode_evict_dbufs(dn);
 	ASSERT3P(list_head(&dn->dn_dbufs), ==, NULL);
 
 	/*
@@ -435,38 +456,18 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
 	}
 	dnode_setdblksz(dn, blocksize);
 	dnode_setdirty(dn, tx);
+	dn->dn_next_bonuslen[tx->tx_txg&TXG_MASK] = bonuslen;
 	dn->dn_next_blksz[tx->tx_txg&TXG_MASK] = blocksize;
 	rw_exit(&dn->dn_struct_rwlock);
-	if (db) {
+	if (db)
 		dbuf_rele(db, FTAG);
-		db = NULL;
-	}
 
 	/* change type */
 	dn->dn_type = ot;
 
-	if (dn->dn_bonuslen != bonuslen) {
-		/* change bonus size */
-		if (bonuslen == 0)
-			bonuslen = 1; /* XXX */
-		rw_enter(&dn->dn_struct_rwlock, RW_WRITER);
-		if (dn->dn_bonus == NULL)
-			dn->dn_bonus = dbuf_create_bonus(dn);
-		db = dn->dn_bonus;
-		rw_exit(&dn->dn_struct_rwlock);
-		if (refcount_add(&db->db_holds, FTAG) == 1)
-			dnode_add_ref(dn, db);
-		VERIFY(0 == dbuf_read(db, NULL, DB_RF_MUST_SUCCEED));
-		mutex_enter(&db->db_mtx);
-		ASSERT3U(db->db.db_size, ==, dn->dn_bonuslen);
-		ASSERT(db->db.db_data != NULL);
-		db->db.db_size = bonuslen;
-		mutex_exit(&db->db_mtx);
-		(void) dbuf_dirty(db, tx);
-	}
-
 	/* change bonus size and type */
 	mutex_enter(&dn->dn_mtx);
+	old_nblkptr = dn->dn_nblkptr;
 	dn->dn_bonustype = bonustype;
 	dn->dn_bonuslen = bonuslen;
 	dn->dn_nblkptr = 1 + ((DN_MAX_BONUSLEN - bonuslen) >> SPA_BLKPTRSHIFT);
@@ -474,12 +475,15 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
 	dn->dn_compress = ZIO_COMPRESS_INHERIT;
 	ASSERT3U(dn->dn_nblkptr, <=, DN_MAX_NBLKPTR);
 
-	/*
-	 * NB: we have to do the dbuf_rele after we've changed the
-	 * dn_bonuslen, for the sake of dbuf_verify().
-	 */
-	if (db)
-		dbuf_rele(db, FTAG);
+	/* XXX - for now, we can't make nblkptr smaller */
+	ASSERT3U(dn->dn_nblkptr, >=, old_nblkptr);
+
+	/* fix up the bonus db_size if dn_nblkptr has changed */
+	if (dn->dn_bonus && dn->dn_bonuslen != old_nblkptr) {
+		dn->dn_bonus->db.db_size =
+		    DN_MAX_BONUSLEN - (dn->dn_nblkptr-1) * sizeof (blkptr_t);
+		ASSERT(dn->dn_bonuslen <= dn->dn_bonus->db.db_size);
+	}
 
 	dn->dn_allocated_txg = tx->tx_txg;
 	mutex_exit(&dn->dn_mtx);
@@ -600,9 +604,10 @@ dnode_hold_impl(objset_impl_t *os, uint64_t object, int flag,
 	}
 
 	if ((dn = children_dnodes[idx]) == NULL) {
+		dnode_phys_t *dnp = (dnode_phys_t *)db->db.db_data+idx;
 		dnode_t *winner;
-		dn = dnode_create(os, (dnode_phys_t *)db->db.db_data+idx,
-			db, object);
+
+		dn = dnode_create(os, dnp, db, object);
 		winner = atomic_cas_ptr(&children_dnodes[idx], NULL, dn);
 		if (winner != NULL) {
 			dnode_destroy(dn);
@@ -642,11 +647,22 @@ dnode_hold(objset_impl_t *os, uint64_t object, void *tag, dnode_t **dnp)
 	return (dnode_hold_impl(os, object, DNODE_MUST_BE_ALLOCATED, tag, dnp));
 }
 
-void
+/*
+ * Can only add a reference if there is already at least one
+ * reference on the dnode.  Returns FALSE if unable to add a
+ * new reference.
+ */
+boolean_t
 dnode_add_ref(dnode_t *dn, void *tag)
 {
-	ASSERT(refcount_count(&dn->dn_holds) > 0);
-	(void) refcount_add(&dn->dn_holds, tag);
+	mutex_enter(&dn->dn_mtx);
+	if (refcount_is_zero(&dn->dn_holds)) {
+		mutex_exit(&dn->dn_mtx);
+		return (FALSE);
+	}
+	VERIFY(1 < refcount_add(&dn->dn_holds, tag));
+	mutex_exit(&dn->dn_mtx);
+	return (TRUE);
 }
 
 void
@@ -654,7 +670,9 @@ dnode_rele(dnode_t *dn, void *tag)
 {
 	uint64_t refs;
 
+	mutex_enter(&dn->dn_mtx);
 	refs = refcount_remove(&dn->dn_holds, tag);
+	mutex_exit(&dn->dn_mtx);
 	/* NOTE: the DNODE_DNODE does not have a dn_dbuf */
 	if (refs == 0 && dn->dn_dbuf)
 		dbuf_rele(dn->dn_dbuf, dn);
@@ -690,6 +708,7 @@ dnode_setdirty(dnode_t *dn, dmu_tx_t *tx)
 
 	ASSERT(!refcount_is_zero(&dn->dn_holds) || list_head(&dn->dn_dbufs));
 	ASSERT(dn->dn_datablksz != 0);
+	ASSERT3U(dn->dn_next_bonuslen[txg&TXG_MASK], ==, 0);
 	ASSERT3U(dn->dn_next_blksz[txg&TXG_MASK], ==, 0);
 
 	dprintf_ds(os->os_dsl_dataset, "obj=%llu txg=%llu\n",
@@ -712,7 +731,7 @@ dnode_setdirty(dnode_t *dn, dmu_tx_t *tx)
 	 * dnode will hang around after we finish processing its
 	 * children.
 	 */
-	dnode_add_ref(dn, (void *)(uintptr_t)tx->tx_txg);
+	VERIFY(dnode_add_ref(dn, (void *)(uintptr_t)tx->tx_txg));
 
 	(void) dbuf_dirty(dn->dn_dbuf, tx);
 
@@ -1177,7 +1196,7 @@ dnode_diduse_space(dnode_t *dn, int64_t delta)
 		ASSERT3U(space, >=, -delta); /* no underflow */
 	}
 	space += delta;
-	if (spa_version(dn->dn_objset->os_spa) < ZFS_VERSION_DNODE_BYTES) {
+	if (spa_version(dn->dn_objset->os_spa) < SPA_VERSION_DNODE_BYTES) {
 		ASSERT((dn->dn_phys->dn_flags & DNODE_FLAG_USED_BYTES) == 0);
 		ASSERT3U(P2PHASE(space, 1<<DEV_BSHIFT), ==, 0);
 		dn->dn_phys->dn_used = space >> DEV_BSHIFT;

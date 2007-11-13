@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -47,7 +47,7 @@ bplist_create(objset_t *mos, int blocksize, dmu_tx_t *tx)
 {
 	int size;
 
-	size = spa_version(dmu_objset_spa(mos)) < ZFS_VERSION_BPLIST_ACCOUNT ?
+	size = spa_version(dmu_objset_spa(mos)) < SPA_VERSION_BPLIST_ACCOUNT ?
 	    BPLIST_SIZE_V0 : sizeof (bplist_phys_t);
 
 	return (dmu_object_alloc(mos, DMU_OT_BPLIST, blocksize,
@@ -278,9 +278,7 @@ bplist_vacate(bplist_t *bpl, dmu_tx_t *tx)
 int
 bplist_space(bplist_t *bpl, uint64_t *usedp, uint64_t *compp, uint64_t *uncompp)
 {
-	uint64_t itor = 0, comp = 0, uncomp = 0;
 	int err;
-	blkptr_t bp;
 
 	mutex_enter(&bpl->bpl_lock);
 
@@ -298,6 +296,9 @@ bplist_space(bplist_t *bpl, uint64_t *usedp, uint64_t *compp, uint64_t *uncompp)
 	mutex_exit(&bpl->bpl_lock);
 
 	if (!bpl->bpl_havecomp) {
+		uint64_t itor = 0, comp = 0, uncomp = 0;
+		blkptr_t bp;
+
 		while ((err = bplist_iterate(bpl, &itor, &bp)) == 0) {
 			comp += BP_GET_PSIZE(&bp);
 			uncomp += BP_GET_UCSIZE(&bp);

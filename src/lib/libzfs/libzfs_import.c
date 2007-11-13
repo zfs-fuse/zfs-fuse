@@ -220,7 +220,7 @@ add_config(libzfs_handle_t *hdl, pool_list_t *pl, const char *path,
 	    &state) == 0 && state == POOL_STATE_SPARE &&
 	    nvlist_lookup_uint64(config, ZPOOL_CONFIG_GUID, &vdev_guid) == 0) {
 		if ((ne = zfs_alloc(hdl, sizeof (name_entry_t))) == NULL)
-		    return (-1);
+			return (-1);
 
 		if ((ne->ne_name = zfs_strdup(hdl, path)) == NULL) {
 			free(ne);
@@ -361,6 +361,46 @@ pool_active(libzfs_handle_t *hdl, const char *name, uint64_t guid,
 	return (0);
 }
 
+static nvlist_t *
+refresh_config(libzfs_handle_t *hdl, nvlist_t *config)
+{
+	nvlist_t *nvl;
+	zfs_cmd_t zc = { 0 };
+	int err;
+
+	if (zcmd_write_conf_nvlist(hdl, &zc, config) != 0)
+		return (NULL);
+
+	if (zcmd_alloc_dst_nvlist(hdl, &zc,
+	    zc.zc_nvlist_conf_size * 2) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	while ((err = ioctl(hdl->libzfs_fd, ZFS_IOC_POOL_TRYIMPORT,
+	    &zc)) != 0 && errno == ENOMEM) {
+		if (zcmd_expand_dst_nvlist(hdl, &zc) != 0) {
+			zcmd_free_nvlists(&zc);
+			return (NULL);
+		}
+	}
+
+	if (err) {
+		(void) zpool_standard_error(hdl, errno,
+		    dgettext(TEXT_DOMAIN, "cannot discover pools"));
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	if (zcmd_read_dst_nvlist(hdl, &zc, &nvl) != 0) {
+		zcmd_free_nvlists(&zc);
+		return (NULL);
+	}
+
+	zcmd_free_nvlists(&zc);
+	return (nvl);
+}
+
 /*
  * Convert our list of pools into the definitive set of configurations.  We
  * start by picking the best config for each toplevel vdev.  Once that's done,
@@ -379,15 +419,14 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl)
 	uint_t i, nspares;
 	boolean_t config_seen;
 	uint64_t best_txg;
-	char *name;
-	zfs_cmd_t zc = { 0 };
+	char *name, *hostname;
 	uint64_t version, guid;
-	size_t len;
-	int err;
 	uint_t children = 0;
 	nvlist_t **child = NULL;
 	uint_t c;
 	boolean_t isactive;
+	uint64_t hostid;
+	nvlist_t *nvl;
 
 	if (nvlist_alloc(&ret, 0, 0) != 0)
 		goto nomem;
@@ -430,6 +469,8 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl)
 				 * 	pool guid
 				 * 	name
 				 * 	pool state
+				 *	hostid (if available)
+				 *	hostname (if available)
 				 */
 				uint64_t state;
 
@@ -453,6 +494,20 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl)
 				if (nvlist_add_uint64(config,
 				    ZPOOL_CONFIG_POOL_STATE, state) != 0)
 					goto nomem;
+				hostid = 0;
+				if (nvlist_lookup_uint64(tmp,
+				    ZPOOL_CONFIG_HOSTID, &hostid) == 0) {
+					if (nvlist_add_uint64(config,
+					    ZPOOL_CONFIG_HOSTID, hostid) != 0)
+						goto nomem;
+					verify(nvlist_lookup_string(tmp,
+					    ZPOOL_CONFIG_HOSTNAME,
+					    &hostname) == 0);
+					if (nvlist_add_string(config,
+					    ZPOOL_CONFIG_HOSTNAME,
+					    hostname) != 0)
+						goto nomem;
+				}
 
 				config_seen = B_TRUE;
 			}
@@ -571,41 +626,11 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl)
 			continue;
 		}
 
-		/*
-		 * Try to do the import in order to get vdev state.
-		 */
-		if (zcmd_write_src_nvlist(hdl, &zc, config, &len) != 0)
+		if ((nvl = refresh_config(hdl, config)) == NULL)
 			goto error;
 
 		nvlist_free(config);
-		config = NULL;
-
-		if (zcmd_alloc_dst_nvlist(hdl, &zc, len * 2) != 0) {
-			zcmd_free_nvlists(&zc);
-			goto error;
-		}
-
-		while ((err = ioctl(hdl->libzfs_fd, ZFS_IOC_POOL_TRYIMPORT,
-		    &zc)) != 0 && errno == ENOMEM) {
-			if (zcmd_expand_dst_nvlist(hdl, &zc) != 0) {
-				zcmd_free_nvlists(&zc);
-				goto error;
-			}
-		}
-
-		if (err) {
-			(void) zpool_standard_error(hdl, errno,
-			    dgettext(TEXT_DOMAIN, "cannot discover pools"));
-			zcmd_free_nvlists(&zc);
-			goto error;
-		}
-
-		if (zcmd_read_dst_nvlist(hdl, &zc, &config) != 0) {
-			zcmd_free_nvlists(&zc);
-			goto error;
-		}
-
-		zcmd_free_nvlists(&zc);
+		config = nvl;
 
 		/*
 		 * Go through and update the paths for spares, now that we have
@@ -619,6 +644,20 @@ get_configs(libzfs_handle_t *hdl, pool_list_t *pl)
 				if (fix_paths(spares[i], pl->names) != 0)
 					goto nomem;
 			}
+		}
+
+		/*
+		 * Restore the original information read from the actual label.
+		 */
+		(void) nvlist_remove(config, ZPOOL_CONFIG_HOSTID,
+		    DATA_TYPE_UINT64);
+		(void) nvlist_remove(config, ZPOOL_CONFIG_HOSTNAME,
+		    DATA_TYPE_STRING);
+		if (hostid != 0) {
+			verify(nvlist_add_uint64(config, ZPOOL_CONFIG_HOSTID,
+			    hostid) == 0);
+			verify(nvlist_add_string(config, ZPOOL_CONFIG_HOSTNAME,
+			    hostname) == 0);
 		}
 
 		/*
@@ -651,8 +690,9 @@ error:
  * Return the offset of the given label.
  */
 static uint64_t
-label_offset(size_t size, int l)
+label_offset(uint64_t size, int l)
 {
+	ASSERT(P2PHASE_TYPED(size, sizeof (vdev_label_t), uint64_t) == 0);
 	return (l * sizeof (vdev_label_t) + (l < VDEV_LABELS / 2 ?
 	    0 : size - VDEV_LABELS * sizeof (vdev_label_t)));
 }
@@ -667,19 +707,20 @@ zpool_read_label(int fd, nvlist_t **config)
 	struct stat64 statbuf;
 	int l;
 	vdev_label_t *label;
-	uint64_t state, txg;
+	uint64_t state, txg, size;
 
 	*config = NULL;
 
 	if (fstat64(fd, &statbuf) == -1)
 		return (0);
+	size = P2ALIGN_TYPED(statbuf.st_size, sizeof (vdev_label_t), uint64_t);
 
 	if ((label = malloc(sizeof (vdev_label_t))) == NULL)
 		return (-1);
 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		if (pread(fd, label, sizeof (vdev_label_t),
-		    label_offset(statbuf.st_size, l)) != sizeof (vdev_label_t))
+		    label_offset(size, l)) != sizeof (vdev_label_t))
 			continue;
 
 		if (nvlist_unpack(label->vl_vdev_phys.vp_nvlist,
@@ -717,7 +758,7 @@ nvlist_t *
 zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv)
 {
 	int i;
-	DIR *dirp;
+	DIR *dirp = NULL;
 	struct dirent64 *dp;
 	char path[MAXPATHLEN];
 	struct stat64 statbuf;
@@ -785,6 +826,7 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv)
 				continue;
 
 			if ((zpool_read_label(fd, &config)) != 0) {
+				(void) close(fd);
 				(void) no_memory(hdl);
 				goto error;
 			}
@@ -795,6 +837,9 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv)
 				if (add_config(hdl, &pools, path, config) != 0)
 					goto error;
 		}
+
+		(void) closedir(dirp);
+		dirp = NULL;
 	}
 
 	ret = get_configs(hdl, &pools);
@@ -822,9 +867,118 @@ error:
 		free(ne);
 	}
 
+	if (dirp)
+		(void) closedir(dirp);
 
 	return (ret);
 }
+
+/*
+ * Given a cache file, return the contents as a list of importable pools.
+ */
+nvlist_t *
+zpool_find_import_cached(libzfs_handle_t *hdl, const char *cachefile)
+{
+	char *buf;
+	int fd;
+	struct stat64 statbuf;
+	nvlist_t *raw, *src, *dst;
+	nvlist_t *pools;
+	nvpair_t *elem;
+	char *name;
+	uint64_t guid;
+	boolean_t active;
+
+	if ((fd = open(cachefile, O_RDONLY)) < 0) {
+		zfs_error_aux(hdl, "%s", strerror(errno));
+		(void) zfs_error(hdl, EZFS_BADCACHE,
+		    dgettext(TEXT_DOMAIN, "failed to open cache file"));
+		return (NULL);
+	}
+
+	if (fstat64(fd, &statbuf) != 0) {
+		zfs_error_aux(hdl, "%s", strerror(errno));
+		(void) close(fd);
+		(void) zfs_error(hdl, EZFS_BADCACHE,
+		    dgettext(TEXT_DOMAIN, "failed to get size of cache file"));
+		return (NULL);
+	}
+
+	if ((buf = zfs_alloc(hdl, statbuf.st_size)) == NULL) {
+		(void) close(fd);
+		return (NULL);
+	}
+
+	if (read(fd, buf, statbuf.st_size) != statbuf.st_size) {
+		(void) close(fd);
+		free(buf);
+		(void) zfs_error(hdl, EZFS_BADCACHE,
+		    dgettext(TEXT_DOMAIN,
+		    "failed to read cache file contents"));
+		return (NULL);
+	}
+
+	(void) close(fd);
+
+	if (nvlist_unpack(buf, statbuf.st_size, &raw, 0) != 0) {
+		free(buf);
+		(void) zfs_error(hdl, EZFS_BADCACHE,
+		    dgettext(TEXT_DOMAIN,
+		    "invalid or corrupt cache file contents"));
+		return (NULL);
+	}
+
+	free(buf);
+
+	/*
+	 * Go through and get the current state of the pools and refresh their
+	 * state.
+	 */
+	if (nvlist_alloc(&pools, 0, 0) != 0) {
+		(void) no_memory(hdl);
+		nvlist_free(raw);
+		return (NULL);
+	}
+
+	elem = NULL;
+	while ((elem = nvlist_next_nvpair(raw, elem)) != NULL) {
+		verify(nvpair_value_nvlist(elem, &src) == 0);
+
+		verify(nvlist_lookup_string(src, ZPOOL_CONFIG_POOL_NAME,
+		    &name) == 0);
+		verify(nvlist_lookup_uint64(src, ZPOOL_CONFIG_POOL_GUID,
+		    &guid) == 0);
+
+		if (pool_active(hdl, name, guid, &active) != 0) {
+			nvlist_free(raw);
+			nvlist_free(pools);
+			return (NULL);
+		}
+
+		if (active)
+			continue;
+
+		if ((dst = refresh_config(hdl, src)) == NULL) {
+			nvlist_free(raw);
+			nvlist_free(pools);
+			return (NULL);
+		}
+
+		if (nvlist_add_nvlist(pools, nvpair_name(elem), dst) != 0) {
+			(void) no_memory(hdl);
+			nvlist_free(dst);
+			nvlist_free(raw);
+			nvlist_free(pools);
+			return (NULL);
+		}
+
+		nvlist_free(dst);
+	}
+
+	nvlist_free(raw);
+	return (pools);
+}
+
 
 boolean_t
 find_guid(nvlist_t *nv, uint64_t guid)

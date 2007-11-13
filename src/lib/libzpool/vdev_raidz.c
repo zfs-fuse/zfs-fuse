@@ -686,7 +686,7 @@ vdev_raidz_io_start(zio_t *zio)
 	for (c = rm->rm_cols - 1; c >= 0; c--) {
 		rc = &rm->rm_col[c];
 		cvd = vd->vdev_child[rc->rc_devidx];
-		if (vdev_is_dead(cvd)) {
+		if (!vdev_readable(cvd)) {
 			if (c >= rm->rm_firstdatacol)
 				rm->rm_missingdata++;
 			else
@@ -867,8 +867,18 @@ vdev_raidz_io_done(zio_t *zio)
 		case 0:
 			if (zio_checksum_error(zio) == 0) {
 				zio->io_error = 0;
+
+				/*
+				 * If we read parity information (unnecessarily
+				 * as it happens since no reconstruction was
+				 * needed) regenerate and verify the parity.
+				 * We also regenerate parity when resilvering
+				 * so we can write it out to the failed device
+				 * later.
+				 */
 				if (parity_errors + parity_untried <
-				    rm->rm_firstdatacol) {
+				    rm->rm_firstdatacol ||
+				    (zio->io_flags & ZIO_FLAG_RESILVER)) {
 					n = raidz_parity_verify(zio, rm);
 					unexpected_errors += n;
 					ASSERT(parity_errors + n <=
@@ -925,8 +935,12 @@ vdev_raidz_io_done(zio_t *zio)
 				 * perform the reconstruction, but this should
 				 * be a relatively uncommon case, and can be
 				 * optimized if it becomes a problem.
+				 * We also regenerate parity when resilvering
+				 * so we can write it out to the failed device
+				 * later.
 				 */
-				if (parity_errors < rm->rm_firstdatacol - 1) {
+				if (parity_errors < rm->rm_firstdatacol - 1 ||
+				    (zio->io_flags & ZIO_FLAG_RESILVER)) {
 					n = raidz_parity_verify(zio, rm);
 					unexpected_errors += n;
 					ASSERT(parity_errors + n <=
@@ -1214,6 +1228,7 @@ vdev_raidz_state_change(vdev_t *vd, int faulted, int degraded)
 vdev_ops_t vdev_raidz_ops = {
 	vdev_raidz_open,
 	vdev_raidz_close,
+	NULL,
 	vdev_raidz_asize,
 	vdev_raidz_io_start,
 	vdev_raidz_io_done,

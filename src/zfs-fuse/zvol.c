@@ -115,9 +115,9 @@ int zvol_maxphys = DMU_MAX_ACCESS/2;
 static int zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio);
 
 static void
-zvol_size_changed(zvol_state_t *zv, dev_t dev)
+zvol_size_changed(zvol_state_t *zv, major_t maj)
 {
-	dev = makedevice(getmajor(dev), zv->zv_minor);
+	dev_t dev = makedevice(maj, zv->zv_minor);
 
 	VERIFY(ddi_prop_update_int64(dev, zfs_dip,
 	    "Size", zv->zv_volsize) == DDI_SUCCESS);
@@ -222,16 +222,18 @@ zvol_minor_lookup(const char *name)
 	return (zv);
 }
 
+/* ARGSUSED */
 void
-zvol_create_cb(objset_t *os, void *arg, dmu_tx_t *tx)
+zvol_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
-	zfs_create_data_t *zc = arg;
+	zfs_creat_t *zct = arg;
+	nvlist_t *nvprops = zct->zct_props;
 	int error;
 	uint64_t volblocksize, volsize;
 
-	VERIFY(nvlist_lookup_uint64(zc->zc_props,
+	VERIFY(nvlist_lookup_uint64(nvprops,
 	    zfs_prop_to_name(ZFS_PROP_VOLSIZE), &volsize) == 0);
-	if (nvlist_lookup_uint64(zc->zc_props,
+	if (nvlist_lookup_uint64(nvprops,
 	    zfs_prop_to_name(ZFS_PROP_VOLBLOCKSIZE), &volblocksize) != 0)
 		volblocksize = zfs_prop_default_numeric(ZFS_PROP_VOLBLOCKSIZE);
 
@@ -239,9 +241,9 @@ zvol_create_cb(objset_t *os, void *arg, dmu_tx_t *tx)
 	 * These properites must be removed from the list so the generic
 	 * property setting step won't apply to them.
 	 */
-	VERIFY(nvlist_remove_all(zc->zc_props,
+	VERIFY(nvlist_remove_all(nvprops,
 	    zfs_prop_to_name(ZFS_PROP_VOLSIZE)) == 0);
-	(void) nvlist_remove_all(zc->zc_props,
+	(void) nvlist_remove_all(nvprops,
 	    zfs_prop_to_name(ZFS_PROP_VOLBLOCKSIZE));
 
 	error = dmu_object_claim(os, ZVOL_OBJ, DMU_OT_ZVOL, volblocksize,
@@ -317,7 +319,7 @@ zil_replay_func_t *zvol_replay_vector[TX_MAX_TYPE] = {
  * Create a minor node for the specified volume.
  */
 int
-zvol_create_minor(const char *name, dev_t dev)
+zvol_create_minor(const char *name, major_t maj)
 {
 	zvol_state_t *zv;
 	objset_t *os;
@@ -454,7 +456,7 @@ zvol_create_minor(const char *name, dev_t dev)
 
 	zil_replay(os, zv, &zv->zv_txg_assign, zvol_replay_vector);
 
-	zvol_size_changed(zv, dev);
+	zvol_size_changed(zv, maj);
 
 	/* XXX this should handle the possible i/o error */
 	VERIFY(dsl_prop_register(dmu_objset_ds(zv->zv_objset),
@@ -514,7 +516,7 @@ zvol_remove_minor(const char *name)
 }
 
 int
-zvol_set_volsize(const char *name, dev_t dev, uint64_t volsize)
+zvol_set_volsize(const char *name, major_t maj, uint64_t volsize)
 {
 	zvol_state_t *zv;
 	dmu_tx_t *tx;
@@ -561,7 +563,7 @@ zvol_set_volsize(const char *name, dev_t dev, uint64_t volsize)
 
 	if (error == 0) {
 		zv->zv_volsize = volsize;
-		zvol_size_changed(zv, dev);
+		zvol_size_changed(zv, maj);
 	}
 
 	mutex_exit(&zvol_state_lock);
@@ -805,7 +807,6 @@ zvol_strategy(buf_t *bp)
 	objset_t *os;
 	rl_t *rl;
 	int error = 0;
-	int sync;
 	boolean_t reading;
 
 	if (zv == NULL) {
@@ -832,7 +833,6 @@ zvol_strategy(buf_t *bp)
 
 	os = zv->zv_objset;
 	ASSERT(os != NULL);
-	sync = !(bp->b_flags & B_ASYNC) && !(zil_disable);
 
 	bp_mapin(bp);
 	addr = bp->b_un.b_addr;
@@ -841,7 +841,6 @@ zvol_strategy(buf_t *bp)
 	/*
 	 * There must be no buffer changes when doing a dmu_sync() because
 	 * we can't change the data whilst calculating the checksum.
-	 * A better approach than a per zvol rwlock would be to lock ranges.
 	 */
 	reading = bp->b_flags & B_READ;
 	rl = zfs_range_lock(&zv->zv_znode, off, resid,
@@ -879,7 +878,7 @@ zvol_strategy(buf_t *bp)
 	if ((bp->b_resid = resid) == bp->b_bcount)
 		bioerror(bp, off > volsize ? EINVAL : error);
 
-	if (sync)
+	if (!(bp->b_flags & B_ASYNC) && !reading && !zil_disable)
 		zil_commit(zv->zv_zilog, UINT64_MAX, ZVOL_OBJ);
 
 	biodone(bp);
@@ -906,9 +905,17 @@ zvol_minphys(struct buf *bp)
 int
 zvol_read(dev_t dev, uio_t *uio, cred_t *cr)
 {
-	zvol_state_t *zv = ddi_get_soft_state(zvol_state, getminor(dev));
+	minor_t minor = getminor(dev);
+	zvol_state_t *zv;
 	rl_t *rl;
 	int error = 0;
+
+	if (minor == 0)			/* This is the control device */
+		return (ENXIO);
+
+	zv = ddi_get_soft_state(zvol_state, minor);
+	if (zv == NULL)
+		return (ENXIO);
 
 	rl = zfs_range_lock(&zv->zv_znode, uio->uio_loffset, uio->uio_resid,
 	    RL_READER);
@@ -927,9 +934,17 @@ zvol_read(dev_t dev, uio_t *uio, cred_t *cr)
 int
 zvol_write(dev_t dev, uio_t *uio, cred_t *cr)
 {
-	zvol_state_t *zv = ddi_get_soft_state(zvol_state, getminor(dev));
+	minor_t minor = getminor(dev);
+	zvol_state_t *zv;
 	rl_t *rl;
 	int error = 0;
+
+	if (minor == 0)			/* This is the control device */
+		return (ENXIO);
+
+	zv = ddi_get_soft_state(zvol_state, minor);
+	if (zv == NULL)
+		return (ENXIO);
 
 	rl = zfs_range_lock(&zv->zv_znode, uio->uio_loffset, uio->uio_resid,
 	    RL_WRITER);

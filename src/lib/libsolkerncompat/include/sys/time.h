@@ -31,8 +31,6 @@
 #include <sys/time_aux.h>
 #include <sys/debug.h>
 
-typedef struct timespec timestruc_t;
-
 #define gethrestime_sec() time(NULL)
 #define gethrestime(t)    VERIFY(clock_gettime(CLOCK_REALTIME, t) == 0)
 

@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -30,6 +30,17 @@
 #include_next <sys/sysmacros.h>
 
 #define makedevice(maj,min) makedev(maj,min)
+
+/* common macros */
+#ifndef MIN
+#define MIN(a, b)       ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
+#define MAX(a, b)       ((a) < (b) ? (b) : (a))
+#endif
+#ifndef ABS
+#define ABS(a)          ((a) < 0 ? -(a) : (a))
+#endif
 
 /*
  * Compatibility macros/typedefs needed for Solaris -> Linux port

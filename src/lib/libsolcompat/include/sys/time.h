@@ -35,6 +35,7 @@
 #include <time.h>
 
 typedef longlong_t hrtime_t;
+typedef struct timespec timestruc_t;
 
 #define NANOSEC 1000000000
 
