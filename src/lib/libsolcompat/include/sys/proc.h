@@ -20,30 +20,17 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
-#ifndef _SOL_SYS_FILE_H
-#define _SOL_SYS_FILE_H
+#ifndef _SOL_PROC_H
+#define _SOL_PROC_H
 
-#include_next <sys/file.h>
-
-#include <sys/user.h>
-
-#define FREAD   1
-#define FWRITE  2
-//#define FAPPEND  8
-
-#define FCREAT  O_CREAT
-#define FTRUNC  O_TRUNC
-#define FOFFMAX O_LARGEFILE
-#define FSYNC   O_SYNC
-#define FDSYNC  O_DSYNC
-#define FRSYNC  O_RSYNC
-#define FEXCL   O_EXCL
-
-#define FNODSYNC  0x10000 /* fsync pseudo flag */
-#define FNOFOLLOW 0x20000 /* don't follow symlinks */
+extern void tsd_create(uint_t *, void (*)(void *));
+extern void tsd_destroy(uint_t *);
+extern void *tsd_get(uint_t);
+extern int tsd_set(uint_t, void *);
 
 #endif
+

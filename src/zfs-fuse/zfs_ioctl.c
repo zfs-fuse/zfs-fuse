@@ -2962,13 +2962,17 @@ zfs_ioctl_init(void)
 		spa_fini();
 		return (error);
 	}
+#endif
+
 	tsd_create(&zfs_fsyncer_key, NULL);
 	tsd_create(&rrw_tsd_key, NULL);
 
+#if 0
 	error = ldi_ident_from_mod(&modlinkage, &zfs_li);
 	ASSERT(error == 0);
-	mutex_init(&zfs_share_lock, NULL, MUTEX_DEFAULT, NULL);
 #endif
+
+	mutex_init(&zfs_share_lock, NULL, MUTEX_DEFAULT, NULL);
 
 	return (0);
 }
@@ -2991,12 +2995,15 @@ zfs_ioctl_fini(void)
 
 	zfs_fini();
 	spa_fini();
+
+#if 0
 	if (zfs_nfsshare_inited)
 		(void) ddi_modclose(nfs_mod);
 	if (zfs_smbshare_inited)
 		(void) ddi_modclose(smbsrv_mod);
 	if (zfs_nfsshare_inited || zfs_smbshare_inited)
 		(void) ddi_modclose(sharefs_mod);
+#endif
 
 	tsd_destroy(&zfs_fsyncer_key);
 #if 0
