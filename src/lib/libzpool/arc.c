@@ -122,6 +122,7 @@
 #include <vm/anon.h>
 #include <sys/fs/swapnode.h>
 #include <sys/dnlc.h>
+#include <sys/kmem.h>
 #endif
 #include <sys/callb.h>
 #include <sys/kstat.h>
@@ -845,6 +846,7 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 				to_delta = ab->b_size;
 			}
 			atomic_add_64(size, to_delta);
+			atomic_add_64(&new_state->arcs_size, to_delta);
 
 			if (use_mutex)
 				mutex_exit(&new_state->arcs_mtx);
@@ -857,7 +859,7 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 	}
 
 	/* adjust state sizes */
-	if (to_delta)
+	if (to_delta && (refcnt != 0 || new_state == arc_anon))
 		atomic_add_64(&new_state->arcs_size, to_delta);
 	if (from_delta) {
 		ASSERT3U(old_state->arcs_size, >=, from_delta);
@@ -1456,7 +1458,7 @@ arc_shrink(void)
 	if (arc_c > arc_c_min) {
 		uint64_t to_free;
 
-#ifdef _KERNEL
+#if 0
 		to_free = MAX(arc_c >> arc_shrink_shift, ptob(needfree));
 #else
 		to_free = arc_c >> arc_shrink_shift;
@@ -1485,7 +1487,21 @@ arc_reclaim_needed(void)
 	uint64_t extra;
 
 #ifdef _KERNEL
+	static hrtime_t last_reap = 0;
+	uint64_t memusage = get_real_memusage();
 
+	/*fprintf(stderr, "arc.c: %.2f MiB, arc.size: %.2f MiB, Resident size: %.2f MiB\n", (double) arc.c / (1<<20), (double) arc.size / (1<<20), (double) memusage / (1<<20));*/
+
+	if(memusage > ZFSFUSE_MAX_MEMORY || (arc_size * 5 < memusage && (memusage - arc_size) > (10<<20))) {
+		hrtime_t now = gethrtime();
+		if(now - last_reap > 1000000000) {
+			umem_reap();
+			last_reap = now;
+		}
+	}
+	return arc_size > ZFSFUSE_MAX_ARCSIZE;
+
+#if 0
 	if (needfree)
 		return (1);
 
@@ -1530,7 +1546,7 @@ arc_reclaim_needed(void)
 	    (btop(vmem_size(heap_arena, VMEM_FREE | VMEM_ALLOC)) >> 2))
 		return (1);
 #endif
-
+#endif /* if 0 */
 #else
 	if (spa_get_random(100) == 0)
 		return (1);
@@ -1547,7 +1563,7 @@ arc_kmem_reap_now(arc_reclaim_strategy_t strat)
 	extern kmem_cache_t	*zio_buf_cache[];
 	extern kmem_cache_t	*zio_data_buf_cache[];
 
-#ifdef _KERNEL
+#if 0
 	if (arc_meta_used >= arc_meta_limit) {
 		/*
 		 * We are exceeding our meta-data cache limit.
@@ -1587,7 +1603,7 @@ arc_kmem_reap_now(arc_reclaim_strategy_t strat)
 static void
 arc_reclaim_thread(void)
 {
-	clock_t			growtime = 0;
+	int64_t			growtime = 0;
 	arc_reclaim_strategy_t	last_reclaim = ARC_RECLAIM_CONS;
 	callb_cpr_t		cpr;
 
@@ -1610,11 +1626,11 @@ arc_reclaim_thread(void)
 			}
 
 			/* reset the growth delay for every reclaim */
-			growtime = lbolt + (arc_grow_retry * hz);
+			growtime = lbolt64 + (arc_grow_retry * hz);
 
 			arc_kmem_reap_now(last_reclaim);
 
-		} else if (arc_no_grow && lbolt >= growtime) {
+		} else if (arc_no_grow && lbolt64 >= growtime) {
 			arc_no_grow = FALSE;
 		}
 
@@ -2520,13 +2536,11 @@ arc_has_callback(arc_buf_t *buf)
 	return (buf->b_efunc != NULL);
 }
 
-#ifdef ZFS_DEBUG
 int
 arc_referenced(arc_buf_t *buf)
 {
 	return (refcount_count(&buf->b_hdr->b_refcnt));
 }
-#endif
 
 static void
 arc_write_ready(zio_t *zio)
@@ -2796,7 +2810,7 @@ arc_init(void)
 	/* Start out with 1/8 of all memory */
 	arc_c = physmem * PAGESIZE / 8;
 
-#ifdef _KERNEL
+#if 0
 	/*
 	 * On architectures where the physical memory can be larger
 	 * than the addressable space (intel in 32-bit mode), we may
@@ -2805,14 +2819,14 @@ arc_init(void)
 	arc_c = MIN(arc_c, vmem_size(heap_arena, VMEM_ALLOC | VMEM_FREE) / 8);
 #endif
 
-	/* set min cache to 1/32 of all memory, or 64MB, whichever is more */
-	arc_c_min = MAX(arc_c / 4, 64<<20);
-	/* set max to 3/4 of all memory, or all but 1GB, whichever is more */
-	if (arc_c * 8 >= 1<<30)
-		arc_c_max = (arc_c * 8) - (1<<30);
-	else
-		arc_c_max = arc_c_min;
-	arc_c_max = MAX(arc_c * 6, arc_c_max);
+	/* set min cache to 16 MB */
+	arc_c_min = 16<<20;
+#ifdef _KERNEL
+	/* set max cache to ZFSFUSE_MAX_ARCSIZE */
+	arc_c_max = ZFSFUSE_MAX_ARCSIZE;
+#else
+	arc_c_max = 64<<20;
+#endif
 
 	/*
 	 * Allow the tunables to override our calculations if they are
