@@ -2457,6 +2457,8 @@ zpool_obj_to_path(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
  * determine where a partition starts on a disk in the current
  * configuration
  */
+/* ZFS-FUSE: not implemented */
+#if 0
 static diskaddr_t
 find_start_block(nvlist_t *config)
 {
@@ -2501,11 +2503,14 @@ find_start_block(nvlist_t *config)
 	}
 	return (MAXOFFSET_T);
 }
+#endif
 
 /*
  * Label an individual disk.  The name provided is the short name,
  * stripped of any leading /dev path.
  */
+/* ZFS-FUSE: not implemented */
+#if 0
 int
 zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, char *name)
 {
@@ -2605,3 +2610,4 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, char *name)
 	efi_free(vtoc);
 	return (0);
 }
+#endif

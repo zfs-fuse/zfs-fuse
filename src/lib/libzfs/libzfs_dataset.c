@@ -1099,7 +1099,7 @@ zfs_build_perms(zfs_handle_t *zhp, char *whostr, char *perms,
 			if (sets_nvp)
 				nvlist_free(sets_nvp);
 			(void) snprintf(errbuf, sizeof (errbuf),
-			    dgettext(TEXT_DOMAIN, "Who string is NULL"),
+			    dgettext(TEXT_DOMAIN, "Who string is NULL: %s"),
 			    whostr);
 			return (zfs_error(zhp->zfs_hdl, EZFS_BADWHO, errbuf));
 		}

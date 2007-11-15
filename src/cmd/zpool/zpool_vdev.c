@@ -880,9 +880,6 @@ check_replication(nvlist_t *config, nvlist_t *newroot)
 }
 
 /*
-/* zfs-fuse: EFI labels not supported yet */
-#if 0
-#endif
  * Go through and find any whole disks in the vdev specification, labelling them
  * as appropriate.  When constructing the vdev spec, we were unable to open this
  * device in order to provide a devid.  Now that we have labelled the disk and
@@ -895,6 +892,8 @@ check_replication(nvlist_t *config, nvlist_t *newroot)
 static int
 make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 {
+	/* ZFS-FUSE: not implemented */
+#if 0
 	nvlist_t **child;
 	uint_t c, children;
 	char *type, *path;
@@ -919,11 +918,6 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 		    &wholedisk) != 0 || !wholedisk)
 			return (0);
 
-		/* zfs-fuse: TODO */
-		fprintf(stderr, gettext("sorry, whole disks are not supported yet\n"));
-		return -1;
-
-#if 0
 		diskname = strrchr(path, '/');
 		assert(diskname != NULL);
 		diskname++;
@@ -966,7 +960,6 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 		(void) close(fd);
 
 		return (0);
-#endif
 	}
 
 	for (c = 0; c < children; c++)
@@ -978,6 +971,7 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 		for (c = 0; c < children; c++)
 			if ((ret = make_disks(zhp, child[c])) != 0)
 				return (ret);
+#endif
 
 	return (0);
 }

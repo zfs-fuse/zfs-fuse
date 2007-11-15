@@ -564,7 +564,8 @@ static int (*_sa_parse_legacy_options)(sa_group_t, char *, char *);
  * values to be used later. This is triggered by the runtime loader.
  * Make sure the correct ISA version is loaded.
  */
-#pragma init(_zfs_init_libshare)
+static void _zfs_init_libshare(void) __attribute__((constructor));
+
 static void
 _zfs_init_libshare(void)
 {
