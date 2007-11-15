@@ -503,6 +503,7 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 		lr = (lr_write_t *)&itx->itx_lr;
 		if (write_state == WR_COPIED && dmu_read(zp->z_zfsvfs->z_os,
 		    zp->z_id, off, len, lr + 1) != 0) {
+		err = 0;
 			kmem_free(itx, offsetof(itx_t, itx_lr) +
 			    itx->itx_lr.lrc_reclen);
 			itx = zil_itx_create(txtype, sizeof (*lr));

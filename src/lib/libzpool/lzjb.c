@@ -55,7 +55,11 @@ lzjb_compress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
 	int copymask = 1 << (NBBY - 1);
 	int mlen, offset;
 	uint16_t *hp;
+#ifdef DEBUG
+	uint16_t lempel[LEMPEL_SIZE] = {};
+#else
 	uint16_t lempel[LEMPEL_SIZE];	/* uninitialized; see above */
+#endif
 
 	while (src < (uchar_t *)s_start + s_len) {
 		if ((copymask <<= 1) == (1 << NBBY)) {

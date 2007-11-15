@@ -30,7 +30,7 @@
 
 
 
-#pragma weak mkdirp = _mkdirp
+
 
 /*
  * Creates directory and it's parents if the parents do not
