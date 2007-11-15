@@ -95,7 +95,7 @@ void
 zfs_ereport_post(const char *subclass, spa_t *spa, vdev_t *vd, zio_t *zio,
     uint64_t stateoroffset, uint64_t size)
 {
-#ifdef _KERNEL
+#if 0
 	nvlist_t *ereport, *detector;
 	uint64_t ena;
 	char class[64];
@@ -294,7 +294,7 @@ zfs_ereport_post(const char *subclass, spa_t *spa, vdev_t *vd, zio_t *zio,
 static void
 zfs_post_common(spa_t *spa, vdev_t *vd, const char *name)
 {
-#ifdef _KERNEL
+#if 0
 	nvlist_t *resource;
 	char class[64];
 

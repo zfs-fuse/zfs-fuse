@@ -1,0 +1,13 @@
+\.o$
+\.a$
+\.pyc$
+/\.sconsign
+
+^src/zfs-fuse/zfs-fuse$
+^src/zfs-fuse/zfs-fuse$
+^src/cmd/zdb/zdb$
+^src/cmd/zfs/zfs$
+^src/cmd/zpool/zpool$
+^src/cmd/ztest/ztest$
+
+/trace/\d+-TRACE\.\d+$

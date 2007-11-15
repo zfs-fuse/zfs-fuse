@@ -1,0 +1,8 @@
+Import('env')
+
+objects = Split('zpool_iter.c zpool_main.c zpool_util.c zpool_vdev.c ptrace.c #lib/libnvpair/libnvpair-user.a #lib/libumem/libumem.a #lib/libzfs/libzfs.a #lib/libzfscommon/libzfscommon-user.a #lib/libuutil/libuutil.a #lib/libavl/libavl.a #lib/libsolcompat/libsolcompat.a')
+cpppath = Split('#lib/libuutil/include #lib/libnvpair/include #lib/libumem/include #lib/libzfscommon/include #lib/libzfs/include #lib/libsolcompat/include')
+
+libs = Split('pthread m dl')
+
+env.Program('zpool', objects, CPPPATH = env['CPPPATH'] + cpppath, LIBS = libs)
