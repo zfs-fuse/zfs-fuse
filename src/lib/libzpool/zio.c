@@ -98,7 +98,7 @@ kmem_cache_t *zio_cache;
 kmem_cache_t *zio_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 kmem_cache_t *zio_data_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 
-#ifdef _KERNEL
+#if 0
 extern vmem_t *zio_alloc_arena;
 #endif
 
@@ -136,7 +136,7 @@ zio_init(void)
 	size_t c;
 	vmem_t *data_alloc_arena = NULL;
 
-#ifdef _KERNEL
+#if 0
 	data_alloc_arena = zio_alloc_arena;
 #endif
 
@@ -927,7 +927,7 @@ zio_ready(zio_t *zio)
 		zio_notify_parent(zio, ZIO_STAGE_WAIT_CHILDREN_READY,
 		    &pio->io_children_notready);
 
-	if (zio->io_bp)
+	if (zio->io_bp && zio->io_bp != &zio->io_bp_copy)
 		zio->io_bp_copy = *zio->io_bp;
 
 	zio_next_stage(zio);
@@ -1746,7 +1746,7 @@ zio_vdev_io_start(zio_t *zio)
 		zio->io_offset += VDEV_LABEL_START_SIZE;
 	}
 
-	if (P2PHASE(zio->io_size, align) != 0) {
+	if (P2PHASE(zio->io_size, align) != 0 || P2PHASE((uintptr_t) zio->io_data, align) != 0) {
 		uint64_t asize = P2ROUNDUP(zio->io_size, align);
 		char *abuf = zio_buf_alloc(asize);
 		ASSERT(vd == tvd);
@@ -1759,6 +1759,7 @@ zio_vdev_io_start(zio_t *zio)
 		zio->io_flags |= ZIO_FLAG_SUBBLOCK;
 	}
 
+	ASSERT(P2PHASE((uintptr_t) zio->io_data, align) == 0);
 	ASSERT(P2PHASE(zio->io_offset, align) == 0);
 	ASSERT(P2PHASE(zio->io_size, align) == 0);
 	ASSERT(bp == NULL ||

@@ -27,7 +27,7 @@
 #ifndef _UMEM_H
 #define	_UMEM_H
 
-
+/* #pragma ident	"@(#)umem.h	1.3	05/06/08 SMI" */
 
 #include <sys/types.h>
 #include <sys/vmem.h>
@@ -48,13 +48,15 @@ extern void *umem_zalloc(size_t, int);
 extern void umem_free(void *, size_t);
 extern void umem_free_align(void *, size_t);
 
-/*
+/*!
  * Flags for umem_cache_create()
  */
+/*@{*/
 #define	UMC_NOTOUCH	0x00010000
 #define	UMC_NODEBUG	0x00020000
 #define	UMC_NOMAGAZINE	0x00040000
 #define	UMC_NOHASH	0x00080000
+/*@}*/
 
 struct umem_cache;		/* cache structure is opaque to umem clients */
 
@@ -78,6 +80,9 @@ extern void *umem_cache_alloc(umem_cache_t *, int);
 extern void umem_cache_free(umem_cache_t *, void *);
 
 extern void umem_reap(void);
+
+/* ZFSFUSE */
+extern size_t umem_cache_get_bufsize(umem_cache_t *);
 
 #ifdef	__cplusplus
 }
