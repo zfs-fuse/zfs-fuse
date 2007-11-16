@@ -387,7 +387,7 @@ find_block(traverse_handle_t *th, zseg_t *zseg, dnode_phys_t *dnp, int depth)
 
 		for (i = first; i < nbp; i++)
 			if (bp[i].blk_birth > zseg->seg_mintxg ||
-			    BP_IS_HOLE(&bp[i]) && do_holes)
+			    (BP_IS_HOLE(&bp[i]) && do_holes))
 				break;
 
 		if (i != first) {

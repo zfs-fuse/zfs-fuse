@@ -23,8 +23,8 @@
  * Use is subject to license terms.
  */
 
-#ifndef _SYS_ACL_H
-#define	_SYS_ACL_H
+#ifndef _SOL_SYS_ACL_H
+#define _SOL_SYS_ACL_H
 
 
 

@@ -128,7 +128,8 @@ zfs_share_proto_t share_all_proto[] = {
 	PROTO_END
 };
 
-#pragma init(zfs_iscsi_init)
+static void
+zfs_iscsi_init(void) __attribute__((constructor));
 static void
 zfs_iscsi_init(void)
 {
@@ -344,8 +345,9 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 	}
 
 	/* perform the mount */
-	if (mount(zfs_get_name(zhp), mountpoint, MS_OPTIONSTR | flags,
-	    MNTTYPE_ZFS, NULL, 0, mntopts, sizeof (mntopts)) != 0) {
+	/* ZFSFUSE */
+	if (zfsfuse_mount(hdl, zfs_get_name(zhp), mountpoint, MS_OPTIONSTR | flags,
+	    MNTTYPE_ZFS, NULL, 0, mntopts, strlen (mntopts)) != 0) {
 		/*
 		 * Generic errors are nasty, but there are just way too many
 		 * from mount(), and they're well-understood.  We pick a few
@@ -375,14 +377,33 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 static int
 unmount_one(libzfs_handle_t *hdl, const char *mountpoint, int flags)
 {
-	if (umount2(mountpoint, flags) != 0) {
-		zfs_error_aux(hdl, strerror(errno));
-		return (zfs_error_fmt(hdl, EZFS_UMOUNTFAILED,
-		    dgettext(TEXT_DOMAIN, "cannot unmount '%s'"),
-		    mountpoint));
+	ASSERT((flags & ~MS_FORCE) == 0);
+
+	char *cmd;
+	int res_print;
+
+	if(flags & MS_FORCE)
+		res_print = asprintf(&cmd, "umount -l %s", mountpoint);
+	else
+		res_print = asprintf(&cmd, "umount %s", mountpoint);
+
+	if(res_print == -1) {
+		zfs_error_aux(hdl, strerror(ENOMEM));
+		goto error;
+	}
+
+	int ret = system(cmd);
+	free(cmd);
+	if (ret != 0) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "umount failed"));
+		goto error;
 	}
 
 	return (0);
+error:
+	return (zfs_error_fmt(hdl, EZFS_UMOUNTFAILED,
+	    dgettext(TEXT_DOMAIN, "cannot unmount '%s'"),
+	    mountpoint));
 }
 
 /*
@@ -543,7 +564,8 @@ static int (*_sa_parse_legacy_options)(sa_group_t, char *, char *);
  * values to be used later. This is triggered by the runtime loader.
  * Make sure the correct ISA version is loaded.
  */
-#pragma init(_zfs_init_libshare)
+static void _zfs_init_libshare(void) __attribute__((constructor));
+
 static void
 _zfs_init_libshare(void)
 {
@@ -962,10 +984,17 @@ zfs_is_shared_iscsi(zfs_handle_t *zhp)
 int
 zfs_share_iscsi(zfs_handle_t *zhp)
 {
-	char shareopts[ZFS_MAXPROPLEN];
+	/*char shareopts[ZFS_MAXPROPLEN];*/
 	const char *dataset = zhp->zfs_name;
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
 
+	/* ZFSFUSE: not implemented */
+	zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "feature not implemented yet"));
+	return zfs_error_fmt(hdl, EZFS_SHAREISCSIFAILED,
+	                 dgettext(TEXT_DOMAIN, "cannot share '%s'"),
+	                 dataset);
+
+#if 0
 	/*
 	 * Return success if there are no share options.
 	 */
@@ -990,6 +1019,7 @@ zfs_share_iscsi(zfs_handle_t *zhp)
 	}
 
 	return (0);
+#endif
 }
 
 int

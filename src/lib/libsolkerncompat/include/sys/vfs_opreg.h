@@ -48,8 +48,6 @@ typedef union fs_func {
 	int (*error)();			/* Signature of error function */
 	VFS_OPS;		/* Signatures of all vfs operations (vfsops) */
 	VNODE_OPS;		/* Signatures of all vnode operations (vops) */
-	FEM_OPS;		/* Signatures of all FEM operations (femops) */
-	FSEM_OPS;		/* Signatures of all FSEM ops (fsemops) */
 } fs_func_p;
 
 /*
