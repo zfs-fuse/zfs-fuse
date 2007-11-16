@@ -1,0 +1,17 @@
+Import('env')
+
+BuildDir('build-user', '.', duplicate = 0)
+BuildDir('build-kernel', '.', duplicate = 0)
+
+objects = Split('libnvpair.c nvpair.c nvpair_alloc_fixed.c nvpair_alloc_system.c')
+
+objects_user = ['build-user/' + o for o in objects]
+objects_kernel = ['build-kernel/' + o for o in objects]
+
+cpppath_user = Split('./include #lib/libsolcompat/include')
+cpppath_kernel = Split('./include #lib/libsolkerncompat/include #lib/libumem/include')
+
+ccflags_kernel = ['-D_KERNEL']
+
+env.StaticLibrary('libnvpair-user', objects_user, CPPPATH = env['CPPPATH'] + cpppath_user)
+env.StaticLibrary('libnvpair-kernel', objects_kernel, CPPPATH = env['CPPPATH'] + cpppath_kernel, CCFLAGS = env['CCFLAGS'] + ccflags_kernel)

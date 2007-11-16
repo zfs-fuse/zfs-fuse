@@ -1,0 +1,7 @@
+Import('env')
+
+objects = Split('uu_alloc.c uu_avl.c uu_dprintf.c uu_ident.c uu_list.c uu_misc.c uu_open.c uu_pname.c uu_strtoint.c #lib/libsolcompat/libsolcompat.a')
+cpppath = Split('./include #lib/libavl/include #lib/libsolcompat/include')
+ccflags = ['-DNATIVE_BUILD']
+
+env.StaticLibrary('libuutil', objects, CCFLAGS = env['CCFLAGS'] + ccflags, CPPPATH = env['CPPPATH'] + cpppath)

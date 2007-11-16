@@ -121,11 +121,9 @@ uu_die_internal(int status, const char *format, va_list alist)
 	{
 		char *cp;
 
-		if (!issetugid()) {
-			cp = getenv("UU_DIE_ABORTS");
-			if (cp != NULL && *cp != '\0')
-				abort();
-		}
+		cp = getenv("UU_DIE_ABORTS");
+		if (cp != NULL && *cp != '\0')
+			abort();
 	}
 #endif
 	exit(status);
@@ -172,9 +170,7 @@ uu_setpname(char *arg0)
 	 * than in each of its consumers.
 	 */
 	if (arg0 == NULL) {
-		pname = getexecname();
-		if (pname == NULL)
-			pname = "unknown_command";
+		pname = "unknown_command";
 		return (pname);
 	}
 

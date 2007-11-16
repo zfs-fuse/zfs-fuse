@@ -33,14 +33,22 @@
 static void *
 nv_alloc_sys(nv_alloc_t *nva, size_t size)
 {
+#ifdef _KERNEL
+	return (kmem_alloc(size, KM_NOSLEEP));
+#else
 	return (malloc(size));
+#endif
 }
 
 /*ARGSUSED*/
 static void
 nv_free_sys(nv_alloc_t *nva, void *buf, size_t size)
 {
+#ifdef _KERNEL
+	kmem_free(buf, size);
+#else
 	free(buf);
+#endif
 }
 
 const nv_alloc_ops_t system_ops_def = {
@@ -57,3 +65,4 @@ nv_alloc_t nv_alloc_nosleep_def = {
 };
 
 nv_alloc_t *nv_alloc_nosleep = &nv_alloc_nosleep_def;
+nv_alloc_t *nv_alloc_sleep = &nv_alloc_nosleep_def;
