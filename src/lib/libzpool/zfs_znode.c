@@ -667,6 +667,9 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, uint64_t *oid, dmu_tx_t *tx, cred_t *cr,
 void
 zfs_xvattr_set(znode_t *zp, xvattr_t *xvap)
 {
+	/* ZFS-FUSE: not implemented */
+	abort();
+#if 0
 	xoptattr_t *xoap;
 
 	xoap = xva_getxoptattr(xvap);
@@ -727,6 +730,7 @@ zfs_xvattr_set(znode_t *zp, xvattr_t *xvap)
 		zp->z_phys->zp_flags |= ZFS_BONUS_SCANSTAMP;
 		XVA_SET_RTN(xvap, XAT_AV_SCANSTAMP);
 	}
+#endif
 }
 
 int

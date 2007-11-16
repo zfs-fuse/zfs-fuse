@@ -21,20 +21,14 @@
  */
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2006 Ricardo Correia.
  * Use is subject to license terms.
  */
 
-#ifndef _SOL_PROC_H
-#define _SOL_PROC_H
+#ifndef _SOL_KERN_SYS_IDMAP_H
+#define _SOL_KERN_SYS_IDMAP_H
 
-#include <sys/rctl.h>
-
-#define issig(why) (FALSE)
-
-extern void tsd_create(uint_t *, void (*)(void *));
-extern void tsd_destroy(uint_t *);
-extern void *tsd_get(uint_t);
-extern int tsd_set(uint_t, void *);
+typedef int idmap_get_handle_t;
+typedef int idmap_stat;
 
 #endif
-

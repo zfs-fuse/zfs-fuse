@@ -1177,7 +1177,7 @@ zio_assess(zio_t *zio)
 #endif
 
 			if (spa_get_failmode(spa) == ZIO_FAILURE_MODE_PANIC) {
-				fm_panic("Pool '%s' has encountered an "
+				cmn_err(CE_PANIC, "Pool '%s' has encountered an "
 				    "uncorrectable I/O failure and the "
 				    "failure mode property for this pool "
 				    "is set to panic.", spa_name(spa));

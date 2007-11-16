@@ -3838,7 +3838,7 @@ spa_has_spare(spa_t *spa, uint64_t guid)
 void
 spa_event_notify(spa_t *spa, vdev_t *vd, const char *name)
 {
-#ifdef _KERNEL
+#if 0
 	sysevent_t		*ev;
 	sysevent_attr_list_t	*attr = NULL;
 	sysevent_value_t	value;

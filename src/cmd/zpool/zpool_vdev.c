@@ -292,6 +292,8 @@ check_file(const char *file, boolean_t force, boolean_t isspare)
 	pool_state_t state;
 	boolean_t inuse;
 
+/* ZFS-FUSE: not implemented */
+#if 0
 	if (dm_inuse_swap(file, &err)) {
 		if (err)
 			libdiskmgt_error(err);
@@ -300,6 +302,7 @@ check_file(const char *file, boolean_t force, boolean_t isspare)
 			    "Please see swap(1M).\n"), file);
 		return (-1);
 	}
+#endif
 
 	if ((fd = open(file, O_RDONLY)) < 0)
 		return (0);

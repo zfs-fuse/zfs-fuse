@@ -473,7 +473,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 int
 vn_openat(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum create x2,
-    mode_t x3, vnode_t *startvp)
+    mode_t x3, vnode_t *startvp, int fd)
 {
 	char *realpath = kmem_alloc(strlen(path) + 2, KM_SLEEP);
 	int ret;
@@ -481,6 +481,7 @@ vn_openat(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum 
 	ASSERT(startvp == rootdir);
 	(void) sprintf(realpath, "/%s", path);
 
+	/* fd ignored for now, need if want to simulate nbmand support */
 	ret = vn_open(realpath, x1, flags, mode, vpp, x2, x3);
 
 	kmem_free(realpath, strlen(path) + 2);
@@ -772,11 +773,12 @@ fop_close(
 	int flag,
 	int count,
 	offset_t offset,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int err;
 
-	err = (*(vp)->v_op->vop_close)(vp, flag, count, offset, cr);
+	err = (*(vp)->v_op->vop_close)(vp, flag, count, offset, cr, ct);
 	VOPSTATS_UPDATE(vp, close);
 	/*
 	 * Check passed in count to handle possible dups. Vnode counts are only
@@ -829,11 +831,12 @@ int
 fop_fsync(
 	vnode_t *vp,
 	int syncflag,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_fsync)(vp, syncflag, cr);
+	err = (*(vp)->v_op->vop_fsync)(vp, syncflag, cr, ct);
 	VOPSTATS_UPDATE(vp, fsync);
 	return (err);
 }
@@ -843,11 +846,12 @@ fop_getattr(
 	vnode_t *vp,
 	vattr_t *vap,
 	int flags,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_getattr)(vp, vap, flags, cr);
+	err = (*(vp)->v_op->vop_getattr)(vp, vap, flags, cr, ct);
 	VOPSTATS_UPDATE(vp, getattr);
 	return (err);
 }
@@ -868,11 +872,12 @@ fop_putpage(
 	offset_t off,
 	size_t len,
 	int flags,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_putpage)(vp, off, len, flags, cr);
+	err = (*(vp)->v_op->vop_putpage)(vp, off, len, flags, cr, ct);
 	VOPSTATS_UPDATE(vp, putpage);
 	return (err);
 }

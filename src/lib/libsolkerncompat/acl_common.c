@@ -923,9 +923,9 @@ acevals_init(acevals_t *vals, uid_t key)
 static void
 ace_list_init(ace_list_t *al, int dfacl_flag)
 {
-	acevals_init(&al->user_obj, NULL);
-	acevals_init(&al->group_obj, NULL);
-	acevals_init(&al->other_obj, NULL);
+	acevals_init(&al->user_obj, 0);
+	acevals_init(&al->group_obj, 0);
+	acevals_init(&al->other_obj, 0);
 	al->numusers = 0;
 	al->numgroups = 0;
 	al->acl_mask = 0;
@@ -1641,7 +1641,8 @@ convert_ace_to_aent(ace_t *acebufp, int acecnt, int isdir,
 	return (error);
 }
 
-
+/* ZFS-FUSE: not needed */
+#if 0
 int
 acl_translate(acl_t *aclp, int target_flavor, int isdir, uid_t owner,
     gid_t group)
@@ -1705,3 +1706,4 @@ out:
 	return (error);
 #endif
 }
+#endif

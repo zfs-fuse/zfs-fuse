@@ -167,15 +167,19 @@ typedef struct vsecattr {
 	void		*vsa_aclentp;	/* pointer to ACL entries */
 	int		vsa_dfaclcnt;	/* default ACL entry count */
 	void		*vsa_dfaclentp;	/* pointer to default ACL entries */
+	size_t		vsa_aclentsz;	/* ACE size in bytes of vsa_aclentp */
+	uint_t		vsa_aclflags;	/* ACE ACL flags */
 } vsecattr_t;
 
 /* vsa_mask values */
-#define VSA_ACL      0x0001
-#define VSA_ACLCNT   0x0002
-#define VSA_DFACL    0x0004
-#define VSA_DFACLCNT 0x0008
-#define VSA_ACE      0x0010
-#define VSA_ACECNT   0x0020
+#define VSA_ACL                 0x0001
+#define VSA_ACLCNT              0x0002
+#define VSA_DFACL               0x0004
+#define VSA_DFACLCNT            0x0008
+#define VSA_ACE                 0x0010
+#define VSA_ACECNT              0x0020
+#define VSA_ACE_ALLTYPES        0x0040
+#define VSA_ACE_ACLFLAGS        0x0080  /* get/set ACE ACL flags */
 
 typedef int caller_context_t;
 
@@ -207,6 +211,7 @@ struct pollhead;
 #define AT_BLKSIZE 0x1000
 #define AT_NBLOCKS 0x2000
 #define AT_SEQ     0x8000
+#define AT_XVATTR  0x10000
 
 #define AT_ALL   (AT_TYPE|AT_MODE|AT_UID|AT_GID|AT_FSID|AT_NODEID|\
                  AT_NLINK|AT_SIZE|AT_ATIME|AT_MTIME|AT_CTIME|\
@@ -276,7 +281,7 @@ extern void vn_free(vnode_t *vp);
 extern void vn_rele(vnode_t *vp);
 
 extern int vn_open(char *pnamep, enum uio_seg seg, int filemode, int createmode, struct vnode **vpp, enum create crwhy, mode_t umask);
-extern int vn_openat(char *pnamep, enum uio_seg seg, int filemode, int createmode, struct vnode **vpp, enum create crwhy, mode_t umask, struct vnode *startvp);
+extern int vn_openat(char *pnamep, enum uio_seg seg, int filemode, int createmode, struct vnode **vpp, enum create crwhy, mode_t umask, struct vnode *startvp, int fd);
 extern int vn_rdwr(enum uio_rw rw, struct vnode *vp, caddr_t base, ssize_t len, offset_t offset, enum uio_seg seg, int ioflag, rlim64_t ulimit, cred_t *cr, ssize_t *residp);
 extern void vn_close(vnode_t *vp);
 
@@ -321,7 +326,8 @@ extern void vn_setops(vnode_t *vp, struct vnodeops *vnodeops);
  */
 #define	VNODE_OPS							\
 	int	(*vop_open)(vnode_t **, int, cred_t *);			\
-	int	(*vop_close)(vnode_t *, int, int, offset_t, cred_t *);	\
+	int	(*vop_close)(vnode_t *, int, int, offset_t, cred_t *,	\
+				caller_context_t *);			\
 	int	(*vop_read)(vnode_t *, uio_t *, int, cred_t *,		\
 				caller_context_t *);			\
 	int	(*vop_write)(vnode_t *, uio_t *, int, cred_t *,		\
@@ -329,7 +335,8 @@ extern void vn_setops(vnode_t *vp, struct vnodeops *vnodeops);
 	int	(*vop_ioctl)(vnode_t *, int, intptr_t, int, cred_t *,	\
 				int *);					\
 	int	(*vop_setfl)(vnode_t *, int, int, cred_t *);		\
-	int	(*vop_getattr)(vnode_t *, vattr_t *, int, cred_t *);	\
+	int	(*vop_getattr)(vnode_t *, vattr_t *, int, cred_t *,	\
+				caller_context_t *);			\
 	int	(*vop_setattr)(vnode_t *, vattr_t *, int, cred_t *,	\
 				caller_context_t *);			\
 	int	(*vop_access)(vnode_t *, int, int, cred_t *);		\
@@ -349,7 +356,8 @@ extern void vn_setops(vnode_t *vp, struct vnodeops *vnodeops);
 	int	(*vop_symlink)(vnode_t *, char *, vattr_t *, char *,	\
 				cred_t *);				\
 	int	(*vop_readlink)(vnode_t *, uio_t *, cred_t *);		\
-	int	(*vop_fsync)(vnode_t *, int, cred_t *);			\
+	int	(*vop_fsync)(vnode_t *, int, cred_t *,			\
+				caller_context_t *);			\
 	void	(*vop_inactive)(vnode_t *, cred_t *);			\
 	int	(*vop_fid)(vnode_t *, struct fid *);			\
 	int	(*vop_rwlock)(vnode_t *, int, caller_context_t *);	\
@@ -367,7 +375,7 @@ extern void vn_setops(vnode_t *vp, struct vnodeops *vnodeops);
 				struct page **, size_t, struct seg *,	\
 				caddr_t, enum seg_rw, cred_t *);	\
 	int	(*vop_putpage)(vnode_t *, offset_t, size_t,		\
-				int, cred_t *);				\
+				int, cred_t *, caller_context_t *);	\
 	int	(*vop_map)(vnode_t *, offset_t, struct as *,		\
 				caddr_t *, size_t,			\
 				uchar_t, uchar_t, uint_t, cred_t *);	\
@@ -405,13 +413,15 @@ typedef struct vnodeops {
 } vnodeops_t;
 
 extern int	fop_open(vnode_t **, int, cred_t *);
-extern int	fop_close(vnode_t *, int, int, offset_t, cred_t *);
+extern int	fop_close(vnode_t *, int, int, offset_t, cred_t *,
+				caller_context_t *);
 extern int	fop_read(vnode_t *, uio_t *, int, cred_t *, caller_context_t *);
 extern int	fop_write(vnode_t *, uio_t *, int, cred_t *,
 				caller_context_t *);
 extern int	fop_ioctl(vnode_t *, int, intptr_t, int, cred_t *, int *);
 extern int	fop_setfl(vnode_t *, int, int, cred_t *);
-extern int	fop_getattr(vnode_t *, vattr_t *, int, cred_t *);
+extern int	fop_getattr(vnode_t *, vattr_t *, int, cred_t *,
+				caller_context_t *);
 extern int	fop_setattr(vnode_t *, vattr_t *, int, cred_t *,
 				caller_context_t *);
 extern int	fop_access(vnode_t *, int, int, cred_t *);
@@ -427,7 +437,7 @@ extern int	fop_rmdir(vnode_t *, char *, vnode_t *, cred_t *);
 extern int	fop_readdir(vnode_t *, uio_t *, cred_t *, int *);
 extern int	fop_symlink(vnode_t *, char *, vattr_t *, char *, cred_t *);
 extern int	fop_readlink(vnode_t *, uio_t *, cred_t *);
-extern int	fop_fsync(vnode_t *, int, cred_t *);
+extern int	fop_fsync(vnode_t *, int, cred_t *, caller_context_t *);
 extern void	fop_inactive(vnode_t *, cred_t *);
 extern int	fop_fid(vnode_t *, struct fid *);
 extern int	fop_rwlock(vnode_t *, int, caller_context_t *);
@@ -442,7 +452,8 @@ extern int	fop_realvp(vnode_t *, vnode_t **);
 extern int	fop_getpage(vnode_t *, offset_t, size_t, uint_t *,
 				struct page **, size_t, struct seg *,
 				caddr_t, enum seg_rw, cred_t *);
-extern int	fop_putpage(vnode_t *, offset_t, size_t, int, cred_t *);
+extern int	fop_putpage(vnode_t *, offset_t, size_t, int, cred_t *,
+				caller_context_t *);
 extern int	fop_map(vnode_t *, offset_t, struct as *, caddr_t *, size_t,
 				uchar_t, uchar_t, uint_t, cred_t *cr);
 extern int	fop_addmap(vnode_t *, offset_t, struct as *, caddr_t, size_t,
@@ -465,8 +476,8 @@ extern int	fop_vnevent(vnode_t *, vnevent_t);
 
 #define	VOP_OPEN(vpp, mode, cr) \
 	fop_open(vpp, mode, cr)
-#define	VOP_CLOSE(vp, f, c, o, cr) \
-	fop_close(vp, f, c, o, cr)
+#define	VOP_CLOSE(vp, f, c, o, cr, ct) \
+	fop_close(vp, f, c, o, cr, ct)
 #define	VOP_READ(vp, uiop, iof, cr, ct) \
 	fop_read(vp, uiop, iof, cr, ct)
 #define	VOP_WRITE(vp, uiop, iof, cr, ct) \
@@ -475,8 +486,8 @@ extern int	fop_vnevent(vnode_t *, vnevent_t);
 	fop_ioctl(vp, cmd, a, f, cr, rvp)
 #define	VOP_SETFL(vp, f, a, cr) \
 	fop_setfl(vp, f, a, cr)
-#define	VOP_GETATTR(vp, vap, f, cr) \
-	fop_getattr(vp, vap, f, cr)
+#define	VOP_GETATTR(vp, vap, f, cr, ct) \
+	fop_getattr(vp, vap, f, cr, ct)
 #define	VOP_SETATTR(vp, vap, f, cr, ct) \
 	fop_setattr(vp, vap, f, cr, ct)
 #define	VOP_ACCESS(vp, mode, f, cr) \
@@ -501,8 +512,8 @@ extern int	fop_vnevent(vnode_t *, vnevent_t);
 	fop_symlink(dvp, lnm, vap, tnm, cr)
 #define	VOP_READLINK(vp, uiop, cr) \
 	fop_readlink(vp, uiop, cr)
-#define	VOP_FSYNC(vp, syncflag, cr) \
-	fop_fsync(vp, syncflag, cr)
+#define	VOP_FSYNC(vp, syncflag, cr, ct) \
+	fop_fsync(vp, syncflag, cr, ct)
 #define	VOP_INACTIVE(vp, cr) \
 	fop_inactive(vp, cr)
 #define	VOP_FID(vp, fidp) \
@@ -523,8 +534,8 @@ extern int	fop_vnevent(vnode_t *, vnevent_t);
 	fop_realvp(vp1, vp2)
 #define	VOP_GETPAGE(vp, of, sz, pr, pl, ps, sg, a, rw, cr) \
 	fop_getpage(vp, of, sz, pr, pl, ps, sg, a, rw, cr)
-#define	VOP_PUTPAGE(vp, of, sz, fl, cr) \
-	fop_putpage(vp, of, sz, fl, cr)
+#define	VOP_PUTPAGE(vp, of, sz, fl, cr, ct) \
+	fop_putpage(vp, of, sz, fl, cr, ct)
 #define	VOP_MAP(vp, of, as, a, sz, p, mp, fl, cr) \
 	fop_map(vp, of, as, a, sz, p, mp, fl, cr)
 #define	VOP_ADDMAP(vp, of, as, a, sz, p, mp, fl, cr) \
@@ -596,5 +607,100 @@ extern int	fop_vnevent(vnode_t *, vnevent_t);
 #define	VOPNAME_SETSECATTR	"setsecattr"
 #define	VOPNAME_SHRLOCK		"shrlock"
 #define	VOPNAME_VNEVENT		"vnevent"
+
+#define AV_SCANSTAMP_SZ 32              /* length of anti-virus scanstamp */
+
+/*
+ * Structure of all optional attributes.
+ */
+typedef struct xoptattr {
+        timestruc_t     xoa_createtime; /* Create time of file */
+        uint8_t         xoa_archive;
+        uint8_t         xoa_system;
+        uint8_t         xoa_readonly;
+        uint8_t         xoa_hidden;
+        uint8_t         xoa_nounlink;
+        uint8_t         xoa_immutable;
+        uint8_t         xoa_appendonly;
+        uint8_t         xoa_nodump;
+        uint8_t         xoa_opaque;
+        uint8_t         xoa_av_quarantined;
+        uint8_t         xoa_av_modified;
+        uint8_t         xoa_av_scanstamp[AV_SCANSTAMP_SZ];
+} xoptattr_t;
+
+/*
+ * The xvattr structure is really a variable length structure that
+ * is made up of:
+ * - The classic vattr_t (xva_vattr)
+ * - a 32 bit quantity (xva_mapsize) that specifies the size of the
+ *   attribute bitmaps in 32 bit words.
+ * - A pointer to the returned attribute bitmap (needed because the
+ *   previous element, the requested attribute bitmap) is variable lenth.
+ * - The requested attribute bitmap, which is an array of 32 bit words.
+ *   Callers use the XVA_SET_REQ() macro to set the bits corresponding to
+ *   the attributes that are being requested.
+ * - The returned attribute bitmap, which is an array of 32 bit words.
+ *   File systems that support optional attributes use the XVA_SET_RTN()
+ *   macro to set the bits corresponding to the attributes that are being
+ *   returned.
+ * - The xoptattr_t structure which contains the attribute values
+ *
+ * xva_mapsize determines how many words in the attribute bitmaps.
+ * Immediately following the attribute bitmaps is the xoptattr_t.
+ * xva_getxoptattr() is used to get the pointer to the xoptattr_t
+ * section.
+ */
+
+#define XVA_MAPSIZE     3               /* Size of attr bitmaps */
+#define XVA_MAGIC       0x78766174      /* Magic # for verification */
+
+/*
+ * The xvattr structure is an extensible structure which permits optional
+ * attributes to be requested/returned.  File systems may or may not support
+ * optional attributes.  They do so at their own discretion but if they do
+ * support optional attributes, they must register the VFSFT_XVATTR feature
+ * so that the optional attributes can be set/retrived.
+ *
+ * The fields of the xvattr structure are:
+ *
+ * xva_vattr - The first element of an xvattr is a legacy vattr structure
+ * which includes the common attributes.  If AT_XVATTR is set in the va_mask
+ * then the entire structure is treated as an xvattr.  If AT_XVATTR is not
+ * set, then only the xva_vattr structure can be used.
+ *
+ * xva_magic - 0x78766174 (hex for "xvat"). Magic number for verification.
+ *
+ * xva_mapsize - Size of requested and returned attribute bitmaps.
+ *
+ * xva_rtnattrmapp - Pointer to xva_rtnattrmap[].  We need this since the
+ * size of the array before it, xva_reqattrmap[], could change which means
+ * the location of xva_rtnattrmap[] could change.  This will allow unbundled
+ * file systems to find the location of xva_rtnattrmap[] when the sizes change.
+ *
+ * xva_reqattrmap[] - Array of requested attributes.  Attributes are
+ * represented by a specific bit in a specific element of the attribute
+ * map array.  Callers set the bits corresponding to the attributes
+ * that the caller wants to get/set.
+ *
+ * xva_rtnattrmap[] - Array of attributes that the file system was able to
+ * process.  Not all file systems support all optional attributes.  This map
+ * informs the caller which attributes the underlying file system was able
+ * to set/get.  (Same structure as the requested attributes array in terms
+ * of each attribute  corresponding to specific bits and array elements.)
+ *
+ * xva_xoptattrs - Structure containing values of optional attributes.
+ * These values are only valid if the corresponding bits in xva_reqattrmap
+ * are set and the underlying file system supports those attributes.
+ */
+typedef struct xvattr {
+	vattr_t         xva_vattr;      /* Embedded vattr structure */
+	uint32_t        xva_magic;      /* Magic Number */
+	uint32_t        xva_mapsize;    /* Size of attr bitmap (32-bit words) */
+	uint32_t        *xva_rtnattrmapp;       /* Ptr to xva_rtnattrmap[] */
+	uint32_t        xva_reqattrmap[XVA_MAPSIZE];    /* Requested attrs */
+	uint32_t        xva_rtnattrmap[XVA_MAPSIZE];    /* Returned attrs */
+	xoptattr_t      xva_xoptattrs;  /* Optional attributes */
+} xvattr_t;
 
 #endif

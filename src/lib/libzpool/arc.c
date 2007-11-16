@@ -1723,7 +1723,7 @@ arc_evict_needed(arc_buf_contents_t type)
 	if (type == ARC_BUFC_METADATA && arc_meta_used >= arc_meta_limit)
 		return (1);
 
-#ifdef _KERNEL
+#if 0
 	/*
 	 * If zio data pages are being allocated out of a separate heap segment,
 	 * then enforce that the size of available vmem for this area remains

@@ -39,7 +39,8 @@ kobj_open_file(char *name)
 	vnode_t *vp;
 
 	/* set vp as the _fd field of the file */
-	if (vn_openat(name, UIO_SYSSPACE, FREAD, 0, &vp, 0, 0, rootdir) != 0)
+	if (vn_openat(name, UIO_SYSSPACE, FREAD, 0, &vp, 0, 0, rootdir,
+	    -1) != 0)
 		return ((void *)-1UL);
 
 	file = kmem_zalloc(sizeof (struct _buf), KM_SLEEP);

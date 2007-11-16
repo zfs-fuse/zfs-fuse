@@ -44,7 +44,7 @@ convoff(vp, lckdat, whence, offset)
 
 	if ((lckdat->l_whence == 2) || (whence == 2)) {
 		vattr.va_mask = AT_SIZE;
-		if (error = VOP_GETATTR(vp, &vattr, 0, CRED()))
+		if (error = VOP_GETATTR(vp, &vattr, 0, CRED(), NULL))
 			return (error);
 	}
 

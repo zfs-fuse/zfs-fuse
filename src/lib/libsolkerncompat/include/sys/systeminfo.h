@@ -20,14 +20,13 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
- * Copyright 2006 Ricardo Correia.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
-#ifndef _SYS_PROC_H
-#define _SYS_PROC_H
+#ifndef _SOL_SYSTEMINFO_H
+#define _SOL_SYSTEMINFO_H
 
-#define issig(why) (FALSE)
+extern char hw_serial[];
 
 #endif

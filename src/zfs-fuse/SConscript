@@ -1,6 +1,6 @@
 Import('env')
 
-objects = Split('main.c cmd_listener.c ptrace.c util.c zfs_acl.c zfs_dir.c zfs_ioctl.c zfs_log.c zfs_replay.c zfs_rlock.c zfs_vfsops.c zfs_vnops.c zvol.c fuse_listener.c zfsfuse_socket.c zfs_operations.c #lib/libzpool/libzpool-kernel.a #lib/libzfscommon/libzfscommon-kernel.a #lib/libnvpair/libnvpair-kernel.a #lib/libavl/libavl.a #lib/libumem/libumem.a #lib/libsolkerncompat/libsolkerncompat.a')
+objects = Split('main.c cmd_listener.c ptrace.c util.c zfs_acl.c zfs_dir.c zfs_fuid.c zfs_ioctl.c zfs_log.c zfs_replay.c zfs_rlock.c zfs_vfsops.c zfs_vnops.c zvol.c fuse_listener.c zfsfuse_socket.c zfs_operations.c #lib/libzpool/libzpool-kernel.a #lib/libzfscommon/libzfscommon-kernel.a #lib/libnvpair/libnvpair-kernel.a #lib/libavl/libavl.a #lib/libumem/libumem.a #lib/libsolkerncompat/libsolkerncompat.a')
 cpppath = Split('#lib/libavl/include #lib/libnvpair/include #lib/libumem/include #lib/libzfscommon/include #lib/libsolkerncompat/include')
 ccflags = Split('-D_KERNEL')
 
