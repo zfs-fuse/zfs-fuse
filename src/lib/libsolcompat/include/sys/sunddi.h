@@ -30,6 +30,8 @@
 #ifdef _KERNEL
 
 #include <stdlib.h>
+#include <string.h>
+#include <errno.h>
 
 /*
  * UTF-8 text preparation functions and their macros.
@@ -51,6 +53,21 @@ static inline size_t u8_textprep_str(char *i, size_t *il, char *o, size_t *ol, i
 {
 	*err = EINVAL;
 	return ((size_t)-1);
+}
+
+static inline int
+u8_strcmp(const char *s1, const char *s2, size_t n, int flag, size_t uv,
+                int *error)
+{
+	if (uv > U8_UNICODE_LATEST) {
+		*error = ERANGE;
+		uv = U8_UNICODE_LATEST;
+	} else
+		*error = 0;
+
+	VERIFY(flag == 0 || flag == U8_STRCMP_CS);
+
+	return n == 0 ? strcmp(s1, s2) : strncmp(s1, s2, n);
 }
 
 static inline int

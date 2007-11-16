@@ -43,7 +43,8 @@
 #define FRSYNC  O_RSYNC
 #define FEXCL   O_EXCL
 
-#define FNODSYNC  0x10000 /* fsync pseudo flag */
-#define FNOFOLLOW 0x20000 /* don't follow symlinks */
+#define FNODSYNC        0x10000 /* fsync pseudo flag */
+#define FNOFOLLOW       0x20000 /* don't follow symlinks */
+#define FIGNORECASE     0x80000 /* request case-insensitive lookups */
 
 #endif
