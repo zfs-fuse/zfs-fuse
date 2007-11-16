@@ -49,4 +49,11 @@
 #define MAXNAMELEN 256
 #define MAXOFFSET_T 0x7fffffffffffffffl
 
+#define UID_NOBODY      60001   /* user ID no body */
+#define GID_NOBODY      UID_NOBODY
+#define UID_NOACCESS    60002   /* user ID no access */
+
+#define MAXUID          2147483647      /* max user id */
+#define MAXPROJID       MAXUID          /* max project id */
+
 #endif

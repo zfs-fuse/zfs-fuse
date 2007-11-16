@@ -144,7 +144,7 @@ history_str_get(zfs_cmd_t *zc)
 {
 	char *buf;
 
-	if (zc->zc_history == NULL)
+	if (zc->zc_history == 0)
 		return (NULL);
 
 	buf = kmem_alloc(HIS_MAX_RECORD_LEN, KM_SLEEP);
@@ -1565,7 +1565,7 @@ zfs_ioc_pool_get_props(zfs_cmd_t *zc)
 
 	error = spa_prop_get(spa, &nvp);
 
-	if (error == 0 && zc->zc_nvlist_dst != NULL)
+	if (error == 0 && zc->zc_nvlist_dst != 0)
 		error = put_nvlist(zc, nvp);
 	else
 		error = EFAULT;

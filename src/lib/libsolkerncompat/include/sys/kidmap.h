@@ -28,9 +28,24 @@
 #ifndef _SOL_KERN_SYS_IDMAP_H
 #define _SOL_KERN_SYS_IDMAP_H
 
+#include <stdlib.h>
 #include <sys/idmap.h>
 
 typedef int idmap_get_handle_t;
 typedef int idmap_stat;
+
+#define kidmap_get_create()     (abort(), NULL)
+#define kidmap_get_destroy(gh)  (abort())
+
+#define kidmap_get_mappings(gh) (abort(), 0)
+
+#define kidmap_getuidbysid(sp,rid,uid) (abort(), 0)
+#define kidmap_getgidbysid(sp,rid,gid) (abort(), 0)
+
+#define kidmap_getsidbyuid(uid,sp,rid) (abort(), 0)
+#define kidmap_getsidbygid(uid,sp,rid) (abort(), 0)
+
+#define kidmap_batch_getuidbysid(gh,sp,rid,uid,s) (abort(), 0)
+#define kidmap_batch_getgidbysid(gh,sp,rid,gid,s) (abort(), 0)
 
 #endif

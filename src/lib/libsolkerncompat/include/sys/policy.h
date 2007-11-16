@@ -54,6 +54,7 @@ extern long grp_buflen;
 #define secpolicy_basic_link(cr) (PRIV_POLICY(cr, PRIV_FILE_LINK_ANY, B_FALSE, EPERM, NULL))
 #define secpolicy_vnode_utime_modify(cr) (PRIV_POLICY(cr, PRIV_FILE_OWNER, B_FALSE, EPERM, "modify file times"))
 #define secpolicy_vnode_remove(cr) (PRIV_POLICY(cr, PRIV_FILE_OWNER, B_FALSE, EACCES, "sticky directory"))
+#define secpolicy_nfs(cr) (PRIV_POLICY(cr, PRIV_SYS_NFS, B_FALSE, EPERM, NULL))
 
 extern int secpolicy_vnode_setid_retain(const cred_t *cred, boolean_t issuidroot);
 extern void secpolicy_setid_clear(vattr_t *vap, cred_t *cr);
