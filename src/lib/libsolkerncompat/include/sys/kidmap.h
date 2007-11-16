@@ -28,6 +28,8 @@
 #ifndef _SOL_KERN_SYS_IDMAP_H
 #define _SOL_KERN_SYS_IDMAP_H
 
+#include <sys/idmap.h>
+
 typedef int idmap_get_handle_t;
 typedef int idmap_stat;
 

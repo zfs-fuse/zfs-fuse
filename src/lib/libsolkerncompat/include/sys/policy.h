@@ -63,5 +63,6 @@ extern int secpolicy_vnode_setids_setgids(const cred_t *cred, gid_t gid);
 extern int secpolicy_vnode_setdac(const cred_t *cred, uid_t owner);
 extern int secpolicy_vnode_access(const cred_t *cr, vnode_t *vp, uid_t owner, mode_t mode);
 extern int secpolicy_vnode_create_gid(const cred_t *cred);
+extern int secpolicy_vnode_owner(const cred_t *cr, uid_t owner);
 
 #endif

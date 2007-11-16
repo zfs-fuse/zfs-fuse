@@ -471,3 +471,15 @@ secpolicy_vnode_create_gid(const cred_t *cred)
 		return (PRIV_POLICY(cred, PRIV_FILE_CHOWN_SELF, B_FALSE, EPERM,
 		    NULL));
 }
+
+int
+secpolicy_vnode_owner(const cred_t *cr, uid_t owner)
+{
+	boolean_t allzone = (owner == 0);
+
+	if (owner == cr->cr_uid)
+		return (0);
+
+	return (PRIV_POLICY(cr, PRIV_FILE_OWNER, allzone, EPERM, NULL));
+}
+
