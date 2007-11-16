@@ -86,6 +86,11 @@ typedef enum vtype {
 #define CREATE_XATTR_DIR 0x04 /* Create extended attr dir */
 
 /*
+ * Flags for VOP_READDIR
+ */
+#define V_RDDIR_ENTFLAGS 0x01 /* request dirent flags */
+
+/*
  * Flags for VOP_RWLOCK/VOP_RWUNLOCK
  * VOP_RWLOCK will return the flag that was actually set, or -1 if none.
  */
@@ -241,7 +246,13 @@ enum create { CRCREAT, CRMKNOD, CRMKDIR }; /* reason for create */
 /*
  * Flags to VOP_SETATTR/VOP_GETATTR.
  */
-#define ATTR_UTIME 0x01 /* non-default utime(2) request */
+#define ATTR_UTIME      0x01    /* non-default utime(2) request */
+#define ATTR_EXEC       0x02    /* invocation from exec(2) */
+#define ATTR_COMM       0x04    /* yield common vp attributes */
+#define ATTR_HINT       0x08    /* information returned will be `hint' */
+#define ATTR_REAL       0x10    /* yield attributes of the real vp */
+#define ATTR_NOACLCHECK 0x20    /* Don't check ACL when checking permissions */
+#define ATTR_TRIGGER    0x40    /* Mount first if vnode is a trigger mount */
 
 /* Vnode Events - Used by VOP_VNEVENT */
 typedef enum vnevent	{
@@ -304,12 +315,14 @@ extern int vn_fromfd(int fd, char *path, int flags, struct vnode **vpp, boolean_
 
 /* Vnode event notification */
 /* Not implemented in zfs-fuse */
-#define vn_event_rename_src(v) ((void) 0)
-#define vnevent_rename_src(v)  ((void) 0)
-#define vnevent_rename_dest(v) ((void) 0)
-#define vnevent_remove(v)      ((void) 0)
-#define vnevent_rmdir(v)       ((void) 0)
-#define vnevent_support(v)     (EINVAL)
+#define vnevent_rename_src(v,v2,c,ct)  ((void) 0)
+#define vnevent_rename_dest(v,v2,c,ct) ((void) 0)
+#define vnevent_rename_dest_dir(v,ct)  ((void) 0)
+#define vnevent_remove(v,v2,c,ct)      ((void) 0)
+#define vnevent_rmdir(v,v2,c,ct)       ((void) 0)
+#define vnevent_create(v,ct)           ((void) 0)
+#define vnevent_link(v,ct)             ((void) 0)
+#define vnevent_support(v)             (EINVAL)
 
 #if 0
 #define vn_setops(vn,ops)        ((void) 0)
@@ -331,7 +344,8 @@ extern void vn_setops(vnode_t *vp, struct vnodeops *vnodeops);
  * the vnodeops structure (below) and the fs_func_p union (vfs_opreg.h).
  */
 #define	VNODE_OPS							\
-	int	(*vop_open)(vnode_t **, int, cred_t *);			\
+	int	(*vop_open)(vnode_t **, int, cred_t *,			\
+				caller_context_t *);			\
 	int	(*vop_close)(vnode_t *, int, int, offset_t, cred_t *,	\
 				caller_context_t *);			\
 	int	(*vop_read)(vnode_t *, uio_t *, int, cred_t *,		\
@@ -339,74 +353,102 @@ extern void vn_setops(vnode_t *vp, struct vnodeops *vnodeops);
 	int	(*vop_write)(vnode_t *, uio_t *, int, cred_t *,		\
 				caller_context_t *);			\
 	int	(*vop_ioctl)(vnode_t *, int, intptr_t, int, cred_t *,	\
-				int *);					\
-	int	(*vop_setfl)(vnode_t *, int, int, cred_t *);		\
+				int *, caller_context_t *);		\
+	int	(*vop_setfl)(vnode_t *, int, int, cred_t *,		\
+				caller_context_t *);			\
 	int	(*vop_getattr)(vnode_t *, vattr_t *, int, cred_t *,	\
 				caller_context_t *);			\
 	int	(*vop_setattr)(vnode_t *, vattr_t *, int, cred_t *,	\
 				caller_context_t *);			\
-	int	(*vop_access)(vnode_t *, int, int, cred_t *);		\
+	int	(*vop_access)(vnode_t *, int, int, cred_t *,		\
+				caller_context_t *);			\
 	int	(*vop_lookup)(vnode_t *, char *, vnode_t **,		\
 				struct pathname *,			\
-				int, vnode_t *, cred_t *);		\
+				int, vnode_t *, cred_t *,		\
+				caller_context_t *, int *,		\
+				struct pathname *);			\
 	int	(*vop_create)(vnode_t *, char *, vattr_t *, vcexcl_t,	\
-				int, vnode_t **, cred_t *, int);	\
-	int	(*vop_remove)(vnode_t *, char *, cred_t *);		\
-	int	(*vop_link)(vnode_t *, vnode_t *, char *, cred_t *);	\
+				int, vnode_t **, cred_t *, int,		\
+				caller_context_t *, vsecattr_t *);	\
+	int	(*vop_remove)(vnode_t *, char *, cred_t *,		\
+				caller_context_t *, int);		\
+	int	(*vop_link)(vnode_t *, vnode_t *, char *, cred_t *,	\
+				caller_context_t *, int);		\
 	int	(*vop_rename)(vnode_t *, char *, vnode_t *, char *,	\
-				cred_t *);				\
+				cred_t *, caller_context_t *, int);	\
 	int	(*vop_mkdir)(vnode_t *, char *, vattr_t *, vnode_t **,	\
-				cred_t *);				\
-	int	(*vop_rmdir)(vnode_t *, char *, vnode_t *, cred_t *);	\
-	int	(*vop_readdir)(vnode_t *, uio_t *, cred_t *, int *);	\
+				cred_t *, caller_context_t *, int,	\
+				vsecattr_t *);				\
+	int	(*vop_rmdir)(vnode_t *, char *, vnode_t *, cred_t *,	\
+				caller_context_t *, int);		\
+	int	(*vop_readdir)(vnode_t *, uio_t *, cred_t *, int *,	\
+				caller_context_t *, int);		\
 	int	(*vop_symlink)(vnode_t *, char *, vattr_t *, char *,	\
-				cred_t *);				\
-	int	(*vop_readlink)(vnode_t *, uio_t *, cred_t *);		\
+				cred_t *, caller_context_t *, int);	\
+	int	(*vop_readlink)(vnode_t *, uio_t *, cred_t *,		\
+				caller_context_t *);			\
 	int	(*vop_fsync)(vnode_t *, int, cred_t *,			\
 				caller_context_t *);			\
-	void	(*vop_inactive)(vnode_t *, cred_t *);			\
-	int	(*vop_fid)(vnode_t *, struct fid *);			\
+	void	(*vop_inactive)(vnode_t *, cred_t *,			\
+				caller_context_t *);			\
+	int	(*vop_fid)(vnode_t *, struct fid *,			\
+				caller_context_t *);			\
 	int	(*vop_rwlock)(vnode_t *, int, caller_context_t *);	\
 	void	(*vop_rwunlock)(vnode_t *, int, caller_context_t *);	\
-	int	(*vop_seek)(vnode_t *, offset_t, offset_t *);		\
-	int	(*vop_cmp)(vnode_t *, vnode_t *);			\
+	int	(*vop_seek)(vnode_t *, offset_t, offset_t *,		\
+				caller_context_t *);			\
+	int	(*vop_cmp)(vnode_t *, vnode_t *, caller_context_t *);	\
 	int	(*vop_frlock)(vnode_t *, int, struct flock64 *,		\
 				int, offset_t,				\
-				struct flk_callback *, cred_t *);	\
+				struct flk_callback *, cred_t *,	\
+				caller_context_t *);			\
 	int	(*vop_space)(vnode_t *, int, struct flock64 *,		\
 				int, offset_t,				\
 				cred_t *, caller_context_t *);		\
-	int	(*vop_realvp)(vnode_t *, vnode_t **);			\
+	int	(*vop_realvp)(vnode_t *, vnode_t **,			\
+				caller_context_t *);			\
 	int	(*vop_getpage)(vnode_t *, offset_t, size_t, uint_t *,	\
 				struct page **, size_t, struct seg *,	\
-				caddr_t, enum seg_rw, cred_t *);	\
+				caddr_t, enum seg_rw, cred_t *,		\
+				caller_context_t *);			\
 	int	(*vop_putpage)(vnode_t *, offset_t, size_t,		\
 				int, cred_t *, caller_context_t *);	\
 	int	(*vop_map)(vnode_t *, offset_t, struct as *,		\
 				caddr_t *, size_t,			\
-				uchar_t, uchar_t, uint_t, cred_t *);	\
+				uchar_t, uchar_t, uint_t, cred_t *,	\
+				caller_context_t *);			\
 	int	(*vop_addmap)(vnode_t *, offset_t, struct as *,		\
 				caddr_t, size_t,			\
-				uchar_t, uchar_t, uint_t, cred_t *);	\
+				uchar_t, uchar_t, uint_t, cred_t *,	\
+				caller_context_t *);			\
 	int	(*vop_delmap)(vnode_t *, offset_t, struct as *,		\
 				caddr_t, size_t,			\
-				uint_t, uint_t, uint_t, cred_t *);	\
+				uint_t, uint_t, uint_t, cred_t *,	\
+				caller_context_t *);			\
 	int	(*vop_poll)(vnode_t *, short, int, short *,		\
-				struct pollhead **);			\
-	int	(*vop_dump)(vnode_t *, caddr_t, int, int);		\
-	int	(*vop_pathconf)(vnode_t *, int, ulong_t *, cred_t *);	\
+				struct pollhead **,			\
+				caller_context_t *);			\
+	int	(*vop_dump)(vnode_t *, caddr_t, int, int,		\
+				caller_context_t *);			\
+	int	(*vop_pathconf)(vnode_t *, int, ulong_t *, cred_t *,	\
+				caller_context_t *);			\
 	int	(*vop_pageio)(vnode_t *, struct page *,			\
-				u_offset_t, size_t, int, cred_t *);	\
-	int	(*vop_dumpctl)(vnode_t *, int, int *);			\
+				u_offset_t, size_t, int, cred_t *,	\
+				caller_context_t *);			\
+	int	(*vop_dumpctl)(vnode_t *, int, int *,			\
+				caller_context_t *);			\
 	void	(*vop_dispose)(vnode_t *, struct page *,		\
-				int, int, cred_t *);			\
+				int, int, cred_t *,			\
+				caller_context_t *);			\
 	int	(*vop_setsecattr)(vnode_t *, vsecattr_t *,		\
-				int, cred_t *);				\
+				int, cred_t *, caller_context_t *);	\
 	int	(*vop_getsecattr)(vnode_t *, vsecattr_t *,		\
-				int, cred_t *);				\
+				int, cred_t *, caller_context_t *);	\
 	int	(*vop_shrlock)(vnode_t *, int, struct shrlock *,	\
-				int, cred_t *);				\
-	int	(*vop_vnevent)(vnode_t *, vnevent_t)	/* NB: No ";" */
+				int, cred_t *, caller_context_t *);	\
+	int	(*vop_vnevent)(vnode_t *, vnevent_t, vnode_t *,		\
+				char *, caller_context_t *)
+	/* NB: No ";" */
 
 /*
  * Operations on vnodes.  Note: File systems must never operate directly
@@ -418,156 +460,178 @@ typedef struct vnodeops {
 	VNODE_OPS;	/* Signatures of all vnode operations (vops) */
 } vnodeops_t;
 
-extern int	fop_open(vnode_t **, int, cred_t *);
+extern int	fop_open(vnode_t **, int, cred_t *, caller_context_t *);
 extern int	fop_close(vnode_t *, int, int, offset_t, cred_t *,
 				caller_context_t *);
 extern int	fop_read(vnode_t *, uio_t *, int, cred_t *, caller_context_t *);
 extern int	fop_write(vnode_t *, uio_t *, int, cred_t *,
 				caller_context_t *);
-extern int	fop_ioctl(vnode_t *, int, intptr_t, int, cred_t *, int *);
-extern int	fop_setfl(vnode_t *, int, int, cred_t *);
+extern int	fop_ioctl(vnode_t *, int, intptr_t, int, cred_t *, int *,
+				caller_context_t *);
+extern int	fop_setfl(vnode_t *, int, int, cred_t *, caller_context_t *);
 extern int	fop_getattr(vnode_t *, vattr_t *, int, cred_t *,
 				caller_context_t *);
 extern int	fop_setattr(vnode_t *, vattr_t *, int, cred_t *,
 				caller_context_t *);
-extern int	fop_access(vnode_t *, int, int, cred_t *);
+extern int	fop_access(vnode_t *, int, int, cred_t *, caller_context_t *);
 extern int	fop_lookup(vnode_t *, char *, vnode_t **, struct pathname *,
-				int, vnode_t *, cred_t *);
+				int, vnode_t *, cred_t *, caller_context_t *,
+				int *, struct pathname *);
 extern int	fop_create(vnode_t *, char *, vattr_t *, vcexcl_t, int,
-				vnode_t **, cred_t *, int);
-extern int	fop_remove(vnode_t *vp, char *, cred_t *);
-extern int	fop_link(vnode_t *, vnode_t *, char *, cred_t *);
-extern int	fop_rename(vnode_t *, char *, vnode_t *, char *, cred_t *);
-extern int	fop_mkdir(vnode_t *, char *, vattr_t *, vnode_t **, cred_t *);
-extern int	fop_rmdir(vnode_t *, char *, vnode_t *, cred_t *);
-extern int	fop_readdir(vnode_t *, uio_t *, cred_t *, int *);
-extern int	fop_symlink(vnode_t *, char *, vattr_t *, char *, cred_t *);
-extern int	fop_readlink(vnode_t *, uio_t *, cred_t *);
+				vnode_t **, cred_t *, int, caller_context_t *,
+				vsecattr_t *);
+extern int	fop_remove(vnode_t *vp, char *, cred_t *, caller_context_t *,
+				int);
+extern int	fop_link(vnode_t *, vnode_t *, char *, cred_t *,
+				caller_context_t *, int);
+extern int	fop_rename(vnode_t *, char *, vnode_t *, char *, cred_t *,
+				caller_context_t *, int);
+extern int	fop_mkdir(vnode_t *, char *, vattr_t *, vnode_t **, cred_t *,
+				caller_context_t *, int, vsecattr_t *);
+extern int	fop_rmdir(vnode_t *, char *, vnode_t *, cred_t *,
+				caller_context_t *, int);
+extern int	fop_readdir(vnode_t *, uio_t *, cred_t *, int *,
+				caller_context_t *, int);
+extern int	fop_symlink(vnode_t *, char *, vattr_t *, char *, cred_t *,
+				caller_context_t *, int);
+extern int	fop_readlink(vnode_t *, uio_t *, cred_t *, caller_context_t *);
 extern int	fop_fsync(vnode_t *, int, cred_t *, caller_context_t *);
-extern void	fop_inactive(vnode_t *, cred_t *);
-extern int	fop_fid(vnode_t *, struct fid *);
+extern void	fop_inactive(vnode_t *, cred_t *, caller_context_t *);
+extern int	fop_fid(vnode_t *, struct fid *, caller_context_t *);
 extern int	fop_rwlock(vnode_t *, int, caller_context_t *);
 extern void	fop_rwunlock(vnode_t *, int, caller_context_t *);
-extern int	fop_seek(vnode_t *, offset_t, offset_t *);
-extern int	fop_cmp(vnode_t *, vnode_t *);
+extern int	fop_seek(vnode_t *, offset_t, offset_t *, caller_context_t *);
+extern int	fop_cmp(vnode_t *, vnode_t *, caller_context_t *);
 extern int	fop_frlock(vnode_t *, int, struct flock64 *, int, offset_t,
-				struct flk_callback *, cred_t *);
+				struct flk_callback *, cred_t *,
+				caller_context_t *);
 extern int	fop_space(vnode_t *, int, struct flock64 *, int, offset_t,
 				cred_t *, caller_context_t *);
-extern int	fop_realvp(vnode_t *, vnode_t **);
+extern int	fop_realvp(vnode_t *, vnode_t **, caller_context_t *);
 extern int	fop_getpage(vnode_t *, offset_t, size_t, uint_t *,
 				struct page **, size_t, struct seg *,
-				caddr_t, enum seg_rw, cred_t *);
+				caddr_t, enum seg_rw, cred_t *,
+				caller_context_t *);
 extern int	fop_putpage(vnode_t *, offset_t, size_t, int, cred_t *,
 				caller_context_t *);
 extern int	fop_map(vnode_t *, offset_t, struct as *, caddr_t *, size_t,
-				uchar_t, uchar_t, uint_t, cred_t *cr);
+				uchar_t, uchar_t, uint_t, cred_t *cr,
+				caller_context_t *);
 extern int	fop_addmap(vnode_t *, offset_t, struct as *, caddr_t, size_t,
-				uchar_t, uchar_t, uint_t, cred_t *);
+				uchar_t, uchar_t, uint_t, cred_t *,
+				caller_context_t *);
 extern int	fop_delmap(vnode_t *, offset_t, struct as *, caddr_t, size_t,
-				uint_t, uint_t, uint_t, cred_t *);
-extern int	fop_poll(vnode_t *, short, int, short *, struct pollhead **);
-extern int	fop_dump(vnode_t *, caddr_t, int, int);
-extern int	fop_pathconf(vnode_t *, int, ulong_t *, cred_t *);
+				uint_t, uint_t, uint_t, cred_t *,
+				caller_context_t *);
+extern int	fop_poll(vnode_t *, short, int, short *, struct pollhead **,
+				caller_context_t *);
+extern int	fop_dump(vnode_t *, caddr_t, int, int, caller_context_t *);
+extern int	fop_pathconf(vnode_t *, int, ulong_t *, cred_t *,
+				caller_context_t *);
 extern int	fop_pageio(vnode_t *, struct page *, u_offset_t, size_t, int,
-				cred_t *);
-extern int	fop_dumpctl(vnode_t *, int, int *);
-extern void	fop_dispose(vnode_t *, struct page *, int, int, cred_t *);
-extern int	fop_setsecattr(vnode_t *, vsecattr_t *, int, cred_t *);
-extern int	fop_getsecattr(vnode_t *, vsecattr_t *, int, cred_t *);
-extern int	fop_shrlock(vnode_t *, int, struct shrlock *, int, cred_t *);
-extern int	fop_vnevent(vnode_t *, vnevent_t);
+				cred_t *, caller_context_t *);
+extern int	fop_dumpctl(vnode_t *, int, int *, caller_context_t *);
+extern void	fop_dispose(vnode_t *, struct page *, int, int, cred_t *,
+				caller_context_t *);
+extern int	fop_setsecattr(vnode_t *, vsecattr_t *, int, cred_t *,
+				caller_context_t *);
+extern int	fop_getsecattr(vnode_t *, vsecattr_t *, int, cred_t *,
+				caller_context_t *);
+extern int	fop_shrlock(vnode_t *, int, struct shrlock *, int, cred_t *,
+				caller_context_t *);
+extern int	fop_vnevent(vnode_t *, vnevent_t, vnode_t *, char *,
+				caller_context_t *);
 
 #endif	/* _KERNEL */
 
-#define	VOP_OPEN(vpp, mode, cr) \
-	fop_open(vpp, mode, cr)
+#define	VOP_OPEN(vpp, mode, cr, ct) \
+	fop_open(vpp, mode, cr, ct)
 #define	VOP_CLOSE(vp, f, c, o, cr, ct) \
 	fop_close(vp, f, c, o, cr, ct)
 #define	VOP_READ(vp, uiop, iof, cr, ct) \
 	fop_read(vp, uiop, iof, cr, ct)
 #define	VOP_WRITE(vp, uiop, iof, cr, ct) \
 	fop_write(vp, uiop, iof, cr, ct)
-#define	VOP_IOCTL(vp, cmd, a, f, cr, rvp) \
-	fop_ioctl(vp, cmd, a, f, cr, rvp)
-#define	VOP_SETFL(vp, f, a, cr) \
-	fop_setfl(vp, f, a, cr)
+#define	VOP_IOCTL(vp, cmd, a, f, cr, rvp, ct) \
+	fop_ioctl(vp, cmd, a, f, cr, rvp, ct)
+#define	VOP_SETFL(vp, f, a, cr, ct) \
+	fop_setfl(vp, f, a, cr, ct)
 #define	VOP_GETATTR(vp, vap, f, cr, ct) \
 	fop_getattr(vp, vap, f, cr, ct)
 #define	VOP_SETATTR(vp, vap, f, cr, ct) \
 	fop_setattr(vp, vap, f, cr, ct)
-#define	VOP_ACCESS(vp, mode, f, cr) \
-	fop_access(vp, mode, f, cr)
-#define	VOP_LOOKUP(vp, cp, vpp, pnp, f, rdir, cr) \
-	fop_lookup(vp, cp, vpp, pnp, f, rdir, cr)
-#define	VOP_CREATE(dvp, p, vap, ex, mode, vpp, cr, flag) \
-	fop_create(dvp, p, vap, ex, mode, vpp, cr, flag)
-#define	VOP_REMOVE(dvp, p, cr) \
-	fop_remove(dvp, p, cr)
-#define	VOP_LINK(tdvp, fvp, p, cr) \
-	fop_link(tdvp, fvp, p, cr)
-#define	VOP_RENAME(fvp, fnm, tdvp, tnm, cr) \
-	fop_rename(fvp, fnm, tdvp, tnm, cr)
-#define	VOP_MKDIR(dp, p, vap, vpp, cr) \
-	fop_mkdir(dp, p, vap, vpp, cr)
-#define	VOP_RMDIR(dp, p, cdir, cr) \
-	fop_rmdir(dp, p, cdir, cr)
-#define	VOP_READDIR(vp, uiop, cr, eofp) \
-	fop_readdir(vp, uiop, cr, eofp)
-#define	VOP_SYMLINK(dvp, lnm, vap, tnm, cr) \
-	fop_symlink(dvp, lnm, vap, tnm, cr)
-#define	VOP_READLINK(vp, uiop, cr) \
-	fop_readlink(vp, uiop, cr)
+#define	VOP_ACCESS(vp, mode, f, cr, ct) \
+	fop_access(vp, mode, f, cr, ct)
+#define	VOP_LOOKUP(vp, cp, vpp, pnp, f, rdir, cr, ct, defp, rpnp) \
+	fop_lookup(vp, cp, vpp, pnp, f, rdir, cr, ct, defp, rpnp)
+#define	VOP_CREATE(dvp, p, vap, ex, mode, vpp, cr, flag, ct, vsap) \
+	fop_create(dvp, p, vap, ex, mode, vpp, cr, flag, ct, vsap)
+#define	VOP_REMOVE(dvp, p, cr, ct, f) \
+	fop_remove(dvp, p, cr, ct, f)
+#define	VOP_LINK(tdvp, fvp, p, cr, ct, f) \
+	fop_link(tdvp, fvp, p, cr, ct, f)
+#define	VOP_RENAME(fvp, fnm, tdvp, tnm, cr, ct, f) \
+	fop_rename(fvp, fnm, tdvp, tnm, cr, ct, f)
+#define	VOP_MKDIR(dp, p, vap, vpp, cr, ct, f, vsap) \
+	fop_mkdir(dp, p, vap, vpp, cr, ct, f, vsap)
+#define	VOP_RMDIR(dp, p, cdir, cr, ct, f) \
+	fop_rmdir(dp, p, cdir, cr, ct, f)
+#define	VOP_READDIR(vp, uiop, cr, eofp, ct, f) \
+	fop_readdir(vp, uiop, cr, eofp, ct, f)
+#define	VOP_SYMLINK(dvp, lnm, vap, tnm, cr, ct, f) \
+	fop_symlink(dvp, lnm, vap, tnm, cr, ct, f)
+#define	VOP_READLINK(vp, uiop, cr, ct) \
+	fop_readlink(vp, uiop, cr, ct)
 #define	VOP_FSYNC(vp, syncflag, cr, ct) \
 	fop_fsync(vp, syncflag, cr, ct)
-#define	VOP_INACTIVE(vp, cr) \
-	fop_inactive(vp, cr)
-#define	VOP_FID(vp, fidp) \
-	fop_fid(vp, fidp)
+#define	VOP_INACTIVE(vp, cr, ct) \
+	fop_inactive(vp, cr, ct)
+#define	VOP_FID(vp, fidp, ct) \
+	fop_fid(vp, fidp, ct)
 #define	VOP_RWLOCK(vp, w, ct) \
 	fop_rwlock(vp, w, ct)
 #define	VOP_RWUNLOCK(vp, w, ct) \
 	fop_rwunlock(vp, w, ct)
-#define	VOP_SEEK(vp, ooff, noffp) \
-	fop_seek(vp, ooff, noffp)
-#define	VOP_CMP(vp1, vp2) \
-	fop_cmp(vp1, vp2)
-#define	VOP_FRLOCK(vp, cmd, a, f, o, cb, cr) \
-	fop_frlock(vp, cmd, a, f, o, cb, cr)
+#define	VOP_SEEK(vp, ooff, noffp, ct) \
+	fop_seek(vp, ooff, noffp, ct)
+#define	VOP_CMP(vp1, vp2, ct) \
+	fop_cmp(vp1, vp2, ct)
+#define	VOP_FRLOCK(vp, cmd, a, f, o, cb, cr, ct) \
+	fop_frlock(vp, cmd, a, f, o, cb, cr, ct)
 #define	VOP_SPACE(vp, cmd, a, f, o, cr, ct) \
 	fop_space(vp, cmd, a, f, o, cr, ct)
-#define	VOP_REALVP(vp1, vp2) \
-	fop_realvp(vp1, vp2)
-#define	VOP_GETPAGE(vp, of, sz, pr, pl, ps, sg, a, rw, cr) \
-	fop_getpage(vp, of, sz, pr, pl, ps, sg, a, rw, cr)
+#define	VOP_REALVP(vp1, vp2, ct) \
+	fop_realvp(vp1, vp2, ct)
+#define	VOP_GETPAGE(vp, of, sz, pr, pl, ps, sg, a, rw, cr, ct) \
+	fop_getpage(vp, of, sz, pr, pl, ps, sg, a, rw, cr, ct)
 #define	VOP_PUTPAGE(vp, of, sz, fl, cr, ct) \
 	fop_putpage(vp, of, sz, fl, cr, ct)
-#define	VOP_MAP(vp, of, as, a, sz, p, mp, fl, cr) \
-	fop_map(vp, of, as, a, sz, p, mp, fl, cr)
-#define	VOP_ADDMAP(vp, of, as, a, sz, p, mp, fl, cr) \
-	fop_addmap(vp, of, as, a, sz, p, mp, fl, cr)
-#define	VOP_DELMAP(vp, of, as, a, sz, p, mp, fl, cr) \
-	fop_delmap(vp, of, as, a, sz, p, mp, fl, cr)
-#define	VOP_POLL(vp, events, anyyet, reventsp, phpp) \
-	fop_poll(vp, events, anyyet, reventsp, phpp)
-#define	VOP_DUMP(vp, addr, bn, count) \
-	fop_dump(vp, addr, bn, count)
-#define	VOP_PATHCONF(vp, cmd, valp, cr) \
-	fop_pathconf(vp, cmd, valp, cr)
-#define	VOP_PAGEIO(vp, pp, io_off, io_len, flags, cr) \
-	fop_pageio(vp, pp, io_off, io_len, flags, cr)
-#define	VOP_DUMPCTL(vp, action, blkp) \
-	fop_dumpctl(vp, action, blkp)
-#define	VOP_DISPOSE(vp, pp, flag, dn, cr) \
-	fop_dispose(vp, pp, flag, dn, cr)
-#define	VOP_GETSECATTR(vp, vsap, f, cr) \
-	fop_getsecattr(vp, vsap, f, cr)
-#define	VOP_SETSECATTR(vp, vsap, f, cr) \
-	fop_setsecattr(vp, vsap, f, cr)
-#define	VOP_SHRLOCK(vp, cmd, shr, f, cr) \
-	fop_shrlock(vp, cmd, shr, f, cr)
-#define	VOP_VNEVENT(vp, vnevent) \
-	fop_vnevent(vp, vnevent)
+#define	VOP_MAP(vp, of, as, a, sz, p, mp, fl, cr, ct) \
+	fop_map(vp, of, as, a, sz, p, mp, fl, cr, ct)
+#define	VOP_ADDMAP(vp, of, as, a, sz, p, mp, fl, cr, ct) \
+	fop_addmap(vp, of, as, a, sz, p, mp, fl, cr, ct)
+#define	VOP_DELMAP(vp, of, as, a, sz, p, mp, fl, cr, ct) \
+	fop_delmap(vp, of, as, a, sz, p, mp, fl, cr, ct)
+#define	VOP_POLL(vp, events, anyyet, reventsp, phpp, ct) \
+	fop_poll(vp, events, anyyet, reventsp, phpp, ct)
+#define	VOP_DUMP(vp, addr, bn, count, ct) \
+	fop_dump(vp, addr, bn, count, ct)
+#define	VOP_PATHCONF(vp, cmd, valp, cr, ct) \
+	fop_pathconf(vp, cmd, valp, cr, ct)
+#define	VOP_PAGEIO(vp, pp, io_off, io_len, flags, cr, ct) \
+	fop_pageio(vp, pp, io_off, io_len, flags, cr, ct)
+#define	VOP_DUMPCTL(vp, action, blkp, ct) \
+	fop_dumpctl(vp, action, blkp, ct)
+#define	VOP_DISPOSE(vp, pp, flag, dn, cr, ct) \
+	fop_dispose(vp, pp, flag, dn, cr, ct)
+#define	VOP_GETSECATTR(vp, vsap, f, cr, ct) \
+	fop_getsecattr(vp, vsap, f, cr, ct)
+#define	VOP_SETSECATTR(vp, vsap, f, cr, ct) \
+	fop_setsecattr(vp, vsap, f, cr, ct)
+#define	VOP_SHRLOCK(vp, cmd, shr, f, cr, ct) \
+	fop_shrlock(vp, cmd, shr, f, cr, ct)
+#define	VOP_VNEVENT(vp, vnevent, dvp, fnm, ct) \
+	fop_vnevent(vp, vnevent, dvp, fnm, ct)
 
 #define	VOPNAME_OPEN		"open"
 #define	VOPNAME_CLOSE		"close"
@@ -708,5 +772,123 @@ typedef struct xvattr {
 	uint32_t        xva_rtnattrmap[XVA_MAPSIZE];    /* Returned attrs */
 	xoptattr_t      xva_xoptattrs;  /* Optional attributes */
 } xvattr_t;
+
+/*
+ * Extensible vnode attribute (xva) routines:
+ * xva_init() initializes an xvattr_t (zero struct, init mapsize, set AT_XATTR)
+ * xva_getxoptattr() returns a ponter to the xoptattr_t section of xvattr_t
+ */
+void            xva_init(xvattr_t *);
+xoptattr_t      *xva_getxoptattr(xvattr_t *);   /* Get ptr to xoptattr_t */
+
+/*
+ * Attribute bits used in the extensible attribute's (xva's) attribute
+ * bitmaps.  Note that the bitmaps are made up of a variable length number
+ * of 32-bit words.  The convention is to use XAT{n}_{attrname} where "n"
+ * is the element in the bitmap (starting at 1).  This convention is for
+ * the convenience of the maintainer to keep track of which element each
+ * attribute belongs to.
+ *
+ * NOTE THAT CONSUMERS MUST *NOT* USE THE XATn_* DEFINES DIRECTLY.  CONSUMERS
+ * MUST USE THE XAT_* DEFINES.
+ */
+#define XAT0_INDEX      0LL             /* Index into bitmap for XAT0 attrs */
+#define XAT0_CREATETIME 0x00000001      /* Create time of file */
+#define XAT0_ARCHIVE    0x00000002      /* Archive */
+#define XAT0_SYSTEM     0x00000004      /* System */
+#define XAT0_READONLY   0x00000008      /* Readonly */
+#define XAT0_HIDDEN     0x00000010      /* Hidden */
+#define XAT0_NOUNLINK   0x00000020      /* Nounlink */
+#define XAT0_IMMUTABLE  0x00000040      /* immutable */
+#define XAT0_APPENDONLY 0x00000080      /* appendonly */
+#define XAT0_NODUMP     0x00000100      /* nodump */
+#define XAT0_OPAQUE     0x00000200      /* opaque */
+#define XAT0_AV_QUARANTINED     0x00000400      /* anti-virus quarantine */
+#define XAT0_AV_MODIFIED        0x00000800      /* anti-virus modified */
+#define XAT0_AV_SCANSTAMP       0x00001000      /* anti-virus scanstamp */
+
+#define XAT0_ALL_ATTRS  (XAT0_CREATETIME|XAT0_ARCHIVE|XAT0_SYSTEM| \
+    XAT0_READONLY|XAT0_HIDDEN|XAT0_NOUNLINK|XAT0_IMMUTABLE|XAT0_APPENDONLY| \
+    XAT0_NODUMP|XAT0_OPAQUE|XAT0_AV_QUARANTINED| \
+    XAT0_AV_MODIFIED|XAT0_AV_SCANSTAMP)
+
+/* Support for XAT_* optional attributes */
+#define XVA_MASK                0xffffffff      /* Used to mask off 32 bits */
+#define XVA_SHFT                32              /* Used to shift index */
+
+/*
+ * Used to pry out the index and attribute bits from the XAT_* attributes
+ * defined below.  Note that we're masking things down to 32 bits then
+ * casting to uint32_t.
+ */
+#define XVA_INDEX(attr)         ((uint32_t)(((attr) >> XVA_SHFT) & XVA_MASK))
+#define XVA_ATTRBIT(attr)       ((uint32_t)((attr) & XVA_MASK))
+
+/*
+ * The following defines present a "flat namespace" so that consumers don't
+ * need to keep track of which element belongs to which bitmap entry.
+ *
+ * NOTE THAT THESE MUST NEVER BE OR-ed TOGETHER
+ */
+#define XAT_CREATETIME          ((XAT0_INDEX << XVA_SHFT) | XAT0_CREATETIME)
+#define XAT_ARCHIVE             ((XAT0_INDEX << XVA_SHFT) | XAT0_ARCHIVE)
+#define XAT_SYSTEM              ((XAT0_INDEX << XVA_SHFT) | XAT0_SYSTEM)
+#define XAT_READONLY            ((XAT0_INDEX << XVA_SHFT) | XAT0_READONLY)
+#define XAT_HIDDEN              ((XAT0_INDEX << XVA_SHFT) | XAT0_HIDDEN)
+#define XAT_NOUNLINK            ((XAT0_INDEX << XVA_SHFT) | XAT0_NOUNLINK)
+#define XAT_IMMUTABLE           ((XAT0_INDEX << XVA_SHFT) | XAT0_IMMUTABLE)
+#define XAT_APPENDONLY          ((XAT0_INDEX << XVA_SHFT) | XAT0_APPENDONLY)
+#define XAT_NODUMP              ((XAT0_INDEX << XVA_SHFT) | XAT0_NODUMP)
+#define XAT_OPAQUE              ((XAT0_INDEX << XVA_SHFT) | XAT0_OPAQUE)
+#define XAT_AV_QUARANTINED      ((XAT0_INDEX << XVA_SHFT) | XAT0_AV_QUARANTINED)
+#define XAT_AV_MODIFIED         ((XAT0_INDEX << XVA_SHFT) | XAT0_AV_MODIFIED)
+#define XAT_AV_SCANSTAMP        ((XAT0_INDEX << XVA_SHFT) | XAT0_AV_SCANSTAMP)
+
+/*
+ * The returned attribute map array (xva_rtnattrmap[]) is located past the
+ * requested attribute map array (xva_reqattrmap[]).  Its location changes
+ * when the array sizes change.  We use a separate pointer in a known location
+ * (xva_rtnattrmapp) to hold the location of xva_rtnattrmap[].  This is
+ * set in xva_init()
+ */
+#define XVA_RTNATTRMAP(xvap)    ((xvap)->xva_rtnattrmapp)
+
+/*
+ * XVA_SET_REQ() sets an attribute bit in the proper element in the bitmap
+ * of requested attributes (xva_reqattrmap[]).
+ */
+#define XVA_SET_REQ(xvap, attr)                                 \
+        ASSERT((xvap)->xva_vattr.va_mask | AT_XVATTR);          \
+        ASSERT((xvap)->xva_magic == XVA_MAGIC);                 \
+        (xvap)->xva_reqattrmap[XVA_INDEX(attr)] |= XVA_ATTRBIT(attr)
+
+/*
+ * XVA_SET_RTN() sets an attribute bit in the proper element in the bitmap
+ * of returned attributes (xva_rtnattrmap[]).
+ */
+#define XVA_SET_RTN(xvap, attr)                                 \
+        ASSERT((xvap)->xva_vattr.va_mask | AT_XVATTR);          \
+        ASSERT((xvap)->xva_magic == XVA_MAGIC);                 \
+        (XVA_RTNATTRMAP(xvap))[XVA_INDEX(attr)] |= XVA_ATTRBIT(attr)
+
+/*
+ * XVA_ISSET_REQ() checks the requested attribute bitmap (xva_reqattrmap[])
+ * to see of the corresponding attribute bit is set.  If so, returns non-zero.
+ */
+#define XVA_ISSET_REQ(xvap, attr)                                       \
+        ((((xvap)->xva_vattr.va_mask | AT_XVATTR) &&                    \
+                ((xvap)->xva_magic == XVA_MAGIC) &&                     \
+                ((xvap)->xva_mapsize > XVA_INDEX(attr))) ?              \
+        ((xvap)->xva_reqattrmap[XVA_INDEX(attr)] & XVA_ATTRBIT(attr)) : 0)
+
+/*
+ * XVA_ISSET_RTN() checks the returned attribute bitmap (xva_rtnattrmap[])
+ * to see of the corresponding attribute bit is set.  If so, returns non-zero.
+ */
+#define XVA_ISSET_RTN(xvap, attr)                                       \
+        ((((xvap)->xva_vattr.va_mask | AT_XVATTR) &&                    \
+                ((xvap)->xva_magic == XVA_MAGIC) &&                     \
+                ((xvap)->xva_mapsize > XVA_INDEX(attr))) ?              \
+        ((XVA_RTNATTRMAP(xvap))[XVA_INDEX(attr)] & XVA_ATTRBIT(attr)) : 0)
 
 #endif

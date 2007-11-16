@@ -554,7 +554,7 @@ void vn_rele(vnode_t *vp)
 	if(vp->v_count == 1) {
 		mutex_exit(&vp->v_lock);
 		/* fprintf(stderr, "VNode %p inactive\n", vp); */
-		VOP_INACTIVE(vp, CRED());
+		VOP_INACTIVE(vp, CRED(), NULL);
 	} else {
 		vp->v_count--;
 		mutex_exit(&vp->v_lock);
@@ -704,7 +704,8 @@ int
 fop_open(
 	vnode_t **vpp,
 	int mode,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int ret;
 	vnode_t *vp = *vpp;
@@ -729,7 +730,7 @@ fop_open(
 			atomic_add_32(&((*vpp)->v_wrcnt), 1);
 	}
 
-	ret = (*(*(vpp))->v_op->vop_open)(vpp, mode, cr);
+	ret = (*(*(vpp))->v_op->vop_open)(vpp, mode, cr, ct);
 
 	if (ret) {
 		/*
@@ -818,11 +819,12 @@ int
 fop_readlink(
 	vnode_t *vp,
 	uio_t *uiop,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_readlink)(vp, uiop, cr);
+	err = (*(vp)->v_op->vop_readlink)(vp, uiop, cr, ct);
 	VOPSTATS_UPDATE(vp, readlink);
 	return (err);
 }
@@ -859,11 +861,12 @@ fop_getattr(
 void
 fop_inactive(
 	vnode_t *vp,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	/* Need to update stats before vop call since we may lose the vnode */
 	VOPSTATS_UPDATE(vp, inactive);
-	(*(vp)->v_op->vop_inactive)(vp, cr);
+	(*(vp)->v_op->vop_inactive)(vp, cr, ct);
 }
 
 int
@@ -885,11 +888,12 @@ fop_putpage(
 int
 fop_realvp(
 	vnode_t *vp,
-	vnode_t **vpp)
+	vnode_t **vpp,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_realvp)(vp, vpp);
+	err = (*(vp)->v_op->vop_realvp)(vp, vpp, ct);
 	VOPSTATS_UPDATE(vp, realvp);
 	return (err);
 }
@@ -902,11 +906,16 @@ fop_lookup(
 	pathname_t *pnp,
 	int flags,
 	vnode_t *rdir,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct,
+	int *deflags,         /* Returned per-dirent flags */
+	pathname_t *ppnp)     /* Returned case-preserved name in directory */
 {
 	int ret;
 
-	ret = (*(dvp)->v_op->vop_lookup)(dvp, nm, vpp, pnp, flags, rdir, cr);
+	VERIFY(!(flags & LOOKUP_XATTR));
+
+	ret = (*(dvp)->v_op->vop_lookup)(dvp, nm, vpp, pnp, flags, rdir, cr, ct, deflags, ppnp);
 	if (ret == 0 && *vpp) {
 		VOPSTATS_UPDATE(*vpp, lookup);
 		if ((*vpp)->v_path == NULL) {
@@ -922,12 +931,14 @@ fop_readdir(
 	vnode_t *vp,
 	uio_t *uiop,
 	cred_t *cr,
-	int *eofp)
+	int *eofp,
+	caller_context_t *ct,
+	int flags)
 {
 	int	err;
 	/* ssize_t	resid_start = uiop->uio_resid; */
 
-	err = (*(vp)->v_op->vop_readdir)(vp, uiop, cr, eofp);
+	err = (*(vp)->v_op->vop_readdir)(vp, uiop, cr, eofp, ct, flags);
 	VOPSTATS_UPDATE_IO(vp, readdir,
 	    readdir_bytes, (resid_start - uiop->uio_resid));
 	return (err);
@@ -942,12 +953,14 @@ fop_create(
 	int mode,
 	vnode_t **vpp,
 	cred_t *cr,
-	int flag)
+	int flags,
+	caller_context_t *ct,
+	vsecattr_t *vsecp)   /* ACL to set during create */
 {
 	int ret;
 
 	ret = (*(dvp)->v_op->vop_create)
-				(dvp, name, vap, excl, mode, vpp, cr, flag);
+	    (dvp, name, vap, excl, mode, vpp, cr, flags, ct, vsecp);
 	if (ret == 0 && *vpp) {
 		VOPSTATS_UPDATE(*vpp, create);
 		if ((*vpp)->v_path == NULL) {
@@ -964,11 +977,15 @@ fop_mkdir(
 	char *dirname,
 	vattr_t *vap,
 	vnode_t **vpp,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct,
+	int flags,
+	vsecattr_t *vsecp)    /* ACL to set during create */
 {
 	int ret;
 
-	ret = (*(dvp)->v_op->vop_mkdir)(dvp, dirname, vap, vpp, cr);
+	ret = (*(dvp)->v_op->vop_mkdir)
+	    (dvp, dirname, vap, vpp, cr, ct, flags, vsecp);
 	if (ret == 0 && *vpp) {
 		VOPSTATS_UPDATE(*vpp, mkdir);
 		if ((*vpp)->v_path == NULL) {
@@ -986,11 +1003,14 @@ fop_symlink(
 	char *linkname,
 	vattr_t *vap,
 	char *target,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct,
+	int flags)
 {
 	int	err;
 
-	err = (*(dvp)->v_op->vop_symlink) (dvp, linkname, vap, target, cr);
+	err = (*(dvp)->v_op->vop_symlink)
+	    (dvp, linkname, vap, target, cr, ct, flags);
 	VOPSTATS_UPDATE(dvp, symlink);
 	return (err);
 }
@@ -999,11 +1019,13 @@ int
 fop_remove(
 	vnode_t *dvp,
 	char *nm,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct,
+	int flags)
 {
 	int	err;
 
-	err = (*(dvp)->v_op->vop_remove)(dvp, nm, cr);
+	err = (*(dvp)->v_op->vop_remove)(dvp, nm, cr, ct, flags);
 	VOPSTATS_UPDATE(dvp, remove);
 	return (err);
 }
@@ -1013,11 +1035,13 @@ fop_rmdir(
 	vnode_t *dvp,
 	char *nm,
 	vnode_t *cdir,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct,
+	int flags)
 {
 	int	err;
 
-	err = (*(dvp)->v_op->vop_rmdir)(dvp, nm, cdir, cr);
+	err = (*(dvp)->v_op->vop_rmdir)(dvp, nm, cdir, cr, ct, flags);
 	VOPSTATS_UPDATE(dvp, rmdir);
 	return (err);
 }
@@ -1027,11 +1051,13 @@ fop_link(
 	vnode_t *tdvp,
 	vnode_t *svp,
 	char *tnm,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct,
+	int flags)
 {
 	int	err;
 
-	err = (*(tdvp)->v_op->vop_link)(tdvp, svp, tnm, cr);
+	err = (*(tdvp)->v_op->vop_link)(tdvp, svp, tnm, cr, ct, flags);
 	VOPSTATS_UPDATE(tdvp, link);
 	return (err);
 }
@@ -1042,11 +1068,13 @@ fop_rename(
 	char *snm,
 	vnode_t *tdvp,
 	char *tnm,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct,
+	int flags)
 {
 	int	err;
 
-	err = (*(sdvp)->v_op->vop_rename)(sdvp, snm, tdvp, tnm, cr);
+	err = (*(sdvp)->v_op->vop_rename)(sdvp, snm, tdvp, tnm, cr, ct, flags);
 	VOPSTATS_UPDATE(sdvp, rename);
 	return (err);
 }
@@ -1088,11 +1116,12 @@ fop_setsecattr(
 	vnode_t *vp,
 	vsecattr_t *vsap,
 	int flag,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_setsecattr) (vp, vsap, flag, cr);
+	err = (*(vp)->v_op->vop_setsecattr) (vp, vsap, flag, cr, ct);
 	VOPSTATS_UPDATE(vp, setsecattr);
 	return (err);
 }
@@ -1102,11 +1131,12 @@ fop_getsecattr(
 	vnode_t *vp,
 	vsecattr_t *vsap,
 	int flag,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_getsecattr) (vp, vsap, flag, cr);
+	err = (*(vp)->v_op->vop_getsecattr) (vp, vsap, flag, cr, ct);
 	VOPSTATS_UPDATE(vp, getsecattr);
 	return (err);
 }
@@ -1116,11 +1146,12 @@ fop_access(
 	vnode_t *vp,
 	int mode,
 	int flags,
-	cred_t *cr)
+	cred_t *cr,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_access)(vp, mode, flags, cr);
+	err = (*(vp)->v_op->vop_access)(vp, mode, flags, cr, ct);
 	VOPSTATS_UPDATE(vp, access);
 	return (err);
 }
@@ -1168,11 +1199,12 @@ int
 fop_seek(
 	vnode_t *vp,
 	offset_t ooff,
-	offset_t *noffp)
+	offset_t *noffp,
+	caller_context_t *ct)
 {
 	int	err;
 
-	err = (*(vp)->v_op->vop_seek)(vp, ooff, noffp);
+	err = (*(vp)->v_op->vop_seek)(vp, ooff, noffp, ct);
 	VOPSTATS_UPDATE(vp, seek);
 	return (err);
 }

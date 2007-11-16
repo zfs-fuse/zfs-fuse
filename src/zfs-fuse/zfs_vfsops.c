@@ -467,10 +467,12 @@ normquit:
 	return (error);
 }
 
-#if 0
 static int
 zfs_register_callbacks(vfs_t *vfsp)
 {
+	/* ZFS-FUSE: not implemented */
+	return 0;
+#if 0
 	struct dsl_dataset *ds = NULL;
 	objset_t *os = NULL;
 	zfsvfs_t *zfsvfs = NULL;
@@ -636,9 +638,8 @@ unregister:
 	    zfsvfs);
 	(void) dsl_prop_unregister(ds, "vscan", vscan_changed_cb, zfsvfs);
 	return (error);
-
-}
 #endif
+}
 
 static int
 zfsvfs_setup(zfsvfs_t *zfsvfs, boolean_t mounting)
@@ -838,10 +839,10 @@ out:
 	return (error);
 }
 
-#if 0
 void
 zfs_unregister_callbacks(zfsvfs_t *zfsvfs)
 {
+#if 0
 	objset_t *os = zfsvfs->z_os;
 	struct dsl_dataset *ds;
 
@@ -883,8 +884,9 @@ zfs_unregister_callbacks(zfsvfs_t *zfsvfs)
 		VERIFY(dsl_prop_unregister(ds, "vscan",
 		    vscan_changed_cb, zfsvfs) == 0);
 	}
-}
 #endif
+}
+
 /*
  * Convert a decimal digit string to a uint64_t integer.
  */

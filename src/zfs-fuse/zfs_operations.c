@@ -117,7 +117,7 @@ static int zfsfuse_stat(vnode_t *vp, struct stat *stbuf, cred_t *cred)
 	vattr_t vattr;
 	vattr.va_mask = AT_STAT | AT_NBLOCKS | AT_BLKSIZE | AT_SIZE;
 
-	int error = VOP_GETATTR(vp, &vattr, 0, cred);
+	int error = VOP_GETATTR(vp, &vattr, 0, cred, NULL);
 	if(error)
 		return error;
 
@@ -214,7 +214,7 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred);
+	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
 	if(error)
 		goto out;
 
@@ -287,13 +287,13 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	/*
 	 * Check permissions.
 	 */
-	if (error = VOP_ACCESS(vp, VREAD | VEXEC, 0, &cred))
+	if (error = VOP_ACCESS(vp, VREAD | VEXEC, 0, &cred, NULL))
 		goto out;
 
 	vnode_t *old_vp = vp;
 
 	/* XXX: not sure about flags */
-	error = VOP_OPEN(&vp, FREAD, &cred);
+	error = VOP_OPEN(&vp, FREAD, &cred, NULL);
 
 	ASSERT(old_vp == vp);
 
@@ -345,7 +345,7 @@ static int zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	int error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred);
+	int error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
 	VERIFY(error == 0);
 
 	VN_RELE(info->vp);
@@ -418,7 +418,7 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 		uio.uio_resid = iovec.iov_len;
 		uio.uio_loffset = next;
 
-		error = VOP_READDIR(vp, &uio, &cred, &eofp);
+		error = VOP_READDIR(vp, &uio, &cred, &eofp, NULL, 0);
 		if(error)
 			goto out;
 
@@ -541,7 +541,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 
 		vnode_t *new_vp;
 		/* FIXME: check filesystem boundaries */
-		error = VOP_CREATE(vp, (char *) name, &vattr, excl, mode, &new_vp, &cred, 0);
+		error = VOP_CREATE(vp, (char *) name, &vattr, excl, mode, &new_vp, &cred, 0, NULL, NULL);
 
 		if(error)
 			goto out;
@@ -557,7 +557,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 		if (!(flags & FOFFMAX) && (vp->v_type == VREG)) {
 			vattr_t vattr;
 			vattr.va_mask = AT_SIZE;
-			if ((error = VOP_GETATTR(vp, &vattr, 0, &cred)))
+			if ((error = VOP_GETATTR(vp, &vattr, 0, &cred, NULL)))
 				goto out;
 
 			if (vattr.va_size > (u_offset_t) MAXOFF32_T) {
@@ -573,7 +573,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 		/*
 		 * Check permissions.
 		 */
-		if (error = VOP_ACCESS(vp, mode, 0, &cred))
+		if (error = VOP_ACCESS(vp, mode, 0, &cred, NULL))
 			goto out;
 	}
 
@@ -584,7 +584,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 
 	vnode_t *old_vp = vp;
 
-	error = VOP_OPEN(&vp, flags, &cred);
+	error = VOP_OPEN(&vp, flags, &cred, NULL);
 
 	ASSERT(old_vp == vp);
 
@@ -693,7 +693,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	error = VOP_READLINK(vp, &uio, &cred);
+	error = VOP_READLINK(vp, &uio, &cred, NULL);
 
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
@@ -805,7 +805,7 @@ static int zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	error = VOP_MKDIR(dvp, (char *) name, &vattr, &vp, &cred);
+	error = VOP_MKDIR(dvp, (char *) name, &vattr, &vp, &cred, NULL, 0, NULL);
 	if(error)
 		goto out;
 
@@ -874,7 +874,7 @@ static int zfsfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 	/* FUSE doesn't care if we remove the current working directory
 	   so we just pass NULL as the cwd parameter (no problem for ZFS) */
-	error = VOP_RMDIR(dvp, (char *) name, NULL, &cred);
+	error = VOP_RMDIR(dvp, (char *) name, NULL, &cred, NULL, 0);
 
 	/* Linux uses ENOTEMPTY when trying to remove a non-empty directory */
 	if(error == EEXIST)
@@ -1051,7 +1051,7 @@ static int zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	error = VOP_REMOVE(dvp, (char *) name, &cred);
+	error = VOP_REMOVE(dvp, (char *) name, &cred, NULL, 0);
 
 	VN_RELE(dvp);
 	ZFS_EXIT(zfsvfs);
@@ -1160,7 +1160,7 @@ static int zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 	vnode_t *vp = NULL;
 
 	/* FIXME: check filesystem boundaries */
-	error = VOP_CREATE(dvp, (char *) name, &vattr, EXCL, 0, &vp, &cred, 0);
+	error = VOP_CREATE(dvp, (char *) name, &vattr, EXCL, 0, &vp, &cred, 0, NULL, NULL);
 
 	VN_RELE(dvp);
 
@@ -1234,14 +1234,14 @@ static int zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent, 
 	vattr.va_mode = 0777;
 	vattr.va_mask = AT_TYPE | AT_MODE;
 
-	error = VOP_SYMLINK(dvp, (char *) name, &vattr, (char *) link, &cred);
+	error = VOP_SYMLINK(dvp, (char *) name, &vattr, (char *) link, &cred, NULL, 0);
 
 	vnode_t *vp = NULL;
 
 	if(error)
 		goto out;
 
-	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred);
+	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
 	if(error)
 		goto out;
 
@@ -1325,7 +1325,7 @@ static int zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, f
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	error = VOP_RENAME(p_vp, (char *) name, np_vp, (char *) newname, &cred);
+	error = VOP_RENAME(p_vp, (char *) name, np_vp, (char *) newname, &cred, NULL, 0);
 
 	VN_RELE(p_vp);
 	VN_RELE(np_vp);
@@ -1363,7 +1363,7 @@ static int zfsfuse_fsync(fuse_req_t req, fuse_ino_t ino, int datasync, struct fu
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	int error = VOP_FSYNC(vp, datasync ? FDSYNC : FSYNC, &cred);
+	int error = VOP_FSYNC(vp, datasync ? FDSYNC : FSYNC, &cred, NULL);
 
 	ZFS_EXIT(zfsvfs);
 
@@ -1419,14 +1419,14 @@ static int zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, co
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
 
-	error = VOP_LINK(tdvp, svp, (char *) newname, &cred);
+	error = VOP_LINK(tdvp, svp, (char *) newname, &cred, NULL, 0);
 
 	vnode_t *vp = NULL;
 
 	if(error)
 		goto out;
 
-	error = VOP_LOOKUP(tdvp, (char *) newname, &vp, NULL, 0, NULL, &cred);
+	error = VOP_LOOKUP(tdvp, (char *) newname, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
 	if(error)
 		goto out;
 
@@ -1501,7 +1501,7 @@ static int zfsfuse_access(fuse_req_t req, fuse_ino_t ino, int mask)
 	if(mask & X_OK)
 		mode |= VEXEC;
 
-	error = VOP_ACCESS(vp, mode, 0, &cred);
+	error = VOP_ACCESS(vp, mode, 0, &cred, NULL);
 
 	VN_RELE(vp);
 

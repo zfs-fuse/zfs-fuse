@@ -335,7 +335,7 @@ void releasef(int fd)
 	file_t *node = avl_find(&fd_avl, &f, NULL);
 	VERIFY(node != NULL);
 
-	VOP_CLOSE(node->f_vnode, FREAD | FWRITE, 1, 0, kcred);
+	VOP_CLOSE(node->f_vnode, FREAD | FWRITE, 1, 0, kcred, NULL);
 	VN_RELE(node->f_vnode);
 
 	avl_remove(&fd_avl, node);

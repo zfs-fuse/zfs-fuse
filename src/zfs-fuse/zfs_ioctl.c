@@ -2017,8 +2017,6 @@ zfs_ioc_create(zfs_cmd_t *zc)
 			return (EINVAL);
 		}
 
-	/* ZFSFUSE: TODO Implement ZVOLs */
-#if 0
 		if (type == DMU_OST_ZVOL) {
 			uint64_t volsize, volblocksize;
 
@@ -2041,6 +2039,8 @@ zfs_ioc_create(zfs_cmd_t *zc)
 				volblocksize = zfs_prop_default_numeric(
 				    ZFS_PROP_VOLBLOCKSIZE);
 
+/* ZFSFUSE: TODO Implement ZVOLs */
+#if 0
 			if ((error = zvol_check_volblocksize(
 			    volblocksize)) != 0 ||
 			    (error = zvol_check_volsize(volsize,
@@ -2048,6 +2048,7 @@ zfs_ioc_create(zfs_cmd_t *zc)
 				nvlist_free(nvprops);
 				return (error);
 			}
+#endif
 		} else if (type == DMU_OST_ZFS) {
 			uint64_t version;
 			int error;
@@ -2064,7 +2065,6 @@ zfs_ioc_create(zfs_cmd_t *zc)
 				nvlist_free(nvprops);
 				return (ENOTSUP);
 			}
-#endif
 
 			/*
 			 * We have to have normalization and
@@ -2280,7 +2280,7 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 	*tosnap = '\0';
 	tosnap++;
 
-	if (zc->zc_nvlist_src != NULL &&
+	if (zc->zc_nvlist_src != 0 &&
 	    (error = get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
 	    &props)) != 0)
 		return (error);
@@ -2587,6 +2587,7 @@ zfs_ioc_promote(zfs_cmd_t *zc)
  * the first file system is shared.
  * Neither sharefs, nfs or smbsrv are unloadable modules.
  */
+#if 0
 int (*znfsexport_fs)(void *arg);
 int (*zshare_fs)(enum sharefs_sys_op, share_t *, uint32_t);
 int (*zsmbexport_fs)(void *arg, boolean_t add_share);
@@ -2597,6 +2598,8 @@ int zfs_smbshare_inited;
 ddi_modhandle_t nfs_mod;
 ddi_modhandle_t sharefs_mod;
 ddi_modhandle_t smbsrv_mod;
+#endif
+
 kmutex_t zfs_share_lock;
 
 static int
@@ -2605,6 +2608,9 @@ zfs_init_sharefs()
 	int error;
 
 	ASSERT(MUTEX_HELD(&zfs_share_lock));
+
+/* ZFS-FUSE: not supported */
+#if 0
 	/* Both NFS and SMB shares also require sharetab support. */
 	if (sharefs_mod == NULL && ((sharefs_mod =
 	    ddi_modopen("fs/sharefs",
@@ -2616,12 +2622,16 @@ zfs_init_sharefs()
 	    ddi_modsym(sharefs_mod, "sharefs_impl", &error)) == NULL)) {
 		return (ENOSYS);
 	}
+#endif
 	return (0);
 }
 
 static int
 zfs_ioc_share(zfs_cmd_t *zc)
 {
+	/* ZFS-FUSE: not supported */
+	return ENOTSUP;
+#if 0
 	int error;
 	int opcode;
 
@@ -2711,7 +2721,7 @@ zfs_ioc_share(zfs_cmd_t *zc)
 	    zc->zc_share.z_sharemax);
 
 	return (error);
-
+#endif
 }
 
 /*
@@ -2786,7 +2796,7 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 #endif
 
 	vec = cmd - ZFS_IOC;
-	ASSERT3U(getmajor(dev), ==, ddi_driver_major(zfs_dip));
+	/*ASSERT3U(getmajor(dev), ==, ddi_driver_major(zfs_dip));*/
 
 	if (vec >= sizeof (zfs_ioc_vec) / sizeof (zfs_ioc_vec[0]))
 		return (EINVAL);

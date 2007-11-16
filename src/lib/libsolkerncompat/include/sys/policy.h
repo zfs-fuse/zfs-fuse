@@ -46,6 +46,7 @@ extern long grp_buflen;
 #define secpolicy_zfs(c) (0)
 #define secpolicy_zinject(c) (0)
 #define secpolicy_fs_mount(c,vnode,vfs) (0)
+#define secpolicy_fs_mount_clearopts(cr,vfsp) ((void) 0)
 #define secpolicy_fs_unmount(c,vfs) (0)
 
 /* In Linux, anyone can set sticky bit in their files/directories */
@@ -65,5 +66,6 @@ extern int secpolicy_vnode_setdac(const cred_t *cred, uid_t owner);
 extern int secpolicy_vnode_access(const cred_t *cr, vnode_t *vp, uid_t owner, mode_t mode);
 extern int secpolicy_vnode_create_gid(const cred_t *cred);
 extern int secpolicy_vnode_owner(const cred_t *cr, uid_t owner);
+extern int secpolicy_xvattr(xvattr_t *, uid_t, cred_t *, vtype_t);
 
 #endif

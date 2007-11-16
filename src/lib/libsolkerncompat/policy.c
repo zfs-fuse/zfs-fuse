@@ -217,6 +217,71 @@ int secpolicy_vnode_setid_retain(const cred_t *cred, boolean_t issuidroot)
 	return 0;
 }
 
+#define ATTR_FLAG_PRIV(attr, value, cr) \
+        PRIV_POLICY(cr, value ? PRIV_FILE_FLAG_SET : PRIV_ALL, \
+        B_FALSE, EPERM, NULL)
+
+/*
+ * Check privileges for setting xvattr attributes
+ */
+int
+secpolicy_xvattr(xvattr_t *xvap, uid_t owner, cred_t *cr, vtype_t vtype)
+{
+	xoptattr_t *xoap;
+	int error = 0;
+
+	if ((xoap = xva_getxoptattr(xvap)) == NULL)
+		return (EINVAL);
+
+	/*
+	 * First process the DOS bits
+	 */
+	if (XVA_ISSET_REQ(xvap, XAT_ARCHIVE) ||
+	    XVA_ISSET_REQ(xvap, XAT_HIDDEN) ||
+	    XVA_ISSET_REQ(xvap, XAT_READONLY) ||
+	    XVA_ISSET_REQ(xvap, XAT_SYSTEM) ||
+	    XVA_ISSET_REQ(xvap, XAT_CREATETIME)) {
+		if ((error = secpolicy_vnode_owner(cr, owner)) != 0)
+			return (error);
+	}
+
+	/*
+	 * Now handle special attributes
+	*/
+
+	if (XVA_ISSET_REQ(xvap, XAT_IMMUTABLE))
+		error = ATTR_FLAG_PRIV(XAT_IMMUTABLE,
+		    xoap->xoa_immutable, cr);
+	if (error == 0 && XVA_ISSET_REQ(xvap, XAT_NOUNLINK))
+		error = ATTR_FLAG_PRIV(XAT_NOUNLINK,
+		    xoap->xoa_nounlink, cr);
+	if (error == 0 && XVA_ISSET_REQ(xvap, XAT_APPENDONLY))
+		error = ATTR_FLAG_PRIV(XAT_APPENDONLY,
+		    xoap->xoa_appendonly, cr);
+	if (error == 0 && XVA_ISSET_REQ(xvap, XAT_NODUMP))
+		error = ATTR_FLAG_PRIV(XAT_NODUMP,
+		    xoap->xoa_nodump, cr);
+	if (error == 0 && XVA_ISSET_REQ(xvap, XAT_OPAQUE))
+		error = EPERM;
+	if (error == 0 && XVA_ISSET_REQ(xvap, XAT_AV_QUARANTINED)) {
+		error = ATTR_FLAG_PRIV(XAT_AV_QUARANTINED,
+		    xoap->xoa_av_quarantined, cr);
+		if (error == 0 && vtype != VREG)
+			error = EINVAL;
+	}
+	if (error == 0 && XVA_ISSET_REQ(xvap, XAT_AV_MODIFIED))
+		error = ATTR_FLAG_PRIV(XAT_AV_MODIFIED,
+		    xoap->xoa_av_modified, cr);
+	if (error == 0 && XVA_ISSET_REQ(xvap, XAT_AV_SCANSTAMP)) {
+		error = ATTR_FLAG_PRIV(XAT_AV_SCANSTAMP,
+		    xoap->xoa_av_scanstamp, cr);
+		if (error == 0 && vtype != VREG)
+			error = EINVAL;
+	}
+	return (error);
+}
+
+
 /*
  * This function checks the policy decisions surrounding the
  * vop setattr call.

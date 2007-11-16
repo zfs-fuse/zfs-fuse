@@ -93,6 +93,7 @@ extern int dounmount(struct vfs *, int, cred_t *);
 #define vfs_clearmntopt(vfs,opt) ((void) 0)
 #define vfs_setmntopt(vfs,opt,a,b) ((void) 0)
 #define vfs_optionisset(vfs,opt,a) (0)
+#define vfs_set_feature(vfs,f) ((void) 0)
 
 /*
  * VFS flags.

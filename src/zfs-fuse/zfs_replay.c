@@ -288,7 +288,7 @@ zfs_replay_create_acl(zfsvfs_t *zfsvfs,
 		}
 	}
 
-	if ((error = zfs_zget(zfsvfs, lr->lr_doid, &dzp)) != 0)
+	if ((error = zfs_zget(zfsvfs, lr->lr_doid, &dzp, B_FALSE)) != 0)
 		return (error);
 
 	xva_init(&xva);
@@ -740,7 +740,7 @@ zfs_replay_acl_v0(zfsvfs_t *zfsvfs, lr_acl_v0_t *lr, boolean_t byteswap)
 	znode_t *zp;
 	int error;
 
-	if ((error = zfs_zget(zfsvfs, lr->lr_foid, &zp)) != 0) {
+	if ((error = zfs_zget(zfsvfs, lr->lr_foid, &zp, B_FALSE)) != 0) {
 		/*
 		 * As we can log acls out of order, it's possible the
 		 * file has been removed. In this case just drop the acl

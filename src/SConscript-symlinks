@@ -32,6 +32,7 @@ env.Execute(SymLink('lib/libzfs/fletcher.c', 'lib/libzpool/fletcher.c'))
 
 env.Execute(SymLink('lib/libsolkerncompat/strlcpy.c', 'lib/libsolcompat/strlcpy.c'))
 env.Execute(SymLink('lib/libsolkerncompat/taskq.c', 'lib/libzpool/taskq.c'))
+env.Execute(SymLink('lib/libsolkerncompat/u8_textprep.c', 'lib/libsolcompat/u8_textprep.c'))
 env.Execute(SymLink('lib/libsolkerncompat/i386', 'lib/libsolcompat/i386'))
 env.Execute(SymLink('lib/libsolkerncompat/amd64', 'lib/libsolcompat/amd64'))
 env.Execute(SymLink('lib/libsolkerncompat/sparc64', 'lib/libsolcompat/sparc64'))
