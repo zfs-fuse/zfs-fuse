@@ -1,0 +1,6 @@
+Import('env')
+
+objects = ['avl.c']
+cpppath = Split('./include #lib/libsolcompat/include')
+
+env.StaticLibrary('libavl', objects, CPPPATH = env['CPPPATH'] + cpppath)

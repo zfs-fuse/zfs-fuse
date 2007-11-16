@@ -1376,7 +1376,7 @@ upgrade_set_callback(zfs_handle_t *zhp, void *data)
 			/* can't upgrade */
 			(void) printf(gettext("%s: can not be upgraded; "
 			    "the pool version needs to first be upgraded\nto "
-			    "version %d\n\n"),
+			    "version %llu\n\n"),
 			    zfs_get_name(zhp), SPA_VERSION_FUID);
 			cb->cb_numfailed++;
 			return (0);
@@ -1580,9 +1580,9 @@ print_header(zprop_list_t *pl)
 		if (pl->pl_next == NULL && !right_justify)
 			(void) printf("%s", header);
 		else if (right_justify)
-			(void) printf("%*s", pl->pl_width, header);
+			(void) printf("%*s", (int) pl->pl_width, header);
 		else
-			(void) printf("%-*s", pl->pl_width, header);
+			(void) printf("%-*s", (int) pl->pl_width, header);
 	}
 
 	(void) printf("\n");

@@ -1,0 +1,47 @@
+Import('env')
+
+import os
+from path import path
+
+def symlink(target, source):
+	try:
+		os.lstat(target)
+		return
+	except:
+		pass
+
+	target_dir = path(target).splitpath()[0]
+	source_path = path(source)
+
+	relpath = target_dir.relpathto(source_path)
+
+	os.symlink(relpath, target)
+
+import SCons
+from SCons.Script.SConscript import SConsEnvironment
+SymLink = SCons.Action.ActionFactory(symlink, lambda dest, src: '')
+
+env.Execute(SymLink('cmd/zdb/ptrace.c', 'zfs-fuse/ptrace.c'))
+env.Execute(SymLink('cmd/zfs/ptrace.c', 'zfs-fuse/ptrace.c'))
+env.Execute(SymLink('cmd/zpool/ptrace.c', 'zfs-fuse/ptrace.c'))
+env.Execute(SymLink('cmd/zdb/trace-parse.py', 'zfs-fuse/trace-parse.py'))
+env.Execute(SymLink('cmd/zfs/trace-parse.py', 'zfs-fuse/trace-parse.py'))
+env.Execute(SymLink('cmd/zpool/trace-parse.py', 'zfs-fuse/trace-parse.py'))
+
+env.Execute(SymLink('lib/libzfs/fletcher.c', 'lib/libzpool/fletcher.c'))
+
+env.Execute(SymLink('lib/libsolkerncompat/strlcpy.c', 'lib/libsolcompat/strlcpy.c'))
+env.Execute(SymLink('lib/libsolkerncompat/taskq.c', 'lib/libzpool/taskq.c'))
+env.Execute(SymLink('lib/libsolkerncompat/i386', 'lib/libsolcompat/i386'))
+env.Execute(SymLink('lib/libsolkerncompat/amd64', 'lib/libsolcompat/amd64'))
+env.Execute(SymLink('lib/libsolkerncompat/sparc64', 'lib/libsolcompat/sparc64'))
+
+files = Split('ia32 i386 amd64 sparc64 stdarg.h string.h ucred.h sys/acl.h sys/acl_impl.h sys/byteorder.h sys/dkio.h sys/dklabel.h sys/feature_tests.h sys/file.h sys/idmap.h sys/inttypes.h sys/int_limits.h sys/int_types.h sys/isa_defs.h sys/kstat.h sys/modctl.h sys/note.h sys/proc.h sys/rctl.h sys/sunddi.h sys/sysmacros.h sys/types.h sys/types32.h sys/u8_textprep.h sys/utsname.h sys/va_list.h sys/vmem.h sys/zmod.h sys/sysevent rpc/xdr.h')
+
+for file in files:
+	env.Execute(SymLink('lib/libsolkerncompat/include/' + file, 'lib/libsolcompat/include/' + file))
+
+env.Execute(SymLink('lib/libsolkerncompat/include/sys/atomic.h', 'lib/libsolcompat/include/atomic.h'))
+env.Execute(SymLink('lib/libsolkerncompat/include/sys/file_aux.h', 'lib/libsolcompat/include/sys/file.h'))
+env.Execute(SymLink('lib/libsolkerncompat/include/sys/param_aux.h', 'lib/libsolcompat/include/sys/param.h'))
+env.Execute(SymLink('lib/libsolkerncompat/include/sys/time_aux.h', 'lib/libsolcompat/include/sys/time.h'))
