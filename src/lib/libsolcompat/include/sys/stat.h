@@ -44,7 +44,7 @@ static inline int zfsfuse_fstat64(int fd, struct stat64 *buf)
 
 	if(S_ISBLK(buf->st_mode)) {
 		/* LINUX */
-		size_t size;
+		uint64_t size;
 		if(real_ioctl(fd, BLKGETSIZE64, &size) != 0) {
 			fprintf(stderr, "failed to read device size: %s\n", strerror(errno));
 			return 0;
