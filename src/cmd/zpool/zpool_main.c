@@ -2983,6 +2983,11 @@ status_callback(zpool_handle_t *zhp, void *data)
 		    "to be recovered.\n"));
 		break;
 
+	case ZPOOL_STATUS_HOSTID_MISMATCH:
+		(void) printf(gettext("status: The pool was last accessed by "
+		    "another system.\n"));
+		break;
+
 	default:
 		/*
 		 * The remaining errors can't actually be generated, yet.
