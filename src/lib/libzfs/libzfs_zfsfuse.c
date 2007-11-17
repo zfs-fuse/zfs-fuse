@@ -156,6 +156,24 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 				if(write(fd, (void *)(uintptr_t) cmd.cmd_u.copy_req.ptr, cmd.cmd_u.copy_req.size) != cmd.cmd_u.copy_req.size)
 					return -1;
 				break;
+			case COPYINSTR_REQ: ;
+				zfsfuse_cmd_t ans = { 0 };
+				ans.cmd_type = COPYINSTR_ANS;
+
+				size_t length = strlen((char *)(uintptr_t) cmd.cmd_u.copy_req.ptr);
+				if(length >= cmd.cmd_u.copy_req.size) {
+					ans.cmd_u.copy_ans.ret = ENAMETOOLONG;
+					ans.cmd_u.copy_ans.lencopied = cmd.cmd_u.copy_req.size - 1;
+				} else
+					ans.cmd_u.copy_ans.lencopied = length;
+
+				if(write(fd, &ans, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t))
+					return -1;
+
+				if(write(fd, (void *)(uintptr_t) cmd.cmd_u.copy_req.ptr, ans.cmd_u.copy_ans.lencopied) != ans.cmd_u.copy_ans.lencopied)
+					return -1;
+
+				break;
 			case COPYOUT_REQ:
 				if(zfsfuse_ioctl_read_loop(fd, (void *)(uintptr_t) cmd.cmd_u.copy_req.ptr, cmd.cmd_u.copy_req.size) != 0)
 					return -1;

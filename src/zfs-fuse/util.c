@@ -141,7 +141,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	VFS_INIT(vfs, zfs_vfsops, 0);
 	VFS_HOLD(vfs);
 
-	struct mounta uap = {spec, dir, mflag, NULL, opt, strlen(opt)};
+	struct mounta uap = {spec, dir, mflag | MS_SYSSPACE, NULL, opt, strlen(opt)};
 
 	int ret;
 	if ((ret = VFS_MOUNT(vfs, rootdir, &uap, kcred)) != 0) {

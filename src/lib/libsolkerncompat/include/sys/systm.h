@@ -64,7 +64,7 @@ static inline int copystr(const char *from, char *to, size_t maxlength, size_t *
 
 	size_t length = strlen(from);
 	if(length >= maxlength) {
-		strncpy(to, from, maxlength - 1);
+		memcpy(to, from, maxlength - 1);
 		to[maxlength - 1] = '\0';
 		if(lencopied != NULL)
 			*lencopied = maxlength;
@@ -77,14 +77,15 @@ static inline int copystr(const char *from, char *to, size_t maxlength, size_t *
 	return 0;
 }
 
-#define copyinstr(from,to,max,len) copystr(from,to,max,len)
 
 /*
  * These must be implemented in the program itself.
- * For zfs-fuse, take a look at zfs-fuse/zfsfuse_ioctl.c
+ * For zfs-fuse, take a look at zfs-fuse/zfsfuse_socket.c
  */
 extern int xcopyin(const void *src, void *dest, size_t size);
 extern int xcopyout(const void *src, void *dest, size_t size);
+extern int copyinstr(const char *from, char *to, size_t max, size_t *len);
+
 #define copyout(kaddr, uaddr, count) xcopyout(kaddr, uaddr, count)
 
 #endif

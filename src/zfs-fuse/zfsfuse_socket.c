@@ -212,6 +212,49 @@ int xcopyin(const void *src, void *dest, size_t size)
 	return 0;
 }
 
+int copyinstr(const char *from, char *to, size_t max, size_t *len)
+{
+	if(max == 0)
+		return ENAMETOOLONG;
+	if(max < 0)
+		return EFAULT;
+
+#ifdef DEBUG
+	/* Clear valgrind's uninitialized byte(s) warning */
+	zfsfuse_cmd_t cmd = { 0 };
+#else
+	zfsfuse_cmd_t cmd;
+#endif
+
+	/* This should catch stray copyinstr()s in the code.. */
+	VERIFY(cur_fd >= 0);
+
+	cmd.cmd_type = COPYINSTR_REQ;
+	cmd.cmd_u.copy_req.ptr = (uint64_t)(uintptr_t) from;
+	cmd.cmd_u.copy_req.size = max;
+
+	if(write(cur_fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t))
+		return EFAULT;
+
+	if(zfsfuse_socket_read_loop(cur_fd, &cmd, sizeof(zfsfuse_cmd_t)) != 0)
+		return EFAULT;
+
+	VERIFY(cmd.cmd_type = COPYINSTR_ANS);
+
+	uint64_t lencpy = cmd.cmd_u.copy_ans.lencopied;
+
+	if(lencpy > 0)
+		if(zfsfuse_socket_read_loop(cur_fd, to, lencpy) != 0)
+			return EFAULT;
+
+	to[lencpy] = '\0';
+
+	if(len != NULL)
+		*len = lencpy + 1;
+
+	return cmd.cmd_u.copy_ans.ret;
+}
+
 int xcopyout(const void *src, void *dest, size_t size)
 {
 #ifdef DEBUG

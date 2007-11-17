@@ -56,10 +56,13 @@ extern "C" {
 /*
  * zfs-fuse socket messages
  */
+
+enum {
+	IOCTL_REQ, IOCTL_ANS, COPYIN_REQ, COPYINSTR_REQ, COPYINSTR_ANS, COPYOUT_REQ, MOUNT_REQ, GETF_REQ
+};
+
 typedef struct {
-	enum {
-		IOCTL_REQ, IOCTL_ANS, COPYIN_REQ, COPYOUT_REQ, MOUNT_REQ, GETF_REQ
-	} cmd_type;
+	int32_t cmd_type;
 	union {
 		struct ioctl_req {
 			int32_t cmd;
@@ -73,6 +76,11 @@ typedef struct {
 			uint64_t size;
 		} copy_req;
 
+		struct copy_ans {
+			int32_t ret;
+			uint64_t lencopied;
+		} copy_ans;
+
 		struct mount_req {
 			uint32_t speclen;
 			uint32_t dirlen;
@@ -81,8 +89,8 @@ typedef struct {
 		} mount_req;
 
 		int32_t getf_req_fd;
-	} cmd_u;
-} zfsfuse_cmd_t;
+	} cmd_u __attribute__ ((aligned(8)));
+} zfsfuse_cmd_t __attribute__ ((aligned(8)));
 
 /*
  * zfs ioctl command structure
