@@ -133,6 +133,7 @@ zfs_iscsi_init(void) __attribute__((constructor));
 static void
 zfs_iscsi_init(void)
 {
+#if 0
 	void *libiscsitgt;
 
 	if ((libiscsitgt = dlopen("/lib/libiscsitgt.so.1",
@@ -150,6 +151,7 @@ zfs_iscsi_init(void)
 		iscsitgt_zfs_is_shared = NULL;
 		iscsitgt_svc_online = NULL;
 	}
+#endif
 }
 
 /*
