@@ -24,12 +24,18 @@
  * Use is subject to license terms.
  */
 
-#ifndef _SOL_UNISTD_H
-#define _SOL_UNISTD_H
+#ifndef _SOL_UNISTD_AUX_H
+#define _SOL_UNISTD_AUX_H
 
-#include_next <unistd.h>
-#include <unistd_aux.h>
+#include <unistd.h>
 
-#include <sys/ioctl.h>
+/* It seems Solaris only returns positive host ids */
+static inline long fake_gethostid()
+{
+	long id = gethostid();
+	return id >= 0 ? id : -id;
+}
+
+#define gethostid() fake_gethostid()
 
 #endif

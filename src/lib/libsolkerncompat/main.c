@@ -55,7 +55,7 @@ void libsolkerncompat_init()
 	grp_buflen = sysconf(_SC_GETGR_R_SIZE_MAX);
 
 	uname(&utsname);
-	snprintf(hw_serial, sizeof(hw_serial), "%lu", (ulong_t) gethostid());
+	snprintf(hw_serial, sizeof(hw_serial), "%ld", gethostid());
 
 	VERIFY(ncpus > 0 && physmem > 0);
 

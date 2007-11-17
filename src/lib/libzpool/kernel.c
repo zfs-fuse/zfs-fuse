@@ -817,7 +817,7 @@ kernel_init(int mode)
 	    (double)physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 
 	uname(&utsname);
-	snprintf(hw_serial, sizeof (hw_serial), "%lu", (ulong_t) gethostid());
+	snprintf(hw_serial, sizeof (hw_serial), "%ld", gethostid());
 
 	spa_init(mode);
 }
