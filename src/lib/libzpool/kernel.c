@@ -816,7 +816,8 @@ kernel_init(int mode)
 	dprintf("physmem = %llu pages (%.2f GB)\n", physmem,
 	    (double)physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 
-	snprintf(hw_serial, sizeof (hw_serial), "%ld", gethostid());
+	uname(&utsname);
+	snprintf(hw_serial, sizeof (hw_serial), "%lu", (ulong_t) gethostid());
 
 	spa_init(mode);
 }
