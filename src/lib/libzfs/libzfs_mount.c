@@ -716,6 +716,9 @@ zfs_sa_disable_share(sa_share_t share, char *proto)
 static int
 zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 {
+	/* ZFSFUSE: not implemented */
+	return 0;
+#if 0
 	char mountpoint[ZFS_MAXPROPLEN];
 	char shareopts[ZFS_MAXPROPLEN];
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
@@ -773,6 +776,7 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 
 	}
 	return (0);
+#endif
 }
 
 

@@ -51,8 +51,6 @@ typedef struct cred cred_t;
 
 #ifdef _KERNEL
 
-#define	CRED()		NULL
-
 struct proc;				/* cred.h is included in proc.h */
 struct prcred;
 struct ksid;
@@ -65,6 +63,8 @@ extern int ngroups_max;
  * kcred is used when you need all privileges.
  */
 extern struct cred *kcred;
+
+#define	CRED()		kcred
 
 extern void cred_init(void);
 extern void crhold(cred_t *);
