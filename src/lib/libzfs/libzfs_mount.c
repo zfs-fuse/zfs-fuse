@@ -569,6 +569,7 @@ static void _zfs_init_libshare(void) __attribute__((constructor));
 static void
 _zfs_init_libshare(void)
 {
+#if 0
 	void *libshare;
 	char path[MAXPATHLEN];
 	char isa[MAXISALEN];
@@ -607,6 +608,7 @@ _zfs_init_libshare(void)
 			(void) dlclose(libshare);
 		}
 	}
+#endif
 }
 
 /*
