@@ -1387,7 +1387,7 @@ upgrade_set_callback(zfs_handle_t *zhp, void *data)
 	if (version < cb->cb_version) {
 		char verstr[16];
 		(void) snprintf(verstr, sizeof (verstr),
-		    "%llu", cb->cb_version);
+		    "%llu", (u_longlong_t) cb->cb_version);
 		if (cb->cb_lastfs[0] && !same_pool(zhp, cb->cb_lastfs)) {
 			/*
 			 * If they did "zfs upgrade -a", then we could

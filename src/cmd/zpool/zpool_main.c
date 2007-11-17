@@ -1948,9 +1948,9 @@ print_header(zprop_list_t *pl)
 		if (pl->pl_next == NULL && !right_justify)
 			(void) printf("%s", header);
 		else if (right_justify)
-			(void) printf("%*s", pl->pl_width, header);
+			(void) printf("%*s", (int) pl->pl_width, header);
 		else
-			(void) printf("%-*s", pl->pl_width, header);
+			(void) printf("%-*s", (int) pl->pl_width, header);
 	}
 
 	(void) printf("\n");
@@ -3447,7 +3447,7 @@ get_history_one(zpool_handle_t *zhp, void *data)
 			(void) snprintf(internalstr,
 			    sizeof (internalstr),
 			    "[internal %s txg:%lld] %s",
-			    hist_event_table[ievent], txg,
+			    hist_event_table[ievent], (longlong_t) txg,
 			    pathstr);
 			cmdstr = internalstr;
 		}

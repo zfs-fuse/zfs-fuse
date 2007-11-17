@@ -242,7 +242,7 @@ zpool_get_prop(zpool_handle_t *zhp, zpool_prop_t prop, char *buf, size_t len,
 			    vs->vs_aux), len);
 			break;
 		default:
-			(void) snprintf(buf, len, "%llu", intval);
+			(void) snprintf(buf, len, "%llu", (u_longlong_t) intval);
 		}
 		break;
 
