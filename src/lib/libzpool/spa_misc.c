@@ -184,7 +184,11 @@ int spa_mode;
 
 #ifdef ZFS_DEBUG
 /* Everything except dprintf is on by default in debug builds */
+#ifdef _KERNEL
 int zfs_flags = ~ZFS_DEBUG_DPRINTF;
+#else
+int zfs_flags = ~0;
+#endif
 #else
 int zfs_flags = 0;
 #endif

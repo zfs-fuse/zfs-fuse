@@ -1746,7 +1746,7 @@ zio_vdev_io_start(zio_t *zio)
 		zio->io_offset += VDEV_LABEL_START_SIZE;
 	}
 
-	if (P2PHASE(zio->io_size, align) != 0 || P2PHASE((uintptr_t) zio->io_data, align) != 0) {
+	if (P2PHASE(zio->io_size, align) != 0) {
 		uint64_t asize = P2ROUNDUP(zio->io_size, align);
 		char *abuf = zio_buf_alloc(asize);
 		ASSERT(vd == tvd);
@@ -1759,7 +1759,6 @@ zio_vdev_io_start(zio_t *zio)
 		zio->io_flags |= ZIO_FLAG_SUBBLOCK;
 	}
 
-	ASSERT(P2PHASE((uintptr_t) zio->io_data, align) == 0);
 	ASSERT(P2PHASE(zio->io_offset, align) == 0);
 	ASSERT(P2PHASE(zio->io_size, align) == 0);
 	ASSERT(bp == NULL ||

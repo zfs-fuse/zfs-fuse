@@ -61,7 +61,7 @@ vdev_file_open_common(vdev_t *vd)
 	 */
 	ASSERT(vd->vdev_path != NULL && vd->vdev_path[0] == '/');
 	error = vn_openat(vd->vdev_path + 1, UIO_SYSSPACE,
-	    spa_mode | FOFFMAX | O_DIRECT, 0, &vp, 0, 0, rootdir, -1);
+	    spa_mode | FOFFMAX, 0, &vp, 0, 0, rootdir, -1);
 
 	if (error) {
 		dprintf("vn_openat() returned error %i\n", error);

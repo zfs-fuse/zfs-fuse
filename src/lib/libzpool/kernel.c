@@ -463,7 +463,7 @@ vn_rdwr(int uio, vnode_t *vp, void *addr, ssize_t len, offset_t offset,
 		    len - split, offset + split);
 	}
 
-	if (iolen == -1)
+	if (iolen < 0)
 		return (errno);
 	if (residp)
 		*residp = len - iolen;
