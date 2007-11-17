@@ -175,7 +175,7 @@ extern int crsetpriv(cred_t *, ...);
 #endif
 
 #define crgetsidlist(c)    (abort(), NULL)
-#define crgetsid(c,i)      (abort(), NULL)
+#define crgetsid(c,i)      (NULL)
 
 #endif	/* _KERNEL */
 
