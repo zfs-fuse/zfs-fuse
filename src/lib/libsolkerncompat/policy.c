@@ -53,6 +53,16 @@ gid_t crgetgid(const cred_t *cr)
 	return cr->cr_gid;
 }
 
+int crgetngroups(const cred_t *cr)
+{
+	return 0;
+}
+
+const gid_t *crgetgroups(const cred_t *cr)
+{
+	return NULL;
+}
+
 int groupmember(gid_t gid, const cred_t *cr)
 {
 	if(gid == cr->cr_gid)

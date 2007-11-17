@@ -35,6 +35,8 @@
 
 #include "vfs.h"
 
+char hw_serial[11];
+
 int ncpus;
 uint64_t physmem;
 unsigned long _pagesize;
@@ -50,6 +52,8 @@ void libsolkerncompat_init()
 	_pageshift = ffs(_pagesize) - 1;
 	pwd_buflen = sysconf(_SC_GETPW_R_SIZE_MAX);
 	grp_buflen = sysconf(_SC_GETGR_R_SIZE_MAX);
+
+	snprintf(hw_serial, sizeof(hw_serial), "%ld", gethostid());
 
 	VERIFY(ncpus > 0 && physmem > 0);
 

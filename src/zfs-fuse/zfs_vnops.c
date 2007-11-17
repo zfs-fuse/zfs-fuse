@@ -176,12 +176,15 @@ zfs_open(vnode_t **vpp, int flag, cred_t *cr, caller_context_t *ct)
 		return (EPERM);
 	}
 
+	/* ZFS-FUSE: virus scan not implemented.. */
+#if 0
 	if (!zfs_has_ctldir(zp) && zp->z_zfsvfs->z_vscan &&
 	    ZTOV(zp)->v_type == VREG &&
 	    !(zp->z_phys->zp_flags & ZFS_AV_QUARANTINED) &&
 	    zp->z_phys->zp_size > 0)
 		if (fs_vscan(*vpp, cr, 0) != 0)
 			return (EACCES);
+#endif
 
 	/* Keep a count of the synchronous opens in the znode */
 	if (flag & (FSYNC | FDSYNC))
@@ -207,11 +210,14 @@ zfs_close(vnode_t *vp, int flag, int count, offset_t offset, cred_t *cr,
 	cleanlocks(vp, ddi_get_pid(), 0);
 	cleanshares(vp, ddi_get_pid());
 
+	/* ZFS-FUSE: virus scan not implemented.. */
+#if 0
 	if (!zfs_has_ctldir(zp) && zp->z_zfsvfs->z_vscan &&
 	    ZTOV(zp)->v_type == VREG &&
 	    !(zp->z_phys->zp_flags & ZFS_AV_QUARANTINED) &&
 	    zp->z_phys->zp_size > 0)
 		VERIFY(fs_vscan(vp, cr, 1) == 0);
+#endif
 
 	return (0);
 }
