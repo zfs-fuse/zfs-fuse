@@ -28,6 +28,7 @@
 #include <sys/debug.h>
 #include <sys/policy.h>
 #include <sys/kmem.h>
+#include <sys/utsname.h>
 
 #include <stdio.h>
 #include <unistd.h>
@@ -53,11 +54,14 @@ void libsolkerncompat_init()
 	pwd_buflen = sysconf(_SC_GETPW_R_SIZE_MAX);
 	grp_buflen = sysconf(_SC_GETGR_R_SIZE_MAX);
 
+	uname(&utsname);
 	snprintf(hw_serial, sizeof(hw_serial), "%ld", gethostid());
 
 	VERIFY(ncpus > 0 && physmem > 0);
 
 #ifdef DEBUG
+	printf("hostname = %s\n", utsname.nodename);
+	printf("hw_serial = %s\n", hw_serial);
 	printf("ncpus = %i\n", ncpus);
 	printf("physmem = %llu pages (%.2f GB)\n", (unsigned long long) physmem, (double) physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 	printf("pagesize = %li, pageshift: %i\n", _pagesize, _pageshift);
