@@ -454,7 +454,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 		old_umask = umask(0);
 
 	if (S_ISBLK(st.st_mode))
-		flags |= O_EXCL;
+		flags |= O_EXCL | O_DIRECT;
 
 	/*
 	 * The construct 'flags - FREAD' conveniently maps combinations of
@@ -1235,7 +1235,9 @@ root_close(vnode_t *vp, int flag, int count, offset_t offset, cred_t *cr)
 static int
 root_read(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *ct)
 {
-	VERIFY(vp->v_fd != -1);
+	ASSERT(vp->v_fd != -1);
+	ASSERT(vp->v_type != VBLK || IS_P2ALIGNED(uiop->uio_loffset, 512));
+	ASSERT(vp->v_type != VBLK || IS_P2ALIGNED(uiop->uio_iov->iov_len, 512));
 
 	int error = 0;
 
@@ -1259,7 +1261,9 @@ root_read(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *ct
 static int
 root_write(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *ct)
 {
-	VERIFY(vp->v_fd != -1);
+	ASSERT(vp->v_fd != -1);
+	ASSERT(vp->v_type != VBLK || IS_P2ALIGNED(uiop->uio_loffset, 512));
+	ASSERT(vp->v_type != VBLK || IS_P2ALIGNED(uiop->uio_iov->iov_len, 512));
 
 	int error = 0;
 
