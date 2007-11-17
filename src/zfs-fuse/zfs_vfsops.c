@@ -63,6 +63,8 @@
 #include <sys/dnlc.h>
 #include <sys/dmu_objset.h>
 
+#include "util.h"
+
 int zfsfstype;
 vfsops_t *zfs_vfsops = NULL;
 /* ZFSFUSE: not needed */
@@ -1419,8 +1421,10 @@ zfs_umount(vfs_t *vfsp, int fflag, cred_t *cr)
 	/*
 	 * We can now safely destroy the '.zfs' directory node.
 	 */
+#if 0
 	if (zfsvfs->z_ctldir != NULL)
 		zfsctl_destroy(zfsvfs);
+#endif
 
 	return (0);
 }
@@ -1579,7 +1583,7 @@ zfs_resume_fs(zfsvfs_t *zfsvfs, const char *osname, int mode)
 		 * unmount this file system.
 		 */
 		if (vn_vfswlock(zfsvfs->z_vfs->vfs_vnodecovered) == 0)
-			(void) dounmount(zfsvfs->z_vfs, MS_FORCE, CRED());
+			(void) do_umount(zfsvfs->z_vfs, MS_FORCE);
 	}
 	return (err);
 }

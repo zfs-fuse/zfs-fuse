@@ -28,13 +28,21 @@
 #define _SOL_PROC_H
 
 #include <sys/rctl.h>
+#include <pthread.h>
 
 #define issig(why) (FALSE)
 
+#if 0
 extern void tsd_create(uint_t *, void (*)(void *));
 extern void tsd_destroy(uint_t *);
 extern void *tsd_get(uint_t);
 extern int tsd_set(uint_t, void *);
+#endif
+
+#define tsd_create(kp,df) VERIFY(pthread_key_create((pthread_key_t *) (kp), (df)) == 0)
+#define tsd_destroy(kp)   VERIFY(pthread_key_delete((pthread_key_t) *(kp)) == 0)
+#define tsd_get(k)        pthread_getspecific((pthread_key_t) (k))
+#define tsd_set(k,dp)     pthread_setspecific((pthread_key_t) (k), (dp))
 
 #endif
 

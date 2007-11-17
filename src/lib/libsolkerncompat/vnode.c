@@ -1342,3 +1342,33 @@ const fs_operation_def_t fd_fvnodeops_template[] = {
 	VOPNAME_CLOSE, root_close,
 	NULL, NULL
 };
+
+/* Extensible attribute (xva) routines. */
+
+/*
+ * Zero out the structure, set the size of the requested/returned bitmaps,
+ * set AT_XVATTR in the embedded vattr_t's va_mask, and set up the pointer
+ * to the returned attributes array.
+ */
+void
+xva_init(xvattr_t *xvap)
+{
+	bzero(xvap, sizeof (xvattr_t));
+	xvap->xva_mapsize = XVA_MAPSIZE;
+	xvap->xva_magic = XVA_MAGIC;
+	xvap->xva_vattr.va_mask = AT_XVATTR;
+	xvap->xva_rtnattrmapp = &(xvap->xva_rtnattrmap)[0];
+}
+
+/*
+ * If AT_XVATTR is set, returns a pointer to the embedded xoptattr_t
+ * structure.  Otherwise, returns NULL.
+ */
+xoptattr_t *
+xva_getxoptattr(xvattr_t *xvap)
+{
+	xoptattr_t *xoap = NULL;
+	if (xvap->xva_vattr.va_mask & AT_XVATTR)
+		xoap = &xvap->xva_xoptattrs;
+	return (xoap);
+}

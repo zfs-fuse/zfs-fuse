@@ -349,6 +349,9 @@ zfs_secpolicy_send(zfs_cmd_t *zc, cred_t *cr)
 int
 zfs_secpolicy_share(zfs_cmd_t *zc, cred_t *cr)
 {
+	/* ZFS-FUSE: not supported */
+	return ENOTSUP;
+#if 0
 	if (!INGLOBALZONE(curproc))
 		return (EPERM);
 
@@ -375,6 +378,7 @@ zfs_secpolicy_share(zfs_cmd_t *zc, cred_t *cr)
 		return (dsl_deleg_access(zc->zc_name,
 		    ZFS_DELEG_PERM_SHARE, cr));
 	}
+#endif
 }
 
 static int
@@ -1580,6 +1584,9 @@ zfs_ioc_pool_get_props(zfs_cmd_t *zc)
 static int
 zfs_ioc_iscsi_perm_check(zfs_cmd_t *zc)
 {
+	/* ZFS-FUSE: not supported */
+	return ENOTSUP;
+#if 0
 	nvlist_t *nvp;
 	int error;
 	uint32_t uid;
@@ -1622,6 +1629,7 @@ zfs_ioc_iscsi_perm_check(zfs_cmd_t *zc)
 	    zfs_prop_to_name(ZFS_PROP_SHAREISCSI), usercred);
 	crfree(usercred);
 	return (error);
+#endif
 }
 
 /*

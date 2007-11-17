@@ -161,6 +161,7 @@ extern boolean_t crisremote(const cred_t *);
 extern boolean_t valid_ephemeral_uid(uid_t);
 extern boolean_t valid_ephemeral_gid(gid_t);
 
+#if 0
 extern int eph_uid_alloc(int, uid_t *, int);
 extern int eph_gid_alloc(int, gid_t *, int);
 
@@ -171,6 +172,10 @@ extern struct ksid *crgetsid(const cred_t *, int);
 extern struct ksidlist *crgetsidlist(const cred_t *);
 
 extern int crsetpriv(cred_t *, ...);
+#endif
+
+#define crgetsidlist(c)    (abort(), NULL)
+#define crgetsid(c,i)      (abort(), NULL)
 
 #endif	/* _KERNEL */
 
