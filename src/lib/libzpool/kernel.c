@@ -394,7 +394,7 @@ vn_open(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2, int x3)
 		old_umask = umask(0);
 
 	if (S_ISBLK(st.st_mode))
-		flags |= O_EXCL;
+		flags |= O_EXCL | O_DIRECT;
 
 	/*
 	 * The construct 'flags - FREAD' conveniently maps combinations of
