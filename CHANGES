@@ -13,6 +13,7 @@ Features:
 Enhancements:
 	* Open block devices with O_EXCL.
 Bug fixes:
+	* Fix possible corruption problem on 32-bit machines.
 	* Fix crash when using 'zpool status -v' to list errors.
 	* Allow suid files and device nodes to be stored on zfs (Cameron Patrick).
 	* Fix segfault when trying to run as non-root (Ming Zhang).
