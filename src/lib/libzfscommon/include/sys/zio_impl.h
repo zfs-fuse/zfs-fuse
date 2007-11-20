@@ -83,7 +83,7 @@ typedef enum zio_stage {
  */
 #define	ZIO_ASYNC_PIPELINE_STAGES				\
 	((1U << ZIO_STAGE_CHECKSUM_GENERATE) |			\
-	(1U << ZIO_STAGE_VDEV_IO_DONE) |			\
+	(1U << ZIO_STAGE_VDEV_IO_START) |			\
 	(1U << ZIO_STAGE_CHECKSUM_VERIFY) |			\
 	(1U << ZIO_STAGE_READ_DECOMPRESS))
 
