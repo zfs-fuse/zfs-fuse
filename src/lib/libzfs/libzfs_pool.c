@@ -1375,7 +1375,7 @@ zpool_vdev_fault(zpool_handle_t *zhp, uint64_t guid)
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 
 	(void) snprintf(msg, sizeof (msg),
-	    dgettext(TEXT_DOMAIN, "cannot fault %llu"), guid);
+	    dgettext(TEXT_DOMAIN, "cannot fault %llu"), (u_longlong_t) guid);
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	zc.zc_guid = guid;
@@ -1409,7 +1409,7 @@ zpool_vdev_degrade(zpool_handle_t *zhp, uint64_t guid)
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 
 	(void) snprintf(msg, sizeof (msg),
-	    dgettext(TEXT_DOMAIN, "cannot degrade %llu"), guid);
+	    dgettext(TEXT_DOMAIN, "cannot degrade %llu"), (u_longlong_t) guid);
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	zc.zc_guid = guid;
@@ -1739,7 +1739,7 @@ zpool_vdev_clear(zpool_handle_t *zhp, uint64_t guid)
 
 	(void) snprintf(msg, sizeof (msg),
 	    dgettext(TEXT_DOMAIN, "cannot clear errors for %llx"),
-	    guid);
+	    (longlong_t) guid);
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	zc.zc_guid = guid;

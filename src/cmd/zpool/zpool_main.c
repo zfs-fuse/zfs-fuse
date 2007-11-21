@@ -3200,7 +3200,7 @@ upgrade_one(zpool_handle_t *zhp, void *data)
 	if (cur_version >= cbp->cb_version) {
 		(void) printf(gettext("Pool '%s' is already formatted "
 		    "using more current version '%llu'.\n"), zpool_get_name(zhp),
-		    cur_version);
+		    (u_longlong_t) cur_version);
 		return (0);
 	}
 

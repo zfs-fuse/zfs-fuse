@@ -1492,11 +1492,11 @@ zfs_do_upgrade(int argc, char **argv)
 		ret = zfs_for_each(argc, argv, recurse, ZFS_TYPE_FILESYSTEM,
 		    NULL, NULL, upgrade_set_callback, &cb, B_TRUE);
 		(void) printf(gettext("%llu filesystems upgraded\n"),
-		    cb.cb_numupgraded);
+		    (u_longlong_t) cb.cb_numupgraded);
 		if (cb.cb_numsamegraded) {
 			(void) printf(gettext("%llu filesystems already at "
 			    "this version\n"),
-			    cb.cb_numsamegraded);
+			    (u_longlong_t) cb.cb_numsamegraded);
 		}
 		if (cb.cb_numfailed != 0)
 			ret = 1;
