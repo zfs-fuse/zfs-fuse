@@ -24,6 +24,7 @@
  */
 
 #include <zlib.h>
+#include <sys/types.h>
 
 int
 z_uncompress(void *dst, size_t *dstlen, const void *src, size_t srclen)
