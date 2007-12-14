@@ -44,6 +44,7 @@
 #include <sys/spa.h>
 #include <sys/dmu.h>
 #include <sys/zfs_context.h>
+#include <sys/zfs_znode.h>
 #include <sys/zap.h>
 #include <sys/refcount.h>
 #include <sys/zap_impl.h>
@@ -119,7 +120,7 @@ fzap_upgrade(zap_t *zap, dmu_tx_t *tx)
 	l->l_dbuf = db;
 	l->l_phys = db->db_data;
 
-	zap_leaf_init(l, spa_version(dmu_objset_spa(zap->zap_objset)));
+	zap_leaf_init(l, zp->zap_normflags != 0);
 
 	kmem_free(l, sizeof (zap_leaf_t));
 	dmu_buf_rele(db, FTAG);
@@ -399,7 +400,7 @@ zap_create_leaf(zap_t *zap, dmu_tx_t *tx)
 	ASSERT(winner == NULL);
 	dmu_buf_will_dirty(l->l_dbuf, tx);
 
-	zap_leaf_init(l, spa_version(dmu_objset_spa(zap->zap_objset)));
+	zap_leaf_init(l, zap->zap_normflags != 0);
 
 	zap->zap_f.zap_phys->zap_num_leafs++;
 
@@ -580,9 +581,10 @@ zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt, zap_leaf_t **lp)
 }
 
 static int
-zap_expand_leaf(zap_t *zap, zap_leaf_t *l, uint64_t hash, dmu_tx_t *tx,
-    zap_leaf_t **lp)
+zap_expand_leaf(zap_name_t *zn, zap_leaf_t *l, dmu_tx_t *tx, zap_leaf_t **lp)
 {
+	zap_t *zap = zn->zn_zap;
+	uint64_t hash = zn->zn_hash;
 	zap_leaf_t *nl;
 	int prefix_diff, i, err;
 	uint64_t sibling;
@@ -602,7 +604,9 @@ zap_expand_leaf(zap_t *zap, zap_leaf_t *l, uint64_t hash, dmu_tx_t *tx,
 
 		zap_put_leaf(l);
 		zap_unlockdir(zap);
-		err = zap_lockdir(os, object, tx, RW_WRITER, FALSE, &zap);
+		err = zap_lockdir(os, object, tx, RW_WRITER,
+		    FALSE, FALSE, &zn->zn_zap);
+		zap = zn->zn_zap;
 		if (err)
 			return (err);
 		ASSERT(!zap->zap_ismicro);
@@ -643,7 +647,7 @@ zap_expand_leaf(zap_t *zap, zap_leaf_t *l, uint64_t hash, dmu_tx_t *tx,
 	}
 
 	nl = zap_create_leaf(zap, tx);
-	zap_leaf_split(l, nl, spa_version(dmu_objset_spa(zap->zap_objset)));
+	zap_leaf_split(l, nl, zap->zap_normflags != 0);
 
 	/* set sibling pointers */
 	for (i = 0; i < (1ULL<<prefix_diff); i++) {
@@ -664,8 +668,9 @@ zap_expand_leaf(zap_t *zap, zap_leaf_t *l, uint64_t hash, dmu_tx_t *tx,
 }
 
 static void
-zap_put_leaf_maybe_grow_ptrtbl(zap_t *zap, zap_leaf_t *l, dmu_tx_t *tx)
+zap_put_leaf_maybe_grow_ptrtbl(zap_name_t *zn, zap_leaf_t *l, dmu_tx_t *tx)
 {
+	zap_t *zap = zn->zn_zap;
 	int shift = zap->zap_f.zap_phys->zap_ptrtbl.zt_shift;
 	int leaffull = (l->l_phys->l_hdr.lh_prefix_len == shift &&
 	    l->l_phys->l_hdr.lh_nfree < ZAP_LEAF_LOW_WATER);
@@ -685,7 +690,8 @@ zap_put_leaf_maybe_grow_ptrtbl(zap_t *zap, zap_leaf_t *l, dmu_tx_t *tx)
 
 			zap_unlockdir(zap);
 			err = zap_lockdir(os, zapobj, tx,
-			    RW_WRITER, FALSE, &zap);
+			    RW_WRITER, FALSE, FALSE, &zn->zn_zap);
+			zap = zn->zn_zap;
 			if (err)
 				return;
 		}
@@ -786,13 +792,15 @@ retry:
 	if (err == 0) {
 		zap_increment_num_entries(zap, 1, tx);
 	} else if (err == EAGAIN) {
-		err = zap_expand_leaf(zap, l, zn->zn_hash, tx, &l);
+		err = zap_expand_leaf(zn, l, tx, &l);
+		zap = zn->zn_zap;	/* zap_expand_leaf() may change zap */
 		if (err == 0)
 			goto retry;
 	}
 
 out:
-	zap_put_leaf_maybe_grow_ptrtbl(zap, l, tx);
+	if (zap != NULL)
+		zap_put_leaf_maybe_grow_ptrtbl(zn, l, tx);
 	return (err);
 }
 
@@ -841,12 +849,14 @@ retry:
 	}
 
 	if (err == EAGAIN) {
-		err = zap_expand_leaf(zap, l, zn->zn_hash, tx, &l);
+		err = zap_expand_leaf(zn, l, tx, &l);
+		zap = zn->zn_zap;	/* zap_expand_leaf() may change zap */
 		if (err == 0)
 			goto retry;
 	}
 
-	zap_put_leaf_maybe_grow_ptrtbl(zap, l, tx);
+	if (zap != NULL)
+		zap_put_leaf_maybe_grow_ptrtbl(zn, l, tx);
 	return (err);
 }
 

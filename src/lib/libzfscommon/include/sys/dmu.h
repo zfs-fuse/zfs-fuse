@@ -170,7 +170,7 @@ int dmu_objset_create(const char *name, dmu_objset_type_t type,
     void (*func)(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx), void *arg);
 int dmu_objset_destroy(const char *name);
 int dmu_snapshots_destroy(char *fsname, char *snapname);
-int dmu_objset_rollback(const char *name);
+int dmu_objset_rollback(objset_t *os);
 int dmu_objset_snapshot(char *fsname, char *snapname, boolean_t recursive);
 int dmu_objset_rename(const char *name, const char *newname,
     boolean_t recursive);
@@ -200,6 +200,7 @@ typedef void dmu_buf_evict_func_t(struct dmu_buf *db, void *user_ptr);
 #define	DMU_POOL_DEFLATE		"deflate"
 #define	DMU_POOL_HISTORY		"history"
 #define	DMU_POOL_PROPS			"pool_props"
+#define	DMU_POOL_L2CACHE		"l2cache"
 
 /*
  * Allocate an object from this objset.  The range of object numbers
@@ -538,7 +539,7 @@ extern void dmu_objset_name(objset_t *os, char *buf);
 extern dmu_objset_type_t dmu_objset_type(objset_t *os);
 extern uint64_t dmu_objset_id(objset_t *os);
 extern int dmu_snapshot_list_next(objset_t *os, int namelen, char *name,
-    uint64_t *id, uint64_t *offp);
+    uint64_t *id, uint64_t *offp, boolean_t *case_conflict);
 extern int dmu_dir_list_next(objset_t *os, int namelen, char *name,
     uint64_t *idp, uint64_t *offp);
 extern void dmu_objset_set_user(objset_t *os, void *user_ptr);

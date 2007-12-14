@@ -144,16 +144,9 @@
  *				zero.  Must be called with spa_namespace_lock
  *				held.
  *
- * The spa_config_lock is manipulated using the following functions:
- *
- *	spa_config_enter()	Acquire the config lock as RW_READER or
- *				RW_WRITER.  At least one reference on the spa_t
- *				must exist.
- *
- *	spa_config_exit()	Release the config lock.
- *
- *	spa_config_held()	Returns true if the config lock is currently
- *				held in the given state.
+ * The spa_config_lock is a form of rwlock.  It must be held as RW_READER
+ * to perform I/O to the pool, and as RW_WRITER to change the vdev config.
+ * The spa_config_lock is manipulated with spa_config_{enter,exit,held}().
  *
  * The vdev configuration is protected by spa_vdev_enter() / spa_vdev_exit().
  *
@@ -178,6 +171,8 @@ int spa_max_replication_override = SPA_DVAS_PER_BP;
 
 static kmutex_t spa_spare_lock;
 static avl_tree_t spa_spare_avl;
+static kmutex_t spa_l2cache_lock;
+static avl_tree_t spa_l2cache_avl;
 
 kmem_cache_t *spa_buffer_pool;
 int spa_mode;
@@ -201,6 +196,80 @@ int zfs_flags = 0;
 int zfs_recover = 0;
 
 #define	SPA_MINREF	5	/* spa_refcnt for an open-but-idle pool */
+
+/*
+ * ==========================================================================
+ * SPA config locking
+ * ==========================================================================
+ */
+static void
+spa_config_lock_init(spa_config_lock_t *scl)
+{
+	mutex_init(&scl->scl_lock, NULL, MUTEX_DEFAULT, NULL);
+	scl->scl_writer = NULL;
+	cv_init(&scl->scl_cv, NULL, CV_DEFAULT, NULL);
+	refcount_create(&scl->scl_count);
+}
+
+static void
+spa_config_lock_destroy(spa_config_lock_t *scl)
+{
+	mutex_destroy(&scl->scl_lock);
+	ASSERT(scl->scl_writer == NULL);
+	cv_destroy(&scl->scl_cv);
+	refcount_destroy(&scl->scl_count);
+}
+
+void
+spa_config_enter(spa_t *spa, krw_t rw, void *tag)
+{
+	spa_config_lock_t *scl = &spa->spa_config_lock;
+
+	mutex_enter(&scl->scl_lock);
+
+	if (rw == RW_READER) {
+		while (scl->scl_writer != NULL && scl->scl_writer != curthread)
+			cv_wait(&scl->scl_cv, &scl->scl_lock);
+	} else {
+		while (!refcount_is_zero(&scl->scl_count) &&
+		    scl->scl_writer != curthread)
+			cv_wait(&scl->scl_cv, &scl->scl_lock);
+		scl->scl_writer = curthread;
+	}
+
+	(void) refcount_add(&scl->scl_count, tag);
+
+	mutex_exit(&scl->scl_lock);
+}
+
+void
+spa_config_exit(spa_t *spa, void *tag)
+{
+	spa_config_lock_t *scl = &spa->spa_config_lock;
+
+	mutex_enter(&scl->scl_lock);
+
+	ASSERT(!refcount_is_zero(&scl->scl_count));
+
+	if (refcount_remove(&scl->scl_count, tag) == 0) {
+		cv_broadcast(&scl->scl_cv);
+		ASSERT(scl->scl_writer == NULL || scl->scl_writer == curthread);
+		scl->scl_writer = NULL;  /* OK in either case */
+	}
+
+	mutex_exit(&scl->scl_lock);
+}
+
+boolean_t
+spa_config_held(spa_t *spa, krw_t rw)
+{
+	spa_config_lock_t *scl = &spa->spa_config_lock;
+
+	if (rw == RW_READER)
+		return (!refcount_is_zero(&scl->scl_count));
+	else
+		return (scl->scl_writer == curthread);
+}
 
 /*
  * ==========================================================================
@@ -277,7 +346,7 @@ spa_add(const char *name, const char *altroot)
 	spa->spa_final_txg = UINT64_MAX;
 
 	refcount_create(&spa->spa_refcount);
-	rprw_init(&spa->spa_config_lock);
+	spa_config_lock_init(&spa->spa_config_lock);
 
 	avl_add(&spa_namespace_avl, spa);
 
@@ -326,7 +395,7 @@ spa_remove(spa_t *spa)
 
 	refcount_destroy(&spa->spa_refcount);
 
-	rprw_destroy(&spa->spa_config_lock);
+	spa_config_lock_destroy(&spa->spa_config_lock);
 
 	rw_destroy(&spa->spa_traverse_lock);
 
@@ -410,9 +479,106 @@ spa_refcount_zero(spa_t *spa)
 
 /*
  * ==========================================================================
- * SPA spare tracking
+ * SPA spare and l2cache tracking
  * ==========================================================================
  */
+
+/*
+ * Hot spares and cache devices are tracked using the same code below,
+ * for 'auxiliary' devices.
+ */
+
+typedef struct spa_aux {
+	uint64_t	aux_guid;
+	uint64_t	aux_pool;
+	avl_node_t	aux_avl;
+	int		aux_count;
+} spa_aux_t;
+
+static int
+spa_aux_compare(const void *a, const void *b)
+{
+	const spa_aux_t *sa = a;
+	const spa_aux_t *sb = b;
+
+	if (sa->aux_guid < sb->aux_guid)
+		return (-1);
+	else if (sa->aux_guid > sb->aux_guid)
+		return (1);
+	else
+		return (0);
+}
+
+void
+spa_aux_add(vdev_t *vd, avl_tree_t *avl)
+{
+	avl_index_t where;
+	spa_aux_t search;
+	spa_aux_t *aux;
+
+	search.aux_guid = vd->vdev_guid;
+	if ((aux = avl_find(avl, &search, &where)) != NULL) {
+		aux->aux_count++;
+	} else {
+		aux = kmem_zalloc(sizeof (spa_aux_t), KM_SLEEP);
+		aux->aux_guid = vd->vdev_guid;
+		aux->aux_count = 1;
+		avl_insert(avl, aux, where);
+	}
+}
+
+void
+spa_aux_remove(vdev_t *vd, avl_tree_t *avl)
+{
+	spa_aux_t search;
+	spa_aux_t *aux;
+	avl_index_t where;
+
+	search.aux_guid = vd->vdev_guid;
+	aux = avl_find(avl, &search, &where);
+
+	ASSERT(aux != NULL);
+
+	if (--aux->aux_count == 0) {
+		avl_remove(avl, aux);
+		kmem_free(aux, sizeof (spa_aux_t));
+	} else if (aux->aux_pool == spa_guid(vd->vdev_spa)) {
+		aux->aux_pool = 0ULL;
+	}
+}
+
+boolean_t
+spa_aux_exists(uint64_t guid, uint64_t *pool, avl_tree_t *avl)
+{
+	spa_aux_t search, *found;
+	avl_index_t where;
+
+	search.aux_guid = guid;
+	found = avl_find(avl, &search, &where);
+
+	if (pool) {
+		if (found)
+			*pool = found->aux_pool;
+		else
+			*pool = 0ULL;
+	}
+
+	return (found != NULL);
+}
+
+void
+spa_aux_activate(vdev_t *vd, avl_tree_t *avl)
+{
+	spa_aux_t search, *found;
+	avl_index_t where;
+
+	search.aux_guid = vd->vdev_guid;
+	found = avl_find(avl, &search, &where);
+	ASSERT(found != NULL);
+	ASSERT(found->aux_pool == 0ULL);
+
+	found->aux_pool = spa_guid(vd->vdev_spa);
+}
 
 /*
  * Spares are tracked globally due to the following constraints:
@@ -436,73 +602,28 @@ spa_refcount_zero(spa_t *spa)
  * be completely consistent with respect to other vdev configuration changes.
  */
 
-typedef struct spa_spare {
-	uint64_t	spare_guid;
-	uint64_t	spare_pool;
-	avl_node_t	spare_avl;
-	int		spare_count;
-} spa_spare_t;
-
 static int
 spa_spare_compare(const void *a, const void *b)
 {
-	const spa_spare_t *sa = a;
-	const spa_spare_t *sb = b;
-
-	if (sa->spare_guid < sb->spare_guid)
-		return (-1);
-	else if (sa->spare_guid > sb->spare_guid)
-		return (1);
-	else
-		return (0);
+	return (spa_aux_compare(a, b));
 }
 
 void
 spa_spare_add(vdev_t *vd)
 {
-	avl_index_t where;
-	spa_spare_t search;
-	spa_spare_t *spare;
-
 	mutex_enter(&spa_spare_lock);
 	ASSERT(!vd->vdev_isspare);
-
-	search.spare_guid = vd->vdev_guid;
-	if ((spare = avl_find(&spa_spare_avl, &search, &where)) != NULL) {
-		spare->spare_count++;
-	} else {
-		spare = kmem_zalloc(sizeof (spa_spare_t), KM_SLEEP);
-		spare->spare_guid = vd->vdev_guid;
-		spare->spare_count = 1;
-		avl_insert(&spa_spare_avl, spare, where);
-	}
+	spa_aux_add(vd, &spa_spare_avl);
 	vd->vdev_isspare = B_TRUE;
-
 	mutex_exit(&spa_spare_lock);
 }
 
 void
 spa_spare_remove(vdev_t *vd)
 {
-	spa_spare_t search;
-	spa_spare_t *spare;
-	avl_index_t where;
-
 	mutex_enter(&spa_spare_lock);
-
-	search.spare_guid = vd->vdev_guid;
-	spare = avl_find(&spa_spare_avl, &search, &where);
-
 	ASSERT(vd->vdev_isspare);
-	ASSERT(spare != NULL);
-
-	if (--spare->spare_count == 0) {
-		avl_remove(&spa_spare_avl, spare);
-		kmem_free(spare, sizeof (spa_spare_t));
-	} else if (spare->spare_pool == spa_guid(vd->vdev_spa)) {
-		spare->spare_pool = 0ULL;
-	}
-
+	spa_aux_remove(vd, &spa_spare_avl);
 	vd->vdev_isspare = B_FALSE;
 	mutex_exit(&spa_spare_lock);
 }
@@ -510,65 +631,81 @@ spa_spare_remove(vdev_t *vd)
 boolean_t
 spa_spare_exists(uint64_t guid, uint64_t *pool)
 {
-	spa_spare_t search, *found;
-	avl_index_t where;
+	boolean_t found;
 
 	mutex_enter(&spa_spare_lock);
-
-	search.spare_guid = guid;
-	found = avl_find(&spa_spare_avl, &search, &where);
-
-	if (pool) {
-		if (found)
-			*pool = found->spare_pool;
-		else
-			*pool = 0ULL;
-	}
-
+	found = spa_aux_exists(guid, pool, &spa_spare_avl);
 	mutex_exit(&spa_spare_lock);
 
-	return (found != NULL);
+	return (found);
 }
 
 void
 spa_spare_activate(vdev_t *vd)
 {
-	spa_spare_t search, *found;
-	avl_index_t where;
-
 	mutex_enter(&spa_spare_lock);
 	ASSERT(vd->vdev_isspare);
-
-	search.spare_guid = vd->vdev_guid;
-	found = avl_find(&spa_spare_avl, &search, &where);
-	ASSERT(found != NULL);
-	ASSERT(found->spare_pool == 0ULL);
-
-	found->spare_pool = spa_guid(vd->vdev_spa);
+	spa_aux_activate(vd, &spa_spare_avl);
 	mutex_exit(&spa_spare_lock);
 }
 
 /*
- * ==========================================================================
- * SPA config locking
- * ==========================================================================
+ * Level 2 ARC devices are tracked globally for the same reasons as spares.
+ * Cache devices currently only support one pool per cache device, and so
+ * for these devices the aux reference count is currently unused beyond 1.
  */
-void
-spa_config_enter(spa_t *spa, krw_t rw, void *tag)
+
+static int
+spa_l2cache_compare(const void *a, const void *b)
 {
-	rprw_enter(&spa->spa_config_lock, rw, tag);
+	return (spa_aux_compare(a, b));
 }
 
 void
-spa_config_exit(spa_t *spa, void *tag)
+spa_l2cache_add(vdev_t *vd)
 {
-	rprw_exit(&spa->spa_config_lock, tag);
+	mutex_enter(&spa_l2cache_lock);
+	ASSERT(!vd->vdev_isl2cache);
+	spa_aux_add(vd, &spa_l2cache_avl);
+	vd->vdev_isl2cache = B_TRUE;
+	mutex_exit(&spa_l2cache_lock);
+}
+
+void
+spa_l2cache_remove(vdev_t *vd)
+{
+	mutex_enter(&spa_l2cache_lock);
+	ASSERT(vd->vdev_isl2cache);
+	spa_aux_remove(vd, &spa_l2cache_avl);
+	vd->vdev_isl2cache = B_FALSE;
+	mutex_exit(&spa_l2cache_lock);
 }
 
 boolean_t
-spa_config_held(spa_t *spa, krw_t rw)
+spa_l2cache_exists(uint64_t guid, uint64_t *pool)
 {
-	return (rprw_held(&spa->spa_config_lock, rw));
+	boolean_t found;
+
+	mutex_enter(&spa_l2cache_lock);
+	found = spa_aux_exists(guid, pool, &spa_l2cache_avl);
+	mutex_exit(&spa_l2cache_lock);
+
+	return (found);
+}
+
+void
+spa_l2cache_activate(vdev_t *vd)
+{
+	mutex_enter(&spa_l2cache_lock);
+	ASSERT(vd->vdev_isl2cache);
+	spa_aux_activate(vd, &spa_l2cache_avl);
+	mutex_exit(&spa_l2cache_lock);
+}
+
+void
+spa_l2cache_space_update(vdev_t *vd, int64_t space, int64_t alloc)
+{
+	vdev_space_update(vd, space, alloc, B_FALSE);
 }
 
 /*
@@ -914,7 +1051,7 @@ spa_name(spa_t *spa)
 	 * config lock, both of which are required to do a rename.
 	 */
 	ASSERT(MUTEX_HELD(&spa_namespace_lock) ||
-	    spa_config_held(spa, RW_READER) || spa_config_held(spa, RW_WRITER));
+	    spa_config_held(spa, RW_READER));
 
 	return (spa->spa_name);
 }
@@ -1082,13 +1219,17 @@ spa_init(int mode)
 {
 	mutex_init(&spa_namespace_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa_spare_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa_l2cache_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&spa_namespace_cv, NULL, CV_DEFAULT, NULL);
 
 	avl_create(&spa_namespace_avl, spa_name_compare, sizeof (spa_t),
 	    offsetof(spa_t, spa_avl));
 
-	avl_create(&spa_spare_avl, spa_spare_compare, sizeof (spa_spare_t),
-	    offsetof(spa_spare_t, spare_avl));
+	avl_create(&spa_spare_avl, spa_spare_compare, sizeof (spa_aux_t),
+	    offsetof(spa_aux_t, aux_avl));
+
+	avl_create(&spa_l2cache_avl, spa_l2cache_compare, sizeof (spa_aux_t),
+	    offsetof(spa_aux_t, aux_avl));
 
 	spa_mode = mode;
 
@@ -1115,10 +1256,12 @@ spa_fini(void)
 
 	avl_destroy(&spa_namespace_avl);
 	avl_destroy(&spa_spare_avl);
+	avl_destroy(&spa_l2cache_avl);
 
 	cv_destroy(&spa_namespace_cv);
 	mutex_destroy(&spa_namespace_lock);
 	mutex_destroy(&spa_spare_lock);
+	mutex_destroy(&spa_l2cache_lock);
 }
 
 /*

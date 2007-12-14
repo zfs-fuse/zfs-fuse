@@ -102,7 +102,6 @@ extern "C" {
 #define	ZPL_VERSION_STR		"VERSION"
 #define	ZFS_FUID_TABLES		"FUID"
 
-
 #define	ZFS_MAX_BLOCKSIZE	(SPA_MAXBLOCKSIZE)
 
 /* Path component length */
@@ -195,7 +194,6 @@ typedef struct znode {
 	avl_tree_t	z_range_avl;	/* avl tree of file range locks */
 	uint8_t		z_unlinked;	/* file has been unlinked */
 	uint8_t		z_atime_dirty;	/* atime needs to be synced */
-	uint8_t		z_dbuf_held;	/* Is z_dbuf already held? */
 	uint8_t		z_zn_prefetch;	/* Prefetch znodes? */
 	uint_t		z_blksz;	/* block size in bytes */
 	uint_t		z_seq;		/* modification sequence number */
@@ -252,7 +250,7 @@ typedef struct znode {
 #define	ZFS_EXIT(zfsvfs) rrw_exit(&(zfsvfs)->z_teardown_lock, FTAG)
 
 #define	ZFS_VERIFY_ZP(zp) \
-	if (!(zp)->z_dbuf_held) { \
+	if ((zp)->z_dbuf == NULL) { \
 		ZFS_EXIT((zp)->z_zfsvfs); \
 		return (EIO); \
 	} \
@@ -260,28 +258,27 @@ typedef struct znode {
 /*
  * Macros for dealing with dmu_buf_hold
  */
-#define	ZFS_OBJ_HASH(obj_num)	(obj_num & (ZFS_OBJ_MTX_SZ - 1))
+#define	ZFS_OBJ_HASH(obj_num)	((obj_num) & (ZFS_OBJ_MTX_SZ - 1))
 #define	ZFS_OBJ_MUTEX(zp)	\
-	(&zp->z_zfsvfs->z_hold_mtx[ZFS_OBJ_HASH(zp->z_id)])
+	(&(zp)->z_zfsvfs->z_hold_mtx[ZFS_OBJ_HASH((zp)->z_id)])
 #define	ZFS_OBJ_HOLD_ENTER(zfsvfs, obj_num) \
-	mutex_enter(&zfsvfs->z_hold_mtx[ZFS_OBJ_HASH(obj_num)]);
-
+	mutex_enter(&(zfsvfs)->z_hold_mtx[ZFS_OBJ_HASH(obj_num)]);
 #define	ZFS_OBJ_HOLD_EXIT(zfsvfs, obj_num) \
-	mutex_exit(&zfsvfs->z_hold_mtx[ZFS_OBJ_HASH(obj_num)])
+	mutex_exit(&(zfsvfs)->z_hold_mtx[ZFS_OBJ_HASH(obj_num)])
 
 /*
  * Macros to encode/decode ZFS stored time values from/to struct timespec
  */
 #define	ZFS_TIME_ENCODE(tp, stmp)		\
 {						\
-	stmp[0] = (uint64_t)(tp)->tv_sec; 	\
-	stmp[1] = (uint64_t)(tp)->tv_nsec;	\
+	(stmp)[0] = (uint64_t)(tp)->tv_sec; 	\
+	(stmp)[1] = (uint64_t)(tp)->tv_nsec;	\
 }
 
 #define	ZFS_TIME_DECODE(tp, stmp)		\
 {						\
-	(tp)->tv_sec = (time_t)stmp[0];		\
-	(tp)->tv_nsec = (long)stmp[1];		\
+	(tp)->tv_sec = (time_t)(stmp)[0];		\
+	(tp)->tv_nsec = (long)(stmp)[1];		\
 }
 
 /*
@@ -297,7 +294,7 @@ typedef struct znode {
 
 extern int	zfs_init_fs(zfsvfs_t *, znode_t **, cred_t *);
 extern void	zfs_set_dataprop(objset_t *);
-extern void	zfs_create_fs(objset_t *os, cred_t *cr, uint64_t, int,
+extern void	zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *,
     dmu_tx_t *tx);
 extern void	zfs_time_stamper(znode_t *, uint_t, dmu_tx_t *);
 extern void	zfs_time_stamper_locked(znode_t *, uint_t, dmu_tx_t *);
@@ -314,14 +311,15 @@ extern void	zfs_remove_op_tables();
 extern int	zfs_create_op_tables();
 extern int	zfs_sync(vfs_t *vfsp, short flag, cred_t *cr);
 extern dev_t	zfs_cmpldev(uint64_t);
-extern int	zfs_get_version(objset_t *os, uint64_t *version);
+extern int	zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value);
 extern int	zfs_set_version(const char *name, uint64_t newvers);
 extern int	zfs_get_stats(objset_t *os, nvlist_t *nv);
+extern void	zfs_znode_dmu_fini(znode_t *);
 
 extern void zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, znode_t *zp, char *name, vsecattr_t *, zfs_fuid_info_t *,
     vattr_t *vap);
-extern int	zfs_log_create_txtype(zil_create_t, vsecattr_t *vsecp,
+extern int zfs_log_create_txtype(zil_create_t, vsecattr_t *vsecp,
     vattr_t *vap);
 extern void zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, char *name);

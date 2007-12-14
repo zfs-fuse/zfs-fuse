@@ -1,6 +1,6 @@
 ? - Release 0.4.0_beta2
 --------------------------------------------------
-	* Updated ZFS code to Nevada build 77.
+	* Updated ZFS code to Nevada build 80.
 Features:
 	* gzip compression support (upstream).
 	* Filesystems can have multiple copies of data (zfs set fs copies=x) (upstream).

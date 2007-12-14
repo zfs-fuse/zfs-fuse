@@ -113,6 +113,7 @@ enum {
 	EZFS_UNSHARESMBFAILED,	/* failed to unshare over smb */
 	EZFS_SHARESMBFAILED,	/* failed to share over smb */
 	EZFS_BADCACHE,		/* bad cache file */
+	EZFS_ISL2CACHE,		/* device is for the level 2 ARC */
 	EZFS_UNKNOWN
 };
 
@@ -216,7 +217,8 @@ extern int zpool_vdev_fault(zpool_handle_t *, uint64_t);
 extern int zpool_vdev_degrade(zpool_handle_t *, uint64_t);
 extern int zpool_vdev_clear(zpool_handle_t *, uint64_t);
 
-extern nvlist_t *zpool_find_vdev(zpool_handle_t *, const char *, boolean_t *);
+extern nvlist_t *zpool_find_vdev(zpool_handle_t *, const char *, boolean_t *,
+    boolean_t *);
 extern int zpool_label_disk(libzfs_handle_t *, zpool_handle_t *, char *);
 
 /*
@@ -415,19 +417,30 @@ extern int zfs_destroy(zfs_handle_t *);
 extern int zfs_destroy_snaps(zfs_handle_t *, char *);
 extern int zfs_clone(zfs_handle_t *, const char *, nvlist_t *);
 extern int zfs_snapshot(libzfs_handle_t *, const char *, boolean_t);
-extern int zfs_rollback(zfs_handle_t *, zfs_handle_t *, int);
+extern int zfs_rollback(zfs_handle_t *, zfs_handle_t *);
 extern int zfs_rename(zfs_handle_t *, const char *, boolean_t);
 extern int zfs_send(zfs_handle_t *, const char *, const char *,
     boolean_t, boolean_t, boolean_t, boolean_t, int);
 extern int zfs_promote(zfs_handle_t *);
 
 typedef struct recvflags {
-	boolean_t verbose : 1;
-	boolean_t isprefix : 1;
-	boolean_t dryrun : 1;
-	boolean_t force : 1;
-	boolean_t canmountoff : 1;
-	boolean_t byteswap : 1;
+	/* print informational messages (ie, -v was specified) */
+	int verbose : 1;
+
+	/* the destination is a prefix, not the exact fs (ie, -d) */
+	int isprefix : 1;
+
+	/* do not actually do the recv, just check if it would work (ie, -n) */
+	int dryrun : 1;
+
+	/* rollback/destroy filesystems as necessary (eg, -F) */
+	int force : 1;
+
+	/* set "canmount=off" on all modified filesystems */
+	int canmountoff : 1;
+
+	/* byteswap flag is used internally; callers need not specify */
+	int byteswap : 1;
 } recvflags_t;
 
 extern int zfs_receive(libzfs_handle_t *, const char *, recvflags_t,

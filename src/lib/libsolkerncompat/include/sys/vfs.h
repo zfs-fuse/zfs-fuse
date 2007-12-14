@@ -112,6 +112,27 @@ extern int dounmount(struct vfs *, int, cred_t *);
 #define VFS_NODEVICES  0x800  /* device-special files disallowed */
 #define VFS_NOEXEC     0x1000 /* executables disallowed */
 #define VFS_STATS      0x2000 /* file system can collect stats */
+#define VFS_XID        0x4000 /* file system supports extended ids */
+
+#define VFS_NORESOURCE  "unspecified_resource"
+#define VFS_NOMNTPT     "unspecified_mountpoint"
+
+/*
+ * VFS features are implemented as bits set in the vfs_t.
+ * The vfs_feature_t typedef is a 64-bit number that will translate
+ * into an element in an array of bitmaps and a bit in that element.
+ * Developers must not depend on the implementation of this and
+ * need to use vfs_has_feature()/vfs_set_feature() routines.
+ */
+typedef uint64_t        vfs_feature_t;
+
+#define VFSFT_XVATTR            0x100000001     /* Supports xvattr for attrs */
+#define VFSFT_CASEINSENSITIVE   0x100000002     /* Supports case-insensitive */
+#define VFSFT_NOCASESENSITIVE   0x100000004     /* NOT case-sensitive */
+#define VFSFT_DIRENTFLAGS       0x100000008     /* Supports dirent flags */
+#define VFSFT_ACLONCREATE       0x100000010     /* Supports ACL on create */
+#define VFSFT_ACEMASKONACCESS   0x100000020     /* Can use ACEMASK for access */
+
 
 /*
  * File identifier.  Should be unique per filesystem on a single
