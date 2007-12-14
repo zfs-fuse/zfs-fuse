@@ -42,6 +42,7 @@
 #include <sys/errno.h>
 #include <sys/stat.h>
 #include <sys/unistd.h>
+#include <sys/sunddi.h>
 #include <sys/random.h>
 #include <sys/policy.h>
 #include <sys/zfs_dir.h>
@@ -55,7 +56,6 @@
 #include <sys/zfs_fuid.h>
 #include <sys/dnlc.h>
 #include <sys/extdirent.h>
-#include <sys/zfs_i18n.h>
 
 /*
  * zfs_match_find() is used by zfs_dirent_lock() to peform zap lookups
@@ -177,8 +177,9 @@ zfs_dirent_lock(zfs_dirlock_t **dlpp, znode_t *dzp, char *name, znode_t **zpp,
 	 * a zap lookup on file systems supporting case-insensitive
 	 * access.
 	 */
-	exact = ((zfsvfs->z_case & ZFS_CI_ONLY) && (flag & ZCIEXACT)) ||
-	    ((zfsvfs->z_case & ZFS_CI_MIXD) && !(flag & ZCILOOK));
+	exact =
+	    ((zfsvfs->z_case == ZFS_CASE_INSENSITIVE) && (flag & ZCIEXACT)) ||
+	    ((zfsvfs->z_case == ZFS_CASE_MIXED) && !(flag & ZCILOOK));
 
 	/*
 	 * Only look in or update the DNLC if we are looking for the
@@ -191,7 +192,7 @@ zfs_dirent_lock(zfs_dirlock_t **dlpp, znode_t *dzp, char *name, znode_t **zpp,
 	 * case for performance improvement?
 	 */
 	update = !zfsvfs->z_norm ||
-	    ((zfsvfs->z_case & ZFS_CI_MIXD) &&
+	    ((zfsvfs->z_case == ZFS_CASE_MIXED) &&
 	    !(zfsvfs->z_norm & ~U8_TEXTPREP_TOUPPER) && !(flag & ZCILOOK));
 
 	/*
@@ -761,9 +762,9 @@ zfs_link_destroy(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag,
 	mutex_exit(&dzp->z_lock);
 
 	if (zp->z_zfsvfs->z_norm) {
-		if (((zp->z_zfsvfs->z_case & ZFS_CI_ONLY) &&
+		if (((zp->z_zfsvfs->z_case == ZFS_CASE_INSENSITIVE) &&
 		    (flag & ZCIEXACT)) ||
-		    ((zp->z_zfsvfs->z_case & ZFS_CI_MIXD) &&
+		    ((zp->z_zfsvfs->z_case == ZFS_CASE_MIXED) &&
 		    !(flag & ZCILOOK)))
 			error = zap_remove_norm(zp->z_zfsvfs->z_os,
 			    dzp->z_id, dl->dl_name, MT_EXACT, tx);
@@ -801,7 +802,6 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, vnode_t **xvpp, cred_t *cr)
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	znode_t *xzp;
 	dmu_tx_t *tx;
-	uint64_t xoid;
 	int error;
 	zfs_fuid_info_t *fuidp = NULL;
 
@@ -828,11 +828,10 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, vnode_t **xvpp, cred_t *cr)
 		dmu_tx_abort(tx);
 		return (error);
 	}
-	zfs_mknode(zp, vap, &xoid, tx, cr, IS_XATTR, &xzp, 0, NULL, &fuidp);
-	ASSERT(xzp->z_id == xoid);
+	zfs_mknode(zp, vap, tx, cr, IS_XATTR, &xzp, 0, NULL, &fuidp);
 	ASSERT(xzp->z_phys->zp_parent == zp->z_id);
 	dmu_buf_will_dirty(zp->z_dbuf, tx);
-	zp->z_phys->zp_xattr = xoid;
+	zp->z_phys->zp_xattr = xzp->z_id;
 
 	(void) zfs_log_create(zfsvfs->z_log, tx, TX_MKXATTR, zp,
 	    xzp, "", NULL, fuidp, vap);

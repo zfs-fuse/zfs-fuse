@@ -51,7 +51,6 @@
 
 #include <sys/spa.h>
 #include <sys/zap.h>
-#include <sys/zfs_i18n.h>
 #include <libzfs.h>
 
 #include "zfs_namecheck.h"
@@ -480,7 +479,6 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 	char *strval;
 	zfs_prop_t prop;
 	nvlist_t *ret;
-	int chosen_sense = -1;
 	int chosen_normal = -1;
 	int chosen_utf = -1;
 
@@ -748,9 +746,6 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 			}
 
 			break;
-		case ZFS_PROP_CASE:
-			chosen_sense = (int)intval;
-			break;
 		case ZFS_PROP_UTF8ONLY:
 			chosen_utf = (int)intval;
 			break;
@@ -810,32 +805,19 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 	}
 
 	/*
-	 * Temporarily disallow any non-default settings for
-	 * casesensitivity, normalization, and/or utf8only.
-	 */
-	if (chosen_sense > ZFS_CASE_SENSITIVE || chosen_utf > 0 ||
-	    chosen_normal > ZFS_NORMALIZE_NONE) {
-		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-		    "Non-default values for casesensitivity, utf8only, and "
-		    "normalization are (temporarily) disabled"));
-		(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
-		goto error;
-	}
-
-	/*
 	 * If normalization was chosen, but no UTF8 choice was made,
 	 * enforce rejection of non-UTF8 names.
 	 *
 	 * If normalization was chosen, but rejecting non-UTF8 names
 	 * was explicitly not chosen, it is an error.
 	 */
-	if (chosen_normal > ZFS_NORMALIZE_NONE && chosen_utf < 0) {
+	if (chosen_normal > 0 && chosen_utf < 0) {
 		if (nvlist_add_uint64(ret,
 		    zfs_prop_to_name(ZFS_PROP_UTF8ONLY), 1) != 0) {
 			(void) no_memory(hdl);
 			goto error;
 		}
-	} else if (chosen_normal > ZFS_NORMALIZE_NONE && chosen_utf == 0) {
+	} else if (chosen_normal > 0 && chosen_utf == 0) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 		    "'%s' must be set 'on' if normalization chosen"),
 		    zfs_prop_to_name(ZFS_PROP_UTF8ONLY));
@@ -852,17 +834,43 @@ zfs_validate_properties(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 	    &intval) == 0) {
 		uint64_t old_volsize = zfs_prop_get_int(zhp,
 		    ZFS_PROP_VOLSIZE);
-		uint64_t old_reservation = zfs_prop_get_int(zhp,
-		    ZFS_PROP_RESERVATION);
+		uint64_t old_reservation;
 		uint64_t new_reservation;
+		char *pool_name;
+		zpool_handle_t *zpool_handle;
+		char *p;
+		zfs_prop_t resv_prop;
+		uint64_t spa_version;
+
+		pool_name = zfs_alloc(zhp->zfs_hdl, MAXPATHLEN);
+		if (zfs_prop_get(zhp, ZFS_PROP_NAME, pool_name,
+		    MAXPATHLEN, NULL, NULL, 0, B_FALSE) != 0) {
+			free(pool_name);
+			goto error;
+		}
+
+		if (p = strchr(pool_name, '/'))
+			*p = '\0';
+		zpool_handle = zpool_open(hdl, pool_name);
+		free(pool_name);
+		if (zpool_handle == NULL)
+			goto error;
+
+		spa_version = zpool_get_prop_int(zpool_handle,
+		    ZPOOL_PROP_VERSION, NULL);
+		zpool_close(zpool_handle);
+		if (spa_version >= SPA_VERSION_REFRESERVATION)
+			resv_prop = ZFS_PROP_REFRESERVATION;
+		else
+			resv_prop = ZFS_PROP_RESERVATION;
+
+		old_reservation = zfs_prop_get_int(zhp, resv_prop);
 
 		if (old_volsize == old_reservation &&
-		    nvlist_lookup_uint64(ret,
-		    zfs_prop_to_name(ZFS_PROP_RESERVATION),
+		    nvlist_lookup_uint64(ret, zfs_prop_to_name(resv_prop),
 		    &new_reservation) != 0) {
 			if (nvlist_add_uint64(ret,
-			    zfs_prop_to_name(ZFS_PROP_RESERVATION),
-			    intval) != 0) {
+			    zfs_prop_to_name(resv_prop), intval) != 0) {
 				(void) no_memory(hdl);
 				goto error;
 			}
@@ -1854,6 +1862,7 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zprop_source_t *src,
     char **source, uint64_t *val)
 {
 	zfs_cmd_t zc = { 0 };
+	nvlist_t *zplprops = NULL;
 	struct mnttab mnt;
 	char *mntopt_on = NULL;
 	char *mntopt_off = NULL;
@@ -1975,15 +1984,34 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zprop_source_t *src,
 		break;
 
 	case ZFS_PROP_VERSION:
+	case ZFS_PROP_NORMALIZE:
+	case ZFS_PROP_UTF8ONLY:
+	case ZFS_PROP_CASE:
+		if (!zfs_prop_valid_for_type(prop, zhp->zfs_head_type) ||
+		    zcmd_alloc_dst_nvlist(zhp->zfs_hdl, &zc, 0) != 0)
+			return (-1);
 		(void) strlcpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
-		if (zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_OBJSET_VERSION, &zc) ||
-		    (zc.zc_cookie == 0)) {
+		if (zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_OBJSET_ZPLPROPS, &zc)) {
+			zcmd_free_nvlists(&zc);
 			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-			    "unable to get version property"));
+			    "unable to get %s property"),
+			    zfs_prop_to_name(prop));
 			return (zfs_error(zhp->zfs_hdl, EZFS_BADVERSION,
 			    dgettext(TEXT_DOMAIN, "internal error")));
 		}
-		*val = zc.zc_cookie;
+		if (zcmd_read_dst_nvlist(zhp->zfs_hdl, &zc, &zplprops) != 0 ||
+		    nvlist_lookup_uint64(zplprops, zfs_prop_to_name(prop),
+		    val) != 0) {
+			zcmd_free_nvlists(&zc);
+			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
+			    "unable to get %s property"),
+			    zfs_prop_to_name(prop));
+			return (zfs_error(zhp->zfs_hdl, EZFS_NOMEM,
+			    dgettext(TEXT_DOMAIN, "internal error")));
+		}
+		if (zplprops)
+			nvlist_free(zplprops);
+		zcmd_free_nvlists(&zc);
 		break;
 
 	default:
@@ -3274,7 +3302,6 @@ zfs_snapshot(libzfs_handle_t *hdl, const char *path, boolean_t recursive)
 typedef struct rollback_data {
 	const char	*cb_target;		/* the snapshot */
 	uint64_t	cb_create;		/* creation time reference */
-	prop_changelist_t *cb_clp;		/* changelist pointer */
 	int		cb_error;
 	boolean_t	cb_dependent;
 } rollback_data_t;
@@ -3292,24 +3319,17 @@ rollback_destroy(zfs_handle_t *zhp, void *data)
 			char *logstr;
 
 			cbp->cb_dependent = B_TRUE;
-			if (zfs_iter_dependents(zhp, B_FALSE, rollback_destroy,
-			    cbp) != 0)
-				cbp->cb_error = 1;
+			cbp->cb_error |= zfs_iter_dependents(zhp, B_FALSE,
+			    rollback_destroy, cbp);
 			cbp->cb_dependent = B_FALSE;
 
 			logstr = zhp->zfs_hdl->libzfs_log_str;
 			zhp->zfs_hdl->libzfs_log_str = NULL;
-			if (zfs_destroy(zhp) != 0)
-				cbp->cb_error = 1;
-			else
-				changelist_remove(cbp->cb_clp, zhp->zfs_name);
+			cbp->cb_error |= zfs_destroy(zhp);
 			zhp->zfs_hdl->libzfs_log_str = logstr;
 		}
 	} else {
-		if (zfs_destroy(zhp) != 0)
-			cbp->cb_error = 1;
-		else
-			changelist_remove(cbp->cb_clp, zhp->zfs_name);
+		cbp->cb_error |= zfs_destroy(zhp);
 	}
 
 	zfs_close(zhp);
@@ -3317,16 +3337,36 @@ rollback_destroy(zfs_handle_t *zhp, void *data)
 }
 
 /*
- * Rollback the dataset to its latest snapshot.
+ * Given a dataset, rollback to a specific snapshot, discarding any
+ * data changes since then and making it the active dataset.
+ *
+ * Any snapshots more recent than the target are destroyed, along with
+ * their dependents.
  */
-static int
-do_rollback(zfs_handle_t *zhp)
+int
+zfs_rollback(zfs_handle_t *zhp, zfs_handle_t *snap)
 {
-	int ret;
+	rollback_data_t cb = { 0 };
+	int err;
 	zfs_cmd_t zc = { 0 };
 
 	assert(zhp->zfs_type == ZFS_TYPE_FILESYSTEM ||
 	    zhp->zfs_type == ZFS_TYPE_VOLUME);
+
+	/*
+	 * Destroy all recent snapshots and its dependends.
+	 */
+	cb.cb_target = snap->zfs_name;
+	cb.cb_create = zfs_prop_get_int(snap, ZFS_PROP_CREATETXG);
+	(void) zfs_iter_children(zhp, rollback_destroy, &cb);
+
+	if (cb.cb_error != 0)
+		return (cb.cb_error);
+
+	/*
+	 * Now that we have verified that the snapshot is the latest,
+	 * rollback to the given snapshot.
+	 */
 
 	if (zhp->zfs_type == ZFS_TYPE_VOLUME &&
 	    zvol_remove_link(zhp->zfs_hdl, zhp->zfs_name) != 0)
@@ -3340,81 +3380,21 @@ do_rollback(zfs_handle_t *zhp)
 		zc.zc_objset_type = DMU_OST_ZFS;
 
 	/*
-	 * We rely on the consumer to verify that there are no newer snapshots
-	 * for the given dataset.  Given these constraints, we can simply pass
-	 * the name on to the ioctl() call.  There is still an unlikely race
-	 * condition where the user has taken a snapshot since we verified that
-	 * this was the most recent.
+	 * We rely on zfs_iter_children() to verify that there are no
+	 * newer snapshots for the given dataset.  Therefore, we can
+	 * simply pass the name on to the ioctl() call.  There is still
+	 * an unlikely race condition where the user has taken a
+	 * snapshot since we verified that this was the most recent.
 	 */
-	if ((ret = zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_ROLLBACK, &zc)) != 0) {
+	if ((err = zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_ROLLBACK, &zc)) != 0) {
 		(void) zfs_standard_error_fmt(zhp->zfs_hdl, errno,
 		    dgettext(TEXT_DOMAIN, "cannot rollback '%s'"),
 		    zhp->zfs_name);
 	} else if (zhp->zfs_type == ZFS_TYPE_VOLUME) {
-		ret = zvol_create_link(zhp->zfs_hdl, zhp->zfs_name);
+		err = zvol_create_link(zhp->zfs_hdl, zhp->zfs_name);
 	}
 
-	return (ret);
-}
-
-/*
- * Given a dataset, rollback to a specific snapshot, discarding any
- * data changes since then and making it the active dataset.
- *
- * Any snapshots more recent than the target are destroyed, along with
- * their dependents.
- */
-int
-zfs_rollback(zfs_handle_t *zhp, zfs_handle_t *snap, int flag)
-{
-	int ret;
-	rollback_data_t cb = { 0 };
-	prop_changelist_t *clp;
-
-	/*
-	 * Unmount all dependendents of the dataset and the dataset itself.
-	 * The list we need to gather is the same as for doing rename
-	 */
-	clp = changelist_gather(zhp, ZFS_PROP_NAME, flag ? MS_FORCE: 0);
-	if (clp == NULL)
-		return (-1);
-
-	if ((ret = changelist_prefix(clp)) != 0)
-		goto out;
-
-	/*
-	 * Destroy all recent snapshots and its dependends.
-	 */
-	cb.cb_target = snap->zfs_name;
-	cb.cb_create = zfs_prop_get_int(snap, ZFS_PROP_CREATETXG);
-	cb.cb_clp = clp;
-	(void) zfs_iter_children(zhp, rollback_destroy, &cb);
-
-	if ((ret = cb.cb_error) != 0) {
-		(void) changelist_postfix(clp);
-		goto out;
-	}
-
-	/*
-	 * Now that we have verified that the snapshot is the latest,
-	 * rollback to the given snapshot.
-	 */
-	ret = do_rollback(zhp);
-
-	if (ret != 0) {
-		(void) changelist_postfix(clp);
-		goto out;
-	}
-
-	/*
-	 * We only want to re-mount the filesystem if it was mounted in the
-	 * first place.
-	 */
-	ret = changelist_postfix(clp);
-
-out:
-	changelist_free(clp);
-	return (ret);
+	return (err);
 }
 
 /*

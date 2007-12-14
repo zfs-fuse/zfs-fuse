@@ -530,20 +530,19 @@ dsl_dir_stats(dsl_dir_t *dd, nvlist_t *nv)
 	    dd->dd_phys->dd_compressed_bytes));
 	mutex_exit(&dd->dd_lock);
 
+	rw_enter(&dd->dd_pool->dp_config_rwlock, RW_READER);
 	if (dd->dd_phys->dd_origin_obj) {
 		dsl_dataset_t *ds;
 		char buf[MAXNAMELEN];
 
-		rw_enter(&dd->dd_pool->dp_config_rwlock, RW_READER);
 		VERIFY(0 == dsl_dataset_open_obj(dd->dd_pool,
 		    dd->dd_phys->dd_origin_obj,
 		    NULL, DS_MODE_NONE, FTAG, &ds));
 		dsl_dataset_name(ds, buf);
 		dsl_dataset_close(ds, DS_MODE_NONE, FTAG);
-		rw_exit(&dd->dd_pool->dp_config_rwlock);
-
 		dsl_prop_nvlist_add_string(nv, ZFS_PROP_ORIGIN, buf);
 	}
+	rw_exit(&dd->dd_pool->dp_config_rwlock);
 }
 
 void
@@ -685,7 +684,7 @@ dsl_dir_tempreserve_impl(dsl_dir_t *dd, uint64_t asize, boolean_t netfree,
 	uint64_t txg = tx->tx_txg;
 	uint64_t est_inflight, used_on_disk, quota, parent_rsrv;
 	struct tempreserve *tr;
-	int error = EDQUOT;
+	int enospc = EDQUOT;
 	int txgidx = txg & TXG_MASK;
 	int i;
 
@@ -707,6 +706,8 @@ dsl_dir_tempreserve_impl(dsl_dir_t *dd, uint64_t asize, boolean_t netfree,
 	 * Check for dataset reference quota on first iteration.
 	 */
 	if (list_head(tr_list) == NULL && tx->tx_objset) {
+		int error;
+
 		dsl_dataset_t *ds = tx->tx_objset->os->os_dsl_dataset;
 		error = dsl_dataset_check_quota(ds, checkrefquota,
 		    asize, est_inflight, &used_on_disk);
@@ -738,7 +739,7 @@ dsl_dir_tempreserve_impl(dsl_dir_t *dd, uint64_t asize, boolean_t netfree,
 		uint64_t poolsize = dsl_pool_adjustedsize(dd->dd_pool, netfree);
 		if (poolsize < quota) {
 			quota = poolsize;
-			error = ENOSPC;
+			enospc = ENOSPC;
 		}
 	}
 
@@ -750,13 +751,13 @@ dsl_dir_tempreserve_impl(dsl_dir_t *dd, uint64_t asize, boolean_t netfree,
 	 */
 	if (used_on_disk + est_inflight > quota) {
 		if (est_inflight > 0 || used_on_disk < quota)
-			error = ERESTART;
+			enospc = ERESTART;
 		dprintf_dd(dd, "failing: used=%lluK inflight = %lluK "
 		    "quota=%lluK tr=%lluK err=%d\n",
 		    used_on_disk>>10, est_inflight>>10,
-		    quota>>10, asize>>10, error);
+		    quota>>10, asize>>10, enospc);
 		mutex_exit(&dd->dd_lock);
-		return (error);
+		return (enospc);
 	}
 
 	/* We need to up our estimated delta before dropping dd_lock */
@@ -973,14 +974,17 @@ dsl_dir_set_quota(const char *ddname, uint64_t quota)
 	err = dsl_dir_open(ddname, FTAG, &dd, NULL);
 	if (err)
 		return (err);
-	/*
-	 * If someone removes a file, then tries to set the quota, we
-	 * want to make sure the file freeing takes effect.
-	 */
-	txg_wait_open(dd->dd_pool, 0);
 
-	err = dsl_sync_task_do(dd->dd_pool, dsl_dir_set_quota_check,
-	    dsl_dir_set_quota_sync, dd, &quota, 0);
+	if (quota != dd->dd_phys->dd_quota) {
+		/*
+		 * If someone removes a file, then tries to set the quota, we
+		 * want to make sure the file freeing takes effect.
+		 */
+		txg_wait_open(dd->dd_pool, 0);
+
+		err = dsl_sync_task_do(dd->dd_pool, dsl_dir_set_quota_check,
+		    dsl_dir_set_quota_sync, dd, &quota, 0);
+	}
 	dsl_dir_close(dd, FTAG);
 	return (err);
 }

@@ -62,8 +62,8 @@ typedef int	vdev_open_func_t(vdev_t *vd, uint64_t *size, uint64_t *ashift);
 typedef void	vdev_close_func_t(vdev_t *vd);
 typedef int	vdev_probe_func_t(vdev_t *vd);
 typedef uint64_t vdev_asize_func_t(vdev_t *vd, uint64_t psize);
-typedef void	vdev_io_start_func_t(zio_t *zio);
-typedef void	vdev_io_done_func_t(zio_t *zio);
+typedef int	vdev_io_start_func_t(zio_t *zio);
+typedef int	vdev_io_done_func_t(zio_t *zio);
 typedef void	vdev_state_change_func_t(vdev_t *vd, int, int);
 
 typedef struct vdev_ops {
@@ -168,6 +168,7 @@ struct vdev {
 	uint8_t		vdev_tmpoffline; /* device taken offline temporarily? */
 	uint8_t		vdev_detached;	/* device detached?		*/
 	uint64_t	vdev_isspare;	/* was a hot spare		*/
+	uint64_t	vdev_isl2cache;	/* was a l2cache device		*/
 	vdev_queue_t	vdev_queue;	/* I/O deadline schedule queue	*/
 	vdev_cache_t	vdev_cache;	/* physical block cache		*/
 	uint64_t	vdev_not_present; /* not present during import	*/
@@ -249,6 +250,7 @@ typedef struct vdev_label {
 #define	VDEV_ALLOC_LOAD		0
 #define	VDEV_ALLOC_ADD		1
 #define	VDEV_ALLOC_SPARE	2
+#define	VDEV_ALLOC_L2CACHE	3
 
 /*
  * Allocate or free a vdev

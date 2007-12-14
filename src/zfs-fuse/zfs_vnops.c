@@ -52,11 +52,9 @@
 #include <sys/cmn_err.h>
 #include <sys/errno.h>
 #include <sys/unistd.h>
-#include <sys/zfs_vfsops.h>
 #include <sys/zfs_dir.h>
 #include <sys/zfs_acl.h>
 #include <sys/zfs_ioctl.h>
-#include <sys/zfs_i18n.h>
 #include <sys/fs/zfs.h>
 #include <sys/dmu.h>
 #include <sys/spa.h>
@@ -75,6 +73,7 @@
 #include <sys/extdirent.h>
 #include <sys/kidmap.h>
 #include <sys/cred_impl.h>
+#include <sys/attr.h>
 
 /*
  * Programming rules.
@@ -1056,7 +1055,7 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 		return (error);
 	}
 
-	if (zfsvfs->z_case & ZFS_UTF8_ONLY && u8_validate(nm, strlen(nm),
+	if (zfsvfs->z_utf8 && u8_validate(nm, strlen(nm),
 	    NULL, U8_VALIDATE_ENTIRE, &error) < 0) {
 		ZFS_EXIT(zfsvfs);
 		return (EILSEQ);
@@ -1121,7 +1120,6 @@ zfs_create(vnode_t *dvp, char *name, vattr_t *vap, vcexcl_t excl,
 	zfs_dirlock_t	*dl;
 	dmu_tx_t	*tx;
 	int		error;
-	uint64_t	zoid;
 	zfs_acl_t	*aclp = NULL;
 	zfs_fuid_info_t *fuidp = NULL;
 
@@ -1140,7 +1138,7 @@ zfs_create(vnode_t *dvp, char *name, vattr_t *vap, vcexcl_t excl,
 	os = zfsvfs->z_os;
 	zilog = zfsvfs->z_log;
 
-	if (zfsvfs->z_case & ZFS_UTF8_ONLY && u8_validate(name, strlen(name),
+	if (zfsvfs->z_utf8 && u8_validate(name, strlen(name),
 	    NULL, U8_VALIDATE_ENTIRE, &error) < 0) {
 		ZFS_EXIT(zfsvfs);
 		return (EILSEQ);
@@ -1194,7 +1192,6 @@ top:
 			return (error);
 		}
 	}
-	zoid = zp ? zp->z_id : -1ULL;
 
 	if (zp == NULL) {
 		uint64_t txtype;
@@ -1250,8 +1247,7 @@ top:
 				zfs_acl_free(aclp);
 			return (error);
 		}
-		zfs_mknode(dzp, vap, &zoid, tx, cr, 0, &zp, 0, aclp, &fuidp);
-		ASSERT(zp->z_id == zoid);
+		zfs_mknode(dzp, vap, tx, cr, 0, &zp, 0, aclp, &fuidp);
 		(void) zfs_link_create(dl, zp, tx, ZNEW);
 		txtype = zfs_log_create_txtype(Z_FILE, vsecp, vap);
 		if (flag & FIGNORECASE)
@@ -1507,7 +1503,6 @@ top:
 		mutex_exit(&vp->v_lock);
 		mutex_exit(&zp->z_lock);
 		zfs_znode_delete(zp, tx);
-		VFS_RELE(zfsvfs->z_vfs);
 	} else if (unlinked) {
 		zfs_unlinked_add(zp, tx);
 	}
@@ -1564,7 +1559,6 @@ zfs_mkdir(vnode_t *dvp, char *dirname, vattr_t *vap, vnode_t **vpp, cred_t *cr,
 	zfsvfs_t	*zfsvfs = dzp->z_zfsvfs;
 	zilog_t		*zilog;
 	zfs_dirlock_t	*dl;
-	uint64_t	zoid = 0;
 	uint64_t	txtype;
 	dmu_tx_t	*tx;
 	int		error;
@@ -1593,7 +1587,7 @@ zfs_mkdir(vnode_t *dvp, char *dirname, vattr_t *vap, vnode_t **vpp, cred_t *cr,
 		return (EINVAL);
 	}
 
-	if (zfsvfs->z_case & ZFS_UTF8_ONLY && u8_validate(dirname,
+	if (zfsvfs->z_utf8 && u8_validate(dirname,
 	    strlen(dirname), NULL, U8_VALIDATE_ENTIRE, &error) < 0) {
 		ZFS_EXIT(zfsvfs);
 		return (EILSEQ);
@@ -1671,7 +1665,7 @@ top:
 	/*
 	 * Create new node.
 	 */
-	zfs_mknode(dzp, vap, &zoid, tx, cr, 0, &zp, 0, aclp, &fuidp);
+	zfs_mknode(dzp, vap, tx, cr, 0, &zp, 0, aclp, &fuidp);
 
 	if (aclp)
 		zfs_acl_free(aclp);
@@ -1868,6 +1862,7 @@ zfs_readdir(vnode_t *vp, uio_t *uio, cred_t *cr, int *eofp,
 	int		outcount;
 	int		error;
 	uint8_t		prefetch;
+	boolean_t	check_sysattrs;
 
 	ZFS_ENTER(zfsvfs);
 	ZFS_VERIFY_ZP(zp);
@@ -1931,6 +1926,16 @@ zfs_readdir(vnode_t *vp, uio_t *uio, cred_t *cr, int *eofp,
 	eodp = (struct edirent *)odp;
 
 	/*
+	 * If this VFS supports system attributes; and we're looking at an
+	 * extended attribute directory; and we care about normalization
+	 * conflicts on this vfs; then we must check for normalization
+	 * conflicts with the sysattr name space.
+	 */
+	check_sysattrs = vfs_has_feature(vp->v_vfsp, VFSFT_XVATTR) &&
+	    (vp->v_flag & V_XATTRDIR) && zfsvfs->z_norm &&
+	    (flags & V_RDDIR_ENTFLAGS);
+
+	/*
 	 * Transform to file-system independent format
 	 */
 	outcount = 0;
@@ -1980,6 +1985,11 @@ zfs_readdir(vnode_t *vp, uio_t *uio, cred_t *cr, int *eofp,
 			 * MacOS X can extract the object type here such as:
 			 * uint8_t type = ZFS_DIRENT_TYPE(zap.za_first_integer);
 			 */
+
+			if (check_sysattrs && !zap.za_normalization_conflict) {
+				zap.za_normalization_conflict =
+				    xattr_sysattr_casechk(zap.za_name);
+			}
 		}
 
 		if (flags & V_RDDIR_ENTFLAGS)
@@ -2352,14 +2362,20 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 	if (zfsvfs->z_use_fuids == B_FALSE &&
 	    (((mask & AT_UID) && IS_EPHEMERAL(vap->va_uid)) ||
 	    ((mask & AT_GID) && IS_EPHEMERAL(vap->va_gid)) ||
-	    (mask & AT_XVATTR)))
+	    (mask & AT_XVATTR))) {
+		ZFS_EXIT(zfsvfs);
 		return (EINVAL);
+	}
 
-	if (mask & AT_SIZE && vp->v_type == VDIR)
+	if (mask & AT_SIZE && vp->v_type == VDIR) {
+		ZFS_EXIT(zfsvfs);
 		return (EISDIR);
+	}
 
-	if (mask & AT_SIZE && vp->v_type != VREG && vp->v_type != VFIFO)
+	if (mask & AT_SIZE && vp->v_type != VREG && vp->v_type != VFIFO) {
+		ZFS_EXIT(zfsvfs);
 		return (EINVAL);
+	}
 
 	/*
 	 * If this is an xvattr_t, then get a pointer to the structure of
@@ -2372,11 +2388,15 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 	 */
 	if ((pzp->zp_flags & ZFS_IMMUTABLE) &&
 	    ((mask & (AT_SIZE|AT_UID|AT_GID|AT_MTIME|AT_MODE)) ||
-	    ((mask & AT_XVATTR) && XVA_ISSET_REQ(xvap, XAT_CREATETIME))))
+	    ((mask & AT_XVATTR) && XVA_ISSET_REQ(xvap, XAT_CREATETIME)))) {
+		ZFS_EXIT(zfsvfs);
 		return (EPERM);
+	}
 
-	if ((mask & AT_SIZE) && (pzp->zp_flags & ZFS_READONLY))
+	if ((mask & AT_SIZE) && (pzp->zp_flags & ZFS_READONLY)) {
+		ZFS_EXIT(zfsvfs);
 		return (EPERM);
+	}
 
 top:
 	attrzp = NULL;
@@ -2489,9 +2509,10 @@ top:
 		    (XVA_ISSET_REQ(xvap, XAT_AV_MODIFIED) &&
 		    xoap->xoa_av_modified !=
 		    ((pzp->zp_flags & ZFS_AV_MODIFIED) != 0)) ||
-		    (XVA_ISSET_REQ(xvap, XAT_AV_QUARANTINED) &&
+		    ((XVA_ISSET_REQ(xvap, XAT_AV_QUARANTINED) &&
+		    ((vp->v_type != VREG && xoap->xoa_av_quarantined) ||
 		    xoap->xoa_av_quarantined !=
-		    ((pzp->zp_flags & ZFS_AV_QUARANTINED) != 0)) ||
+		    ((pzp->zp_flags & ZFS_AV_QUARANTINED) != 0)))) ||
 		    (XVA_ISSET_REQ(xvap, XAT_AV_SCANSTAMP)) ||
 		    (XVA_ISSET_REQ(xvap, XAT_OPAQUE))) {
 			need_policy = TRUE;
@@ -2843,7 +2864,7 @@ zfs_rename(vnode_t *sdvp, char *snm, vnode_t *tdvp, char *tnm, cred_t *cr,
 
 	tdzp = VTOZ(tdvp);
 	ZFS_VERIFY_ZP(tdzp);
-	if (zfsvfs->z_case & ZFS_UTF8_ONLY && u8_validate(tnm,
+	if (zfsvfs->z_utf8 && u8_validate(tnm,
 	    strlen(tnm), NULL, U8_VALIDATE_ENTIRE, &error) < 0) {
 		ZFS_EXIT(zfsvfs);
 		return (EILSEQ);
@@ -2886,7 +2907,7 @@ top:
 		int nofold = (zfsvfs->z_norm & ~U8_TEXTPREP_TOUPPER);
 
 		cmp = u8_strcmp(snm, tnm, 0, nofold, U8_UNICODE_LATEST, &error);
-		ASSERT(error == 0 || !(zfsvfs->z_case & ZFS_UTF8_ONLY));
+		ASSERT(error == 0 || !zfsvfs->z_utf8);
 		if (cmp == 0) {
 			/*
 			 * POSIX: "If the old argument and the new argument
@@ -2915,8 +2936,9 @@ top:
 		 * is an exact match, we will allow this to proceed as
 		 * a name-change request.
 		 */
-		if ((zfsvfs->z_case & ZFS_CI_ONLY ||
-		    (zfsvfs->z_case & ZFS_CI_MIXD && flags & FIGNORECASE)) &&
+		if ((zfsvfs->z_case == ZFS_CASE_INSENSITIVE ||
+		    (zfsvfs->z_case == ZFS_CASE_MIXED &&
+		    flags & FIGNORECASE)) &&
 		    u8_strcmp(snm, tnm, 0, zfsvfs->z_norm, U8_UNICODE_LATEST,
 		    &error) == 0) {
 			/*
@@ -3113,7 +3135,6 @@ zfs_symlink(vnode_t *dvp, char *name, vattr_t *vap, char *link, cred_t *cr,
 	dmu_tx_t	*tx;
 	zfsvfs_t	*zfsvfs = dzp->z_zfsvfs;
 	zilog_t		*zilog;
-	uint64_t	zoid;
 	int		len = strlen(link);
 	int		error;
 	int		zflg = ZNEW;
@@ -3125,7 +3146,7 @@ zfs_symlink(vnode_t *dvp, char *name, vattr_t *vap, char *link, cred_t *cr,
 	ZFS_VERIFY_ZP(dzp);
 	zilog = zfsvfs->z_log;
 
-	if (zfsvfs->z_case & ZFS_UTF8_ONLY && u8_validate(name, strlen(name),
+	if (zfsvfs->z_utf8 && u8_validate(name, strlen(name),
 	    NULL, U8_VALIDATE_ENTIRE, &error) < 0) {
 		ZFS_EXIT(zfsvfs);
 		return (EILSEQ);
@@ -3188,22 +3209,22 @@ top:
 	 * Put the link content into bonus buffer if it will fit;
 	 * otherwise, store it just like any other file data.
 	 */
-	zoid = 0;
 	if (sizeof (znode_phys_t) + len <= dmu_bonus_max()) {
-		zfs_mknode(dzp, vap, &zoid, tx, cr, 0, &zp, len, NULL, &fuidp);
+		zfs_mknode(dzp, vap, tx, cr, 0, &zp, len, NULL, &fuidp);
 		if (len != 0)
 			bcopy(link, zp->z_phys + 1, len);
 	} else {
 		dmu_buf_t *dbp;
 
-		zfs_mknode(dzp, vap, &zoid, tx, cr, 0, &zp, 0, NULL, &fuidp);
+		zfs_mknode(dzp, vap, tx, cr, 0, &zp, 0, NULL, &fuidp);
 		/*
 		 * Nothing can access the znode yet so no locking needed
 		 * for growing the znode's blocksize.
 		 */
 		zfs_grow_blocksize(zp, len, tx);
 
-		VERIFY(0 == dmu_buf_hold(zfsvfs->z_os, zoid, 0, FTAG, &dbp));
+		VERIFY(0 == dmu_buf_hold(zfsvfs->z_os,
+		    zp->z_id, 0, FTAG, &dbp));
 		dmu_buf_will_dirty(dbp, tx);
 
 		ASSERT3U(len, <=, dbp->db_size);
@@ -3334,7 +3355,7 @@ zfs_link(vnode_t *tdvp, vnode_t *svp, char *name, cred_t *cr,
 	szp = VTOZ(svp);
 	ZFS_VERIFY_ZP(szp);
 
-	if (zfsvfs->z_case & ZFS_UTF8_ONLY && u8_validate(name,
+	if (zfsvfs->z_utf8 && u8_validate(name,
 	    strlen(name), NULL, U8_VALIDATE_ENTIRE, &error) < 0) {
 		ZFS_EXIT(zfsvfs);
 		return (EILSEQ);
@@ -3643,7 +3664,11 @@ zfs_inactive(vnode_t *vp, cred_t *cr, caller_context_t *ct)
 	int error;
 
 	rw_enter(&zfsvfs->z_teardown_inactive_lock, RW_READER);
-	if (zp->z_dbuf_held == 0) {
+	if (zp->z_dbuf == NULL) {
+		/*
+		 * The fs has been unmounted, or we did a
+		 * suspend/resume and this file no longer exists.
+		 */
 		if (vn_has_cached_data(vp)) {
 			(void) pvn_vplist_dirty(vp, 0, zfs_null_putapage,
 			    B_INVAL, cr);
@@ -3651,14 +3676,9 @@ zfs_inactive(vnode_t *vp, cred_t *cr, caller_context_t *ct)
 
 		mutex_enter(&zp->z_lock);
 		vp->v_count = 0; /* count arrives as 1 */
-		if (zp->z_dbuf == NULL) {
-			mutex_exit(&zp->z_lock);
-			zfs_znode_free(zp);
-		} else {
-			mutex_exit(&zp->z_lock);
-		}
+		mutex_exit(&zp->z_lock);
 		rw_exit(&zfsvfs->z_teardown_inactive_lock);
-		VFS_RELE(zfsvfs->z_vfs);
+		zfs_znode_free(zp);
 		return;
 	}
 
@@ -4283,7 +4303,6 @@ zfs_pathconf(vnode_t *vp, int cmd, ulong_t *valp, cred_t *cr,
 
 	case _PC_SATTR_ENABLED:
 	case _PC_SATTR_EXISTS:
-		zp = VTOZ(vp);
 		*valp = vfs_has_feature(vp->v_vfsp, VFSFT_XVATTR) &&
 		    (vp->v_type == VREG || vp->v_type == VDIR);
 		return (0);

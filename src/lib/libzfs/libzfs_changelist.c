@@ -22,6 +22,8 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ *
+ * Portions Copyright 2007 Ramprakash Jelari
  */
 
 
@@ -65,6 +67,7 @@ typedef struct prop_changenode {
 	int			cn_shared;
 	int			cn_mounted;
 	int			cn_zoned;
+	boolean_t		cn_needpost;	/* is postfix() needed? */
 	uu_list_node_t		cn_listnode;
 } prop_changenode_t;
 
@@ -98,6 +101,13 @@ changelist_prefix(prop_changelist_t *clp)
 
 	for (cn = uu_list_first(clp->cl_list); cn != NULL;
 	    cn = uu_list_next(clp->cl_list, cn)) {
+
+		/* if a previous loop failed, set the remaining to false */
+		if (ret == -1) {
+			cn->cn_needpost = B_FALSE;
+			continue;
+		}
+
 		/*
 		 * If we are in the global zone, but this dataset is exported
 		 * to a local zone, do nothing.
@@ -115,8 +125,11 @@ changelist_prefix(prop_changelist_t *clp)
 				(void) zfs_unshare_iscsi(cn->cn_handle);
 
 				if (zvol_remove_link(cn->cn_handle->zfs_hdl,
-				    cn->cn_handle->zfs_name) != 0)
+				    cn->cn_handle->zfs_name) != 0) {
 					ret = -1;
+					cn->cn_needpost = B_FALSE;
+					(void) zfs_share_iscsi(cn->cn_handle);
+				}
 				break;
 
 			case ZFS_PROP_VOLSIZE:
@@ -130,8 +143,12 @@ changelist_prefix(prop_changelist_t *clp)
 		} else if (zfs_unmount(cn->cn_handle, NULL,
 		    clp->cl_flags) != 0) {
 			ret = -1;
+			cn->cn_needpost = B_FALSE;
 		}
 	}
+
+	if (ret == -1)
+		(void) changelist_postfix(clp);
 
 	return (ret);
 }
@@ -150,7 +167,7 @@ changelist_postfix(prop_changelist_t *clp)
 {
 	prop_changenode_t *cn;
 	char shareopts[ZFS_MAXPROPLEN];
-	int ret = 0;
+	int errors = 0;
 	libzfs_handle_t *hdl;
 
 	/*
@@ -180,7 +197,8 @@ changelist_postfix(prop_changelist_t *clp)
 
 	/*
 	 * We walk the datasets in reverse, because we want to mount any parent
-	 * datasets before mounting the children.
+	 * datasets before mounting the children.  We walk all datasets even if
+	 * there are errors.
 	 */
 	for (cn = uu_list_last(clp->cl_list); cn != NULL;
 	    cn = uu_list_prev(clp->cl_list, cn)) {
@@ -195,6 +213,11 @@ changelist_postfix(prop_changelist_t *clp)
 		if (getzoneid() == GLOBAL_ZONEID && cn->cn_zoned)
 			continue;
 
+		/* Only do post-processing if it's required */
+		if (!cn->cn_needpost)
+			continue;
+		cn->cn_needpost = B_FALSE;
+
 		zfs_refresh_properties(cn->cn_handle);
 
 		if (ZFS_IS_VOLUME(cn->cn_handle)) {
@@ -205,7 +228,7 @@ changelist_postfix(prop_changelist_t *clp)
 			if (clp->cl_realprop == ZFS_PROP_NAME &&
 			    zvol_create_link(cn->cn_handle->zfs_hdl,
 			    cn->cn_handle->zfs_name) != 0) {
-				ret = -1;
+				errors++;
 			} else if (cn->cn_shared ||
 			    clp->cl_prop == ZFS_PROP_SHAREISCSI) {
 				if (zfs_prop_get(cn->cn_handle,
@@ -213,9 +236,11 @@ changelist_postfix(prop_changelist_t *clp)
 				    sizeof (shareopts), NULL, NULL, 0,
 				    B_FALSE) == 0 &&
 				    strcmp(shareopts, "off") == 0) {
-					ret = zfs_unshare_iscsi(cn->cn_handle);
+					errors +=
+					    zfs_unshare_iscsi(cn->cn_handle);
 				} else {
-					ret = zfs_share_iscsi(cn->cn_handle);
+					errors +=
+					    zfs_share_iscsi(cn->cn_handle);
 				}
 			}
 
@@ -237,26 +262,23 @@ changelist_postfix(prop_changelist_t *clp)
 		if ((cn->cn_mounted || clp->cl_waslegacy || sharenfs ||
 		    sharesmb) && !zfs_is_mounted(cn->cn_handle, NULL) &&
 		    zfs_mount(cn->cn_handle, NULL, 0) != 0)
-			ret = -1;
+			errors++;
 
 		/*
 		 * We always re-share even if the filesystem is currently
 		 * shared, so that we can adopt any new options.
 		 */
-		if (cn->cn_shared || clp->cl_waslegacy ||
-		    sharenfs || sharesmb) {
-			if (sharenfs)
-				ret = zfs_share_nfs(cn->cn_handle);
-			else
-				ret = zfs_unshare_nfs(cn->cn_handle, NULL);
-			if (sharesmb)
-				ret = zfs_share_smb(cn->cn_handle);
-			else
-				ret = zfs_unshare_smb(cn->cn_handle, NULL);
-		}
+		if (sharenfs)
+			errors += zfs_share_nfs(cn->cn_handle);
+		else if (cn->cn_shared || clp->cl_waslegacy)
+			errors += zfs_unshare_nfs(cn->cn_handle, NULL);
+		if (sharesmb)
+			errors += zfs_share_smb(cn->cn_handle);
+		else if (cn->cn_shared || clp->cl_waslegacy)
+			errors += zfs_unshare_smb(cn->cn_handle, NULL);
 	}
 
-	return (ret);
+	return (errors ? -1 : 0);
 }
 
 /*
@@ -447,6 +469,7 @@ change_one(zfs_handle_t *zhp, void *data)
 		cn->cn_mounted = zfs_is_mounted(zhp, NULL);
 		cn->cn_shared = zfs_is_shared(zhp);
 		cn->cn_zoned = zfs_prop_get_int(zhp, ZFS_PROP_ZONED);
+		cn->cn_needpost = B_TRUE;
 
 		/* Indicate if any child is exported to a local zone. */
 		if (getzoneid() == GLOBAL_ZONEID && cn->cn_zoned)
@@ -639,6 +662,7 @@ changelist_gather(zfs_handle_t *zhp, zfs_prop_t prop, int flags)
 	cn->cn_mounted = zfs_is_mounted(temp, NULL);
 	cn->cn_shared = zfs_is_shared(temp);
 	cn->cn_zoned = zfs_prop_get_int(zhp, ZFS_PROP_ZONED);
+	cn->cn_needpost = B_TRUE;
 
 	uu_list_node_init(cn, &cn->cn_listnode, clp->cl_pool);
 	if (clp->cl_sorted) {

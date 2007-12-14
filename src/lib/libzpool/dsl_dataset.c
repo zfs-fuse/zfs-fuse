@@ -374,6 +374,34 @@ dsl_dataset_open_obj(dsl_pool_t *dp, uint64_t dsobj, const char *snapname,
 			}
 		}
 
+		if (!dsl_dataset_is_snapshot(ds)) {
+			/*
+			 * In sync context, we're called with either no lock
+			 * or with the write lock.  If we're not syncing,
+			 * we're always called with the read lock held.
+			 */
+			boolean_t need_lock =
+			    !RW_WRITE_HELD(&dp->dp_config_rwlock) &&
+			    dsl_pool_sync_context(dp);
+
+			if (need_lock)
+				rw_enter(&dp->dp_config_rwlock, RW_READER);
+
+			err = dsl_prop_get_ds_locked(ds->ds_dir,
+			    "refreservation", sizeof (uint64_t), 1,
+			    &ds->ds_reserved, NULL);
+			if (err == 0) {
+				err = dsl_prop_get_ds_locked(ds->ds_dir,
+				    "refquota", sizeof (uint64_t), 1,
+				    &ds->ds_quota, NULL);
+			}
+
+			if (need_lock)
+				rw_exit(&dp->dp_config_rwlock);
+		} else {
+			ds->ds_reserved = ds->ds_quota = 0;
+		}
+
 		if (err == 0) {
 			winner = dmu_buf_set_user_ie(dbuf, ds, &ds->ds_phys,
 			    dsl_dataset_evict);
@@ -397,24 +425,6 @@ dsl_dataset_open_obj(dsl_pool_t *dp, uint64_t dsobj, const char *snapname,
 		} else {
 			ds->ds_fsid_guid =
 			    unique_insert(ds->ds_phys->ds_fsid_guid);
-		}
-
-		if (!dsl_dataset_is_snapshot(ds)) {
-			boolean_t need_lock =
-			    !RW_LOCK_HELD(&dp->dp_config_rwlock);
-
-			if (need_lock)
-				rw_enter(&dp->dp_config_rwlock, RW_READER);
-			VERIFY(0 == dsl_prop_get_ds_locked(ds->ds_dir,
-			    "refreservation", sizeof (uint64_t), 1,
-			    &ds->ds_reserved, NULL));
-			VERIFY(0 == dsl_prop_get_ds_locked(ds->ds_dir,
-			    "refquota", sizeof (uint64_t), 1, &ds->ds_quota,
-			    NULL));
-			if (need_lock)
-				rw_exit(&dp->dp_config_rwlock);
-		} else {
-			ds->ds_reserved = ds->ds_quota = 0;
 		}
 	}
 	ASSERT3P(ds->ds_dbuf, ==, dbuf);
@@ -1133,6 +1143,7 @@ dsl_dataset_rollback_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 		zio_t *zio;
 		int64_t used = 0, compressed = 0, uncompressed = 0;
 		struct killarg ka;
+		int64_t delta;
 
 		zio = zio_root(tx->tx_pool->dp_spa, NULL, NULL,
 		    ZIO_FLAG_MUSTSUCCEED);
@@ -1145,8 +1156,10 @@ dsl_dataset_rollback_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 		    ADVANCE_POST, kill_blkptr, &ka);
 		(void) zio_wait(zio);
 
+		/* only deduct space beyond any refreservation */
+		delta = parent_delta(ds, -used);
 		dsl_dir_diduse_space(ds->ds_dir,
-		    -used, -compressed, -uncompressed, tx);
+		    delta, -compressed, -uncompressed, tx);
 	}
 
 	if (ds->ds_prev) {
@@ -1757,17 +1770,17 @@ dsl_dataset_fast_stat(dsl_dataset_t *ds, dmu_objset_stats_t *stat)
 	}
 
 	/* clone origin is really a dsl_dir thing... */
+	rw_enter(&ds->ds_dir->dd_pool->dp_config_rwlock, RW_READER);
 	if (ds->ds_dir->dd_phys->dd_origin_obj) {
 		dsl_dataset_t *ods;
 
-		rw_enter(&ds->ds_dir->dd_pool->dp_config_rwlock, RW_READER);
 		VERIFY(0 == dsl_dataset_open_obj(ds->ds_dir->dd_pool,
 		    ds->ds_dir->dd_phys->dd_origin_obj,
 		    NULL, DS_MODE_NONE, FTAG, &ods));
 		dsl_dataset_name(ods, stat->dds_origin);
 		dsl_dataset_close(ods, DS_MODE_NONE, FTAG);
-		rw_exit(&ds->ds_dir->dd_pool->dp_config_rwlock);
 	}
+	rw_exit(&ds->ds_dir->dd_pool->dp_config_rwlock);
 }
 
 uint64_t
@@ -2332,6 +2345,7 @@ struct cloneswaparg {
 	dsl_dataset_t *cds; /* clone dataset */
 	dsl_dataset_t *ohds; /* origin's head dataset */
 	boolean_t force;
+	int64_t unused_refres_delta; /* change in unconsumed refreservation */
 };
 
 /* ARGSUSED */
@@ -2361,6 +2375,19 @@ dsl_dataset_clone_swap_check(void *arg1, void *arg2, dmu_tx_t *tx)
 	/* ohds shouldn't be modified unless 'force' */
 	if (!csa->force && dsl_dataset_modified_since_lastsnap(csa->ohds))
 		return (ETXTBSY);
+
+	/* adjust amount of any unconsumed refreservation */
+	csa->unused_refres_delta =
+	    (int64_t)MIN(csa->ohds->ds_reserved,
+	    csa->ohds->ds_phys->ds_unique_bytes) -
+	    (int64_t)MIN(csa->ohds->ds_reserved,
+	    csa->cds->ds_phys->ds_unique_bytes);
+
+	if (csa->unused_refres_delta > 0 &&
+	    csa->unused_refres_delta >
+	    dsl_dir_space_available(csa->ohds->ds_dir, NULL, 0, TRUE))
+		return (ENOSPC);
+
 	return (0);
 }
 
@@ -2375,8 +2402,8 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	uint64_t unique = 0;
 	int err;
 
-	if (csa->ohds->ds_reserved)
-		panic("refreservation and clone swap are incompatible");
+	ASSERT(csa->cds->ds_reserved == 0);
+	ASSERT(csa->cds->ds_quota == csa->ohds->ds_quota);
 
 	dmu_buf_will_dirty(csa->cds->ds_dbuf, tx);
 	dmu_buf_will_dirty(csa->ohds->ds_dbuf, tx);
@@ -2400,13 +2427,6 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 			unique += bp_get_dasize(dp->dp_spa, &bp);
 	}
 	VERIFY(err == ENOENT);
-
-	/* undo any accounting due to a refreservation */
-	if (csa->ohds->ds_reserved > csa->ohds->ds_phys->ds_unique_bytes) {
-		dsl_dir_diduse_space(csa->ohds->ds_dir,
-		    csa->ohds->ds_phys->ds_unique_bytes -
-		    csa->ohds->ds_reserved, 0, 0, tx);
-	}
 
 	/* reset origin's unique bytes */
 	csa->cds->ds_prev->ds_phys->ds_unique_bytes = unique;
@@ -2450,13 +2470,6 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 		(y) = __tmp; \
 	}
 
-	/* redo any accounting due to a refreservation */
-	if (csa->ohds->ds_reserved > csa->ohds->ds_phys->ds_unique_bytes) {
-		dsl_dir_diduse_space(csa->ohds->ds_dir,
-		    csa->ohds->ds_reserved -
-		    csa->ohds->ds_phys->ds_unique_bytes, 0, 0, tx);
-	}
-
 	/* swap ds_*_bytes */
 	SWITCH64(csa->ohds->ds_phys->ds_used_bytes,
 	    csa->cds->ds_phys->ds_used_bytes);
@@ -2464,6 +2477,12 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	    csa->cds->ds_phys->ds_compressed_bytes);
 	SWITCH64(csa->ohds->ds_phys->ds_uncompressed_bytes,
 	    csa->cds->ds_phys->ds_uncompressed_bytes);
+	SWITCH64(csa->ohds->ds_phys->ds_unique_bytes,
+	    csa->cds->ds_phys->ds_unique_bytes);
+
+	/* apply any parent delta for change in unconsumed refreservation */
+	dsl_dir_diduse_space(csa->ohds->ds_dir, csa->unused_refres_delta,
+	    0, 0, tx);
 
 	/* swap deadlists */
 	bplist_close(&csa->cds->ds_deadlist);
@@ -2474,13 +2493,10 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	    csa->cds->ds_phys->ds_deadlist_obj));
 	VERIFY(0 == bplist_open(&csa->ohds->ds_deadlist, dp->dp_meta_objset,
 	    csa->ohds->ds_phys->ds_deadlist_obj));
-	/* fix up clone's unique */
-	dsl_dataset_recalc_head_uniq(csa->cds);
-
 }
 
 /*
- * Swap the clone "cosname" with its origin head file system.
+ * Swap 'clone' with its origin head file system.
  */
 int
 dsl_dataset_clone_swap(dsl_dataset_t *clone, dsl_dataset_t *origin_head,
@@ -2620,14 +2636,17 @@ dsl_dataset_set_quota(const char *dsname, uint64_t quota)
 	if (err)
 		return (err);
 
-	/*
-	 * If someone removes a file, then tries to set the quota, we
-	 * want to make sure the file freeing takes effect.
-	 */
-	txg_wait_open(ds->ds_dir->dd_pool, 0);
+	if (quota != ds->ds_quota) {
+		/*
+		 * If someone removes a file, then tries to set the quota, we
+		 * want to make sure the file freeing takes effect.
+		 */
+		txg_wait_open(ds->ds_dir->dd_pool, 0);
 
-	err = dsl_sync_task_do(ds->ds_dir->dd_pool, dsl_dataset_set_quota_check,
-	    dsl_dataset_set_quota_sync, ds, &quota, 0);
+		err = dsl_sync_task_do(ds->ds_dir->dd_pool,
+		    dsl_dataset_set_quota_check, dsl_dataset_set_quota_sync,
+		    ds, &quota, 0);
+	}
 	dsl_dataset_close(ds, DS_MODE_STANDARD, FTAG);
 	return (err);
 }
