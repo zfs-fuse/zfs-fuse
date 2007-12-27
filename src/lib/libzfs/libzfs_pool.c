@@ -2133,14 +2133,6 @@ zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv)
 		if (strncmp(path, "/dev/", 5) == 0)
 			path += 5;
 
-		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_WHOLE_DISK,
-		    &value) == 0 && value) {
-			char *tmp = zfs_strdup(hdl, path);
-			if (tmp == NULL)
-				return (NULL);
-			tmp[strlen(path) - 2] = '\0';
-			return (tmp);
-		}
 	} else {
 		verify(nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &path) == 0);
 
