@@ -1,7 +1,12 @@
 \.o$
 \.a$
 \.pyc$
+\.swp$
+\.orig$
 /\.sconsign
+
+/cscope\.files$
+/cscope\.out$
 
 ^src/zfs-fuse/zfs-fuse$
 ^src/zfs-fuse/zfs-fuse$
