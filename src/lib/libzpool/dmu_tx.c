@@ -997,6 +997,7 @@ dmu_tx_commit(dmu_tx_t *tx)
 	refcount_destroy_many(&tx->tx_space_freed,
 	    refcount_count(&tx->tx_space_freed));
 #endif
+	list_destroy(&tx->tx_holds);
 	kmem_free(tx, sizeof (dmu_tx_t));
 }
 
@@ -1021,6 +1022,7 @@ dmu_tx_abort(dmu_tx_t *tx)
 	refcount_destroy_many(&tx->tx_space_freed,
 	    refcount_count(&tx->tx_space_freed));
 #endif
+	list_destroy(&tx->tx_holds);
 	kmem_free(tx, sizeof (dmu_tx_t));
 }
 
