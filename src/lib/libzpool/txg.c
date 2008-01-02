@@ -48,13 +48,16 @@ void
 txg_init(dsl_pool_t *dp, uint64_t txg)
 {
 	tx_state_t *tx = &dp->dp_tx;
-	int c;
+	int c, i;
 	bzero(tx, sizeof (tx_state_t));
 
 	tx->tx_cpu = kmem_zalloc(max_ncpus * sizeof (tx_cpu_t), KM_SLEEP);
 
-	for (c = 0; c < max_ncpus; c++)
+	for (c = 0; c < max_ncpus; c++) {
 		mutex_init(&tx->tx_cpu[c].tc_lock, NULL, MUTEX_DEFAULT, NULL);
+		for (i = 0; i < TXG_SIZE; i++)
+			cv_init(&tx->tx_cpu[c].tc_cv[i], NULL, CV_DEFAULT, NULL);
+	}
 
 	rw_init(&tx->tx_suspend, NULL, RW_DEFAULT, NULL);
 	mutex_init(&tx->tx_sync_lock, NULL, MUTEX_DEFAULT, NULL);
@@ -69,15 +72,18 @@ void
 txg_fini(dsl_pool_t *dp)
 {
 	tx_state_t *tx = &dp->dp_tx;
-	int c;
+	int c, i;
 
 	ASSERT(tx->tx_threads == 0);
 
 	rw_destroy(&tx->tx_suspend);
 	mutex_destroy(&tx->tx_sync_lock);
 
-	for (c = 0; c < max_ncpus; c++)
+	for (c = 0; c < max_ncpus; c++) {
 		mutex_destroy(&tx->tx_cpu[c].tc_lock);
+		for (i = 0; i < TXG_SIZE; i++)
+			cv_destroy(&tx->tx_cpu[c].tc_cv[i]);
+	}
 
 	kmem_free(tx->tx_cpu, max_ncpus * sizeof (tx_cpu_t));
 
