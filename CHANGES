@@ -19,6 +19,7 @@ Bug fixes:
 	* Fix segfault when trying to run as non-root (Ming Zhang).
 	* Linux compatibility fix when trying to remove non-empty directory.
 	* Fix unexpected return codes when working with unlinked files/directories.
+	* Add support for gcc 4.2 (patch by Michal Kowalczuk, some fixes by Roland/devzero).
 
 2007/03/06 - Release 0.4.0_beta1
 --------------------------------------------------
