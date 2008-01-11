@@ -453,7 +453,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 	if (flags & FCREAT)
 		old_umask = umask(0);
 
-	if (S_ISBLK(st.st_mode)) {
+	if (!(flags & FCREAT) && S_ISBLK(st.st_mode)) {
 		flags |= O_DIRECT;
 		if (flags & FWRITE)
 			flags |= O_EXCL;
