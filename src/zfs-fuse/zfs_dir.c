@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -584,6 +584,8 @@ zfs_rmnode(znode_t *zp)
 			 * Not enough space to delete some xattrs.
 			 * Leave it on the unlinked set.
 			 */
+			zfs_znode_dmu_fini(zp);
+			zfs_znode_free(zp);
 			return;
 		}
 	}
@@ -619,7 +621,9 @@ zfs_rmnode(znode_t *zp)
 		 * which point we'll call zfs_unlinked_drain() to process it).
 		 */
 		dmu_tx_abort(tx);
-		return;
+		zfs_znode_dmu_fini(zp);
+		zfs_znode_free(zp);
+		goto out;
 	}
 
 	if (xzp) {
@@ -639,7 +643,7 @@ zfs_rmnode(znode_t *zp)
 	zfs_znode_delete(zp, tx);
 
 	dmu_tx_commit(tx);
-
+out:
 	if (xzp)
 		VN_RELE(ZTOV(xzp));
 }
@@ -901,7 +905,7 @@ top:
 	va.va_mask = AT_TYPE | AT_MODE | AT_UID | AT_GID;
 	va.va_type = VDIR;
 	va.va_mode = S_IFDIR | S_ISVTX | 0777;
-	zfs_fuid_map_ids(zp, &va.va_uid, &va.va_gid);
+	zfs_fuid_map_ids(zp, cr, &va.va_uid, &va.va_gid);
 
 	error = zfs_make_xattrdir(zp, &va, xvpp, cr);
 	zfs_dirent_unlock(dl);
@@ -941,8 +945,8 @@ zfs_sticky_remove_access(znode_t *zdp, znode_t *zp, cred_t *cr)
 	if ((zdp->z_phys->zp_mode & S_ISVTX) == 0)
 		return (0);
 
-	zfs_fuid_map_id(zfsvfs, zdp->z_phys->zp_uid, ZFS_OWNER, &downer);
-	zfs_fuid_map_id(zfsvfs, zp->z_phys->zp_uid, ZFS_OWNER, &fowner);
+	zfs_fuid_map_id(zfsvfs, zdp->z_phys->zp_uid, cr, ZFS_OWNER, &downer);
+	zfs_fuid_map_id(zfsvfs, zp->z_phys->zp_uid, cr, ZFS_OWNER, &fowner);
 
 	if ((uid = crgetuid(cr)) == downer || uid == fowner ||
 	    (ZTOV(zp)->v_type == VREG &&
