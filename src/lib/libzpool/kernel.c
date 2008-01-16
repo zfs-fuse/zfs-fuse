@@ -750,10 +750,11 @@ highbit(ulong_t i)
 	return (h);
 }
 
+static int random_fd = -1, urandom_fd = -1;
+
 static int
-random_get_bytes_common(uint8_t *ptr, size_t len, char *devname)
+random_get_bytes_common(uint8_t *ptr, size_t len, int fd)
 {
-	int fd = open(devname, O_RDONLY);
 	size_t resid = len;
 	ssize_t bytes;
 
@@ -761,12 +762,10 @@ random_get_bytes_common(uint8_t *ptr, size_t len, char *devname)
 
 	while (resid != 0) {
 		bytes = read(fd, ptr, resid);
-		ASSERT(bytes >= 0);
+		ASSERT3S(bytes, >=, 0);
 		ptr += bytes;
 		resid -= bytes;
 	}
-
-	close(fd);
 
 	return (0);
 }
@@ -774,13 +773,13 @@ random_get_bytes_common(uint8_t *ptr, size_t len, char *devname)
 int
 random_get_bytes(uint8_t *ptr, size_t len)
 {
-	return (random_get_bytes_common(ptr, len, "/dev/random"));
+	return (random_get_bytes_common(ptr, len, random_fd));
 }
 
 int
 random_get_pseudo_bytes(uint8_t *ptr, size_t len)
 {
-	return (random_get_bytes_common(ptr, len, "/dev/urandom"));
+	return (random_get_bytes_common(ptr, len, urandom_fd));
 }
 
 int
@@ -822,6 +821,9 @@ kernel_init(int mode)
 	uname(&utsname);
 	snprintf(hw_serial, sizeof (hw_serial), "%ld", gethostid());
 
+	VERIFY((random_fd = open("/dev/random", O_RDONLY)) != -1);
+	VERIFY((urandom_fd = open("/dev/urandom", O_RDONLY)) != -1);
+
 	spa_init(mode);
 }
 
@@ -829,6 +831,12 @@ void
 kernel_fini(void)
 {
 	spa_fini();
+
+	close(random_fd);
+	close(urandom_fd);
+
+	random_fd = -1;
+	urandom_fd = -1;
 }
 
 int

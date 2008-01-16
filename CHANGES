@@ -1,12 +1,13 @@
 ? - Release 0.4.0_beta2
 --------------------------------------------------
-	* Updated ZFS code to Nevada build 80.
+	* Updated ZFS code to Nevada build 81.
 Features:
 	* gzip compression support (upstream).
 	* Filesystems can have multiple copies of data (zfs set fs copies=x) (upstream).
 	* zpool status -v now displays paths of files with permanent errors (upstream).
 	* Separate Intent Log (upstream, not tested!).
 	* Support for quotas and reservations that don't include snapshots and clones (upstream).
+	* Support for level-2 cache devices (upstream, not tested).
 	* Ported to the sparc64 architecture (arkadi).
 	* Implemented zfs send/recv.
 	* Turned zfs-fuse into a real daemon (Cameron Patrick, Bryan Donlan).
