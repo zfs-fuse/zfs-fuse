@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -313,6 +313,7 @@ usage(boolean_t requested)
 {
 	int i;
 	boolean_t show_properties = B_FALSE;
+	boolean_t show_permissions = B_FALSE;
 	FILE *fp = requested ? stdout : stderr;
 
 	if (current_command == NULL) {
@@ -343,6 +344,11 @@ usage(boolean_t requested)
 	    strcmp(current_command->name, "list") == 0))
 		show_properties = B_TRUE;
 
+	if (current_command != NULL &&
+	    (strcmp(current_command->name, "allow") == 0 ||
+	    strcmp(current_command->name, "unallow") == 0))
+		show_permissions = B_TRUE;
+
 	if (show_properties) {
 
 		(void) fprintf(fp,
@@ -359,14 +365,25 @@ usage(boolean_t requested)
 		    "with standard units such as K, M, G, etc.\n"));
 		(void) fprintf(fp, gettext("\n\nUser-defined properties can "
 		    "be specified by using a name containing a colon (:).\n"));
+
+	} else if (show_permissions) {
+		(void) fprintf(fp,
+		    gettext("\nThe following permissions are supported:\n"));
+
+		zfs_deleg_permissions();
 	} else {
 		/*
 		 * TRANSLATION NOTE:
 		 * "zfs set|get" must not be localised this is the
 		 * command name and arguments.
 		 */
+
 		(void) fprintf(fp,
 		    gettext("\nFor the property list, run: zfs set|get\n"));
+
+		(void) fprintf(fp,
+		    gettext("\nFor the delegated permission list, run:"
+		    " zfs allow|unallow\n"));
 	}
 
 	/*
@@ -3385,9 +3402,17 @@ unshare_unmount_path(int op, char *path, int flags, boolean_t is_manual)
 			break;
 	}
 	if (ret != 0) {
-		(void) fprintf(stderr, gettext("cannot %s '%s': not "
-		    "currently mounted\n"), cmdname, path);
-		return (1);
+		if (op == OP_SHARE) {
+			(void) fprintf(stderr, gettext("cannot %s '%s': not "
+			    "currently mounted\n"), cmdname, path);
+			return (1);
+		}
+		(void) fprintf(stderr, gettext("warning: %s not in mnttab\n"),
+		    path);
+		if ((ret = umount2(path, flags)) != 0)
+			(void) fprintf(stderr, gettext("%s: %s\n"), path,
+			    strerror(errno));
+		return (ret != 0);
 	}
 
 	if (strcmp(entry.mnt_fstype, MNTTYPE_ZFS) != 0) {

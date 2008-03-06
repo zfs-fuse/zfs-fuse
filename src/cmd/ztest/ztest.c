@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -2843,7 +2843,8 @@ ztest_verify_blocks(char *pool)
 
 	/* zfs-fuse: ztest is never installed, so zdb should be in ../zdb/ */
 	/* LINTED */
-	(void) sprintf(zdb, "../zdb/zdb -bc%s%s -U -O %s %s",
+	(void) sprintf(zdb,
+	    "../zdb/zdb -bc%s%s -U /tmp/zpool.cache -O %s %s",
 	    zopt_verbose >= 3 ? "s" : "",
 	    zopt_verbose >= 4 ? "v" : "",
 	    ztest_random(2) == 0 ? "pre" : "post", pool);

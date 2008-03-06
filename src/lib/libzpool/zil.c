@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -479,7 +479,12 @@ zil_rollback_destroy(zilog_t *zilog, dmu_tx_t *tx)
 	zilog->zl_destroy_txg = txg;
 	zilog->zl_keep_first = B_FALSE;
 
-	ASSERT(list_is_empty(&zilog->zl_lwb_list));
+	/*
+	 * Ensure there's no outstanding ZIL IO.  No lwbs or just the
+	 * unused one that allocated in advance is ok.
+	 */
+	ASSERT(zilog->zl_lwb_list.list_head.list_next ==
+	    zilog->zl_lwb_list.list_head.list_prev);
 	(void) zil_parse(zilog, zil_free_log_block, zil_free_log_record,
 	    tx, zh->zh_claim_txg);
 }
@@ -526,8 +531,8 @@ zil_claim(char *osname, void *txarg)
 static int
 zil_vdev_compare(const void *x1, const void *x2)
 {
-	const uint64_t *v1 = x1;
-	const uint64_t *v2 = x2;
+	uint64_t v1 = ((zil_vdev_node_t *)x1)->zv_vdev;
+	uint64_t v2 = ((zil_vdev_node_t *)x2)->zv_vdev;
 
 	if (v1 < v2)
 		return (-1);
@@ -861,6 +866,7 @@ zil_itx_create(uint64_t txtype, size_t lrsize)
 	itx = kmem_alloc(offsetof(itx_t, itx_lr) + lrsize, KM_SLEEP);
 	itx->itx_lr.lrc_txtype = txtype;
 	itx->itx_lr.lrc_reclen = lrsize;
+	itx->itx_sod = lrsize; /* if write & WR_NEED_COPY will be increased */
 	itx->itx_lr.lrc_seq = 0;	/* defensive */
 
 	return (itx);
@@ -875,7 +881,7 @@ zil_itx_assign(zilog_t *zilog, itx_t *itx, dmu_tx_t *tx)
 
 	mutex_enter(&zilog->zl_lock);
 	list_insert_tail(&zilog->zl_itx_list, itx);
-	zilog->zl_itx_list_sz += itx->itx_lr.lrc_reclen;
+	zilog->zl_itx_list_sz += itx->itx_sod;
 	itx->itx_lr.lrc_txg = dmu_tx_get_txg(tx);
 	itx->itx_lr.lrc_seq = seq = ++zilog->zl_itx_seq;
 	mutex_exit(&zilog->zl_lock);
@@ -911,7 +917,7 @@ zil_itx_clean(zilog_t *zilog)
 	while ((itx = list_head(&zilog->zl_itx_list)) != NULL &&
 	    itx->itx_lr.lrc_txg <= MIN(synced_txg, freeze_txg)) {
 		list_remove(&zilog->zl_itx_list, itx);
-		zilog->zl_itx_list_sz -= itx->itx_lr.lrc_reclen;
+		zilog->zl_itx_list_sz -= itx->itx_sod;
 		list_insert_tail(&clean_list, itx);
 	}
 	cv_broadcast(&zilog->zl_cv_writer);
@@ -949,7 +955,6 @@ void
 zil_commit_writer(zilog_t *zilog, uint64_t seq, uint64_t foid)
 {
 	uint64_t txg;
-	uint64_t reclen;
 	uint64_t commit_seq = 0;
 	itx_t *itx, *itx_next = (itx_t *)-1;
 	lwb_t *lwb;
@@ -1013,10 +1018,9 @@ zil_commit_writer(zilog_t *zilog, uint64_t seq, uint64_t foid)
 		if (itx == NULL)
 			break;
 
-		reclen = itx->itx_lr.lrc_reclen;
 		if ((itx->itx_lr.lrc_seq > seq) &&
 		    ((lwb == NULL) || (lwb->lwb_nused == 0) ||
-		    (lwb->lwb_nused + reclen > ZIL_BLK_DATA_SZ(lwb)))) {
+		    (lwb->lwb_nused + itx->itx_sod > ZIL_BLK_DATA_SZ(lwb)))) {
 			break;
 		}
 
@@ -1028,6 +1032,7 @@ zil_commit_writer(zilog_t *zilog, uint64_t seq, uint64_t foid)
 		 */
 		itx_next = list_next(&zilog->zl_itx_list, itx);
 		list_remove(&zilog->zl_itx_list, itx);
+		zilog->zl_itx_list_sz -= itx->itx_sod;
 		mutex_exit(&zilog->zl_lock);
 		txg = itx->itx_lr.lrc_txg;
 		ASSERT(txg);
@@ -1038,7 +1043,6 @@ zil_commit_writer(zilog_t *zilog, uint64_t seq, uint64_t foid)
 		kmem_free(itx, offsetof(itx_t, itx_lr)
 		    + itx->itx_lr.lrc_reclen);
 		mutex_enter(&zilog->zl_lock);
-		zilog->zl_itx_list_sz -= reclen;
 	}
 	DTRACE_PROBE1(zil__cw2, zilog_t *, zilog);
 	/* determine commit sequence number */
@@ -1210,6 +1214,9 @@ zil_alloc(objset_t *os, zil_header_t *zh_phys)
 	avl_create(&zilog->zl_vdev_tree, zil_vdev_compare,
 	    sizeof (zil_vdev_node_t), offsetof(zil_vdev_node_t, zv_node));
 
+	cv_init(&zilog->zl_cv_writer, NULL, CV_DEFAULT, NULL);
+	cv_init(&zilog->zl_cv_suspend, NULL, CV_DEFAULT, NULL);
+
 	return (zilog);
 }
 
@@ -1234,6 +1241,9 @@ zil_free(zilog_t *zilog)
 	ASSERT(list_head(&zilog->zl_itx_list) == NULL);
 	list_destroy(&zilog->zl_itx_list);
 	mutex_destroy(&zilog->zl_lock);
+
+	cv_destroy(&zilog->zl_cv_writer);
+	cv_destroy(&zilog->zl_cv_suspend);
 
 	kmem_free(zilog, sizeof (zilog_t));
 }

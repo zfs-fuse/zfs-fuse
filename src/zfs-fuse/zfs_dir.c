@@ -505,7 +505,9 @@ zfs_unlinked_drain(zfsvfs_t *zfsvfs)
 
 /*
  * Delete the entire contents of a directory.  Return a count
- * of the number of entries that could not be deleted.
+ * of the number of entries that could not be deleted. If we encounter
+ * an error, return a count of at least one so that the directory stays
+ * in the unlinked set.
  *
  * NOTE: this function assumes that the directory is inactive,
  *	so there is no need to lock its entries before deletion.
@@ -529,7 +531,10 @@ zfs_purgedir(znode_t *dzp)
 	    zap_cursor_advance(&zc)) {
 		error = zfs_zget(zfsvfs,
 		    ZFS_DIRENT_OBJ(zap.za_first_integer), &xzp, B_FALSE);
-		ASSERT3U(error, ==, 0);
+		if (error) {
+			skipped += 1;
+			continue;
+		}
 
 		ASSERT((ZTOV(xzp)->v_type == VREG) ||
 		    (ZTOV(xzp)->v_type == VLNK));
@@ -551,13 +556,15 @@ zfs_purgedir(znode_t *dzp)
 		dl.dl_name = zap.za_name;
 
 		error = zfs_link_destroy(&dl, xzp, tx, 0, NULL);
-		ASSERT3U(error, ==, 0);
+		if (error)
+			skipped += 1;
 		dmu_tx_commit(tx);
 
 		VN_RELE(ZTOV(xzp));
 	}
 	zap_cursor_fini(&zc);
-	ASSERT(error == ENOENT);
+	if (error != ENOENT)
+		skipped += 1;
 	return (skipped);
 }
 
@@ -817,13 +824,17 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, vnode_t **xvpp, cred_t *cr)
 	tx = dmu_tx_create(zfsvfs->z_os);
 	dmu_tx_hold_bonus(tx, zp->z_id);
 	dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, FALSE, NULL);
-	if (zfsvfs->z_fuid_obj == 0) {
-		dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
-		dmu_tx_hold_write(tx, DMU_NEW_OBJECT, 0, SPA_MAXBLOCKSIZE);
-		dmu_tx_hold_zap(tx, MASTER_NODE_OBJ, FALSE, NULL);
-	} else {
-		dmu_tx_hold_bonus(tx, zfsvfs->z_fuid_obj);
-		dmu_tx_hold_write(tx, zfsvfs->z_fuid_obj, 0, SPA_MAXBLOCKSIZE);
+	if (IS_EPHEMERAL(crgetuid(cr)) || IS_EPHEMERAL(crgetgid(cr))) {
+		if (zfsvfs->z_fuid_obj == 0) {
+			dmu_tx_hold_bonus(tx, DMU_NEW_OBJECT);
+			dmu_tx_hold_write(tx, DMU_NEW_OBJECT, 0,
+			    FUID_SIZE_ESTIMATE(zfsvfs));
+			dmu_tx_hold_zap(tx, MASTER_NODE_OBJ, FALSE, NULL);
+		} else {
+			dmu_tx_hold_bonus(tx, zfsvfs->z_fuid_obj);
+			dmu_tx_hold_write(tx, zfsvfs->z_fuid_obj, 0,
+			    FUID_SIZE_ESTIMATE(zfsvfs));
+		}
 	}
 	error = dmu_tx_assign(tx, zfsvfs->z_assign);
 	if (error) {
@@ -947,8 +958,8 @@ zfs_sticky_remove_access(znode_t *zdp, znode_t *zp, cred_t *cr)
 	if ((zdp->z_phys->zp_mode & S_ISVTX) == 0)
 		return (0);
 
-	zfs_fuid_map_id(zfsvfs, zdp->z_phys->zp_uid, cr, ZFS_OWNER, &downer);
-	zfs_fuid_map_id(zfsvfs, zp->z_phys->zp_uid, cr, ZFS_OWNER, &fowner);
+	downer = zfs_fuid_map_id(zfsvfs, zdp->z_phys->zp_uid, cr, ZFS_OWNER);
+	fowner = zfs_fuid_map_id(zfsvfs, zp->z_phys->zp_uid, cr, ZFS_OWNER);
 
 	if ((uid = crgetuid(cr)) == downer || uid == fowner ||
 	    (ZTOV(zp)->v_type == VREG &&

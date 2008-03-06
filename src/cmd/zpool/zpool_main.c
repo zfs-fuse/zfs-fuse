@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -51,6 +51,7 @@
 #include <libzfs.h>
 
 #include "zpool_util.h"
+#include "zfs_comutil.h"
 
 static int zpool_do_create(int, char **);
 static int zpool_do_destroy(int, char **);
@@ -561,8 +562,6 @@ zpool_do_create(int argc, char **argv)
 	int ret = 1;
 	char *altroot = NULL;
 	char *mountpoint = NULL;
-	nvlist_t **child;
-	uint_t children;
 	nvlist_t *props = NULL;
 	char *propval;
 
@@ -648,9 +647,7 @@ zpool_do_create(int argc, char **argv)
 		return (1);
 
 	/* make_root_vdev() allows 0 toplevel children if there are spares */
-	verify(nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_CHILDREN,
-	    &child, &children) == 0);
-	if (children == 0) {
+	if (!zfs_allocatable_devs(nvroot)) {
 		(void) fprintf(stderr, gettext("invalid vdev "
 		    "specification: at least one toplevel vdev must be "
 		    "specified\n"));
@@ -672,7 +669,7 @@ zpool_do_create(int argc, char **argv)
 	    (strcmp(mountpoint, ZFS_MOUNTPOINT_LEGACY) != 0 &&
 	    strcmp(mountpoint, ZFS_MOUNTPOINT_NONE) != 0)) {
 		char buf[MAXPATHLEN];
-		struct stat64 statbuf;
+		DIR *dirp;
 
 		if (mountpoint && mountpoint[0] != '/') {
 			(void) fprintf(stderr, gettext("invalid mountpoint "
@@ -697,18 +694,27 @@ zpool_do_create(int argc, char **argv)
 				    mountpoint);
 		}
 
-		if (stat64(buf, &statbuf) == 0 &&
-		    statbuf.st_nlink != 2) {
-			if (mountpoint == NULL)
-				(void) fprintf(stderr, gettext("default "
-				    "mountpoint '%s' exists and is not "
-				    "empty\n"), buf);
-			else
-				(void) fprintf(stderr, gettext("mountpoint "
-				    "'%s' exists and is not empty\n"), buf);
+		if ((dirp = opendir(buf)) == NULL && errno != ENOENT) {
+			(void) fprintf(stderr, gettext("mountpoint '%s' : "
+			    "%s\n"), buf, strerror(errno));
 			(void) fprintf(stderr, gettext("use '-m' "
 			    "option to provide a different default\n"));
 			goto errout;
+		} else if (dirp) {
+			int count = 0;
+
+			while (count < 3 && readdir(dirp) != NULL)
+				count++;
+			(void) closedir(dirp);
+
+			if (count > 2) {
+				(void) fprintf(stderr, gettext("mountpoint "
+				    "'%s' exists and is not empty\n"), buf);
+				(void) fprintf(stderr, gettext("use '-m' "
+				    "option to provide a "
+				    "different default\n"));
+				goto errout;
+			}
 		}
 	}
 
@@ -1175,7 +1181,7 @@ show_import(nvlist_t *config)
 			    "but can be imported using the '-Df' flags.\n"));
 		else if (pool_state != POOL_STATE_EXPORTED)
 			(void) printf(gettext("\tThe pool may be active on "
-			    "on another system, but can be imported using\n\t"
+			    "another system, but can be imported using\n\t"
 			    "the '-f' flag.\n"));
 	}
 
@@ -1433,9 +1439,9 @@ zpool_do_import(int argc, char **argv)
 	}
 
 	if (cachefile)
-		pools = zpool_find_import_cached(g_zfs, cachefile);
+		pools = zpool_find_import_cached(g_zfs, cachefile, B_FALSE);
 	else
-		pools = zpool_find_import(g_zfs, nsearch, searchdirs);
+		pools = zpool_find_import(g_zfs, nsearch, searchdirs, B_FALSE);
 
 	if (pools == NULL) {
 		free(searchdirs);
@@ -2582,7 +2588,7 @@ print_scrub_status(nvlist_t *nvroot)
 	uint_t vsc;
 	time_t start, end, now;
 	double fraction_done;
-	uint64_t examined, total, minutes_left;
+	uint64_t examined, total, minutes_left, minutes_taken;
 	char *scrub_type;
 
 	verify(nvlist_lookup_uint64_array(nvroot, ZPOOL_CONFIG_STATS,
@@ -2606,8 +2612,13 @@ print_scrub_status(nvlist_t *nvroot)
 	total = vs->vs_alloc;
 
 	if (end != 0) {
-		(void) printf(gettext("%s %s with %llu errors on %s"),
+		minutes_taken = (uint64_t)((end - start) / 60);
+
+		(void) printf(gettext("%s %s after %lluh%um with %llu errors "
+		    "on %s"),
 		    scrub_type, vs->vs_scrub_complete ? "completed" : "stopped",
+		    (u_longlong_t)(minutes_taken / 60),
+		    (uint_t)(minutes_taken % 60),
 		    (u_longlong_t)vs->vs_scrub_errors, ctime(&end));
 		return;
 	}
@@ -2620,9 +2631,12 @@ print_scrub_status(nvlist_t *nvroot)
 	fraction_done = (double)examined / total;
 	minutes_left = (uint64_t)((now - start) *
 	    (1 - fraction_done) / fraction_done / 60);
+	minutes_taken = (uint64_t)((now - start) / 60);
 
-	(void) printf(gettext("%s in progress, %.2f%% done, %lluh%um to go\n"),
-	    scrub_type, 100 * fraction_done,
+	(void) printf(gettext("%s in progress for %lluh%um, %.2f%% done, "
+	    "%lluh%um to go\n"),
+	    scrub_type, (u_longlong_t)(minutes_taken / 60),
+	    (uint_t)(minutes_taken % 60), 100 * fraction_done,
 	    (u_longlong_t)(minutes_left / 60), (uint_t)(minutes_left % 60));
 }
 
@@ -3263,10 +3277,15 @@ upgrade_one(zpool_handle_t *zhp, void *data)
 	}
 
 	cur_version = zpool_get_prop_int(zhp, ZPOOL_PROP_VERSION, NULL);
-	if (cur_version >= cbp->cb_version) {
+	if (cur_version > cbp->cb_version) {
 		(void) printf(gettext("Pool '%s' is already formatted "
-		    "using more current version '%llu'.\n"), zpool_get_name(zhp),
-		    (u_longlong_t) cur_version);
+		    "using more current version '%llu'.\n"),
+		    zpool_get_name(zhp), (u_longlong_t)cur_version);
+		return (0);
+	}
+	if (cur_version == cbp->cb_version) {
+		(void) printf(gettext("Pool '%s' is already formatted "
+		    "using the current version.\n"), zpool_get_name(zhp));
 		return (0);
 	}
 

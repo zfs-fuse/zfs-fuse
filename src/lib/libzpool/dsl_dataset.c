@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -571,8 +571,6 @@ dsl_dataset_close(dsl_dataset_t *ds, int mode, void *tag)
 	mutex_enter(&ds->ds_lock);
 	ASSERT3U(ds->ds_open_refcount, >=, weight);
 	ds->ds_open_refcount -= weight;
-	dprintf_ds(ds, "closing mode %u refcount now 0x%llx\n",
-	    mode, ds->ds_open_refcount);
 	mutex_exit(&ds->ds_lock);
 
 	dmu_buf_rele(ds->ds_dbuf, tag);
@@ -2544,11 +2542,18 @@ dsl_dsobj_to_dsname(char *pname, uint64_t obj, char *buf)
 
 int
 dsl_dataset_check_quota(dsl_dataset_t *ds, boolean_t check_quota,
-    uint64_t asize, uint64_t inflight, uint64_t *used)
+    uint64_t asize, uint64_t inflight, uint64_t *used,
+    uint64_t *ref_rsrv)
 {
 	int error = 0;
 
 	ASSERT3S(asize, >, 0);
+
+	/*
+	 * *ref_rsrv is the portion of asize that will come from any
+	 * unconsumed refreservation space.
+	 */
+	*ref_rsrv = 0;
 
 	mutex_enter(&ds->ds_lock);
 	/*
@@ -2558,6 +2563,8 @@ dsl_dataset_check_quota(dsl_dataset_t *ds, boolean_t check_quota,
 		ASSERT3U(*used, >=,
 		    ds->ds_reserved - ds->ds_phys->ds_unique_bytes);
 		*used -= (ds->ds_reserved - ds->ds_phys->ds_unique_bytes);
+		*ref_rsrv =
+		    asize - MIN(asize, parent_delta(ds, asize + inflight));
 	}
 
 	if (!check_quota || ds->ds_quota == 0) {

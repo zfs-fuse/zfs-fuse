@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -292,8 +292,9 @@ extern int zpool_import_props(libzfs_handle_t *, nvlist_t *, const char *,
 /*
  * Search for pools to import
  */
-extern nvlist_t *zpool_find_import(libzfs_handle_t *, int, char **);
-extern nvlist_t *zpool_find_import_cached(libzfs_handle_t *, const char *);
+extern nvlist_t *zpool_find_import(libzfs_handle_t *, int, char **, boolean_t);
+extern nvlist_t *zpool_find_import_cached(libzfs_handle_t *, const char *,
+boolean_t);
 
 /*
  * Miscellaneous pool functions
@@ -466,6 +467,7 @@ extern int zfs_build_perms(zfs_handle_t *, char *, char *,
     zfs_deleg_who_type_t, zfs_deleg_inherit_t, nvlist_t **nvlist_t);
 extern int zfs_perm_get(zfs_handle_t *, zfs_allow_t **);
 extern void zfs_free_allows(zfs_allow_t *);
+extern void zfs_deleg_permissions(void);
 
 /*
  * Mount support functions.
