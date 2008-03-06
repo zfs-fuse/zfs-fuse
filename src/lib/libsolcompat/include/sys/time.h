@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -31,6 +31,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <time.h>
 
@@ -38,6 +39,11 @@ typedef longlong_t hrtime_t;
 typedef struct timespec timestruc_t;
 
 #define NANOSEC 1000000000
+
+#define TIME32_MAX INT32_MAX
+#define TIME32_MIN INT32_MIN
+
+#define TIMESPEC_OVERFLOW(ts) ((ts)->tv_sec < TIME32_MIN || (ts)->tv_sec > TIME32_MAX)
 
 static inline hrtime_t gethrtime(void) {
 	struct timespec ts;
