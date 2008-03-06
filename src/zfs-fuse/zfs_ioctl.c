@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -173,6 +173,30 @@ zfs_check_version(const char *name, int version)
 		spa_close(spa, FTAG);
 	}
 	return (0);
+}
+
+/*
+ * zpl_check_version
+ *
+ * Return non-zero if the ZPL version is less than requested version.
+ */
+static int
+zpl_check_version(const char *name, int version)
+{
+	objset_t *os;
+	int rc = 1;
+
+	if (dmu_objset_open(name, DMU_OST_ANY,
+	    DS_MODE_STANDARD | DS_MODE_READONLY, &os) == 0) {
+		uint64_t propversion;
+
+		if (zfs_get_zplprop(os, ZFS_PROP_VERSION,
+		    &propversion) == 0) {
+			rc = !(propversion >= version);
+		}
+		dmu_objset_close(os);
+	}
+	return (rc);
 }
 
 static void
@@ -1382,6 +1406,11 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 			if (zfs_check_version(name, SPA_VERSION_DITTO_BLOCKS))
 				return (ENOTSUP);
 			break;
+
+		case ZFS_PROP_SHARESMB:
+			if (zpl_check_version(name, ZPL_VERSION_FUID))
+				return (ENOTSUP);
+			break;
 		}
 		if ((error = zfs_secpolicy_setprop(name, prop, CRED())) != 0)
 			return (error);
@@ -2157,11 +2186,17 @@ zfs_ioc_rollback(zfs_cmd_t *zc)
 		char osname[MAXNAMELEN];
 		int mode;
 
-		VERIFY3U(0, ==, zfs_suspend_fs(zfsvfs, osname, &mode));
-		ASSERT(strcmp(osname, zc->zc_name) == 0);
-		error = dmu_objset_rollback(os);
-		VERIFY3U(0, ==, zfs_resume_fs(zfsvfs, osname, mode));
+		error = zfs_suspend_fs(zfsvfs, osname, &mode);
+		if (error == 0) {
+			int resume_err;
 
+			ASSERT(strcmp(osname, zc->zc_name) == 0);
+			error = dmu_objset_rollback(os);
+			resume_err = zfs_resume_fs(zfsvfs, osname, mode);
+			error = error ? error : resume_err;
+		} else {
+			dmu_objset_close(os);
+		}
 		VFS_RELE(zfsvfs->z_vfs);
 	} else {
 		error = dmu_objset_rollback(os);
@@ -2265,9 +2300,19 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 	if (!error) {
 		mutex_enter(&os->os->os_user_ptr_lock);
 		zfsvfs = dmu_objset_get_user(os);
-		if (zfsvfs != NULL)
+		if (zfsvfs != NULL) {
 			VFS_HOLD(zfsvfs->z_vfs);
-		mutex_exit(&os->os->os_user_ptr_lock);
+			mutex_exit(&os->os->os_user_ptr_lock);
+			if (!mutex_tryenter(&zfsvfs->z_online_recv_lock)) {
+				VFS_RELE(zfsvfs->z_vfs);
+				dmu_objset_close(os);
+				nvlist_free(props);
+				releasef(fd);
+				return (EBUSY);
+			}
+		} else {
+			mutex_exit(&os->os->os_user_ptr_lock);
+		}
 		dmu_objset_close(os);
 	}
 
@@ -2275,8 +2320,10 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 		error = dmu_objset_open(zc->zc_string, DMU_OST_ANY,
 		    DS_MODE_STANDARD | DS_MODE_READONLY, &origin);
 		if (error) {
-			if (zfsvfs != NULL)
+			if (zfsvfs != NULL) {
+				mutex_exit(&zfsvfs->z_online_recv_lock);
 				VFS_RELE(zfsvfs->z_vfs);
+			}
 			nvlist_free(props);
 			releasef(fd);
 			return (error);
@@ -2288,8 +2335,10 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 	if (origin)
 		dmu_objset_close(origin);
 	if (error) {
-		if (zfsvfs != NULL)
+		if (zfsvfs != NULL) {
+			mutex_exit(&zfsvfs->z_online_recv_lock);
 			VFS_RELE(zfsvfs->z_vfs);
+		}
 		nvlist_free(props);
 		releasef(fd);
 		return (error);
@@ -2343,15 +2392,25 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 			char osname[MAXNAMELEN];
 			int mode;
 
-			(void) zfs_suspend_fs(zfsvfs, osname, &mode);
-			error = dmu_recv_end(&drc);
-			error |= zfs_resume_fs(zfsvfs, osname, mode);
+			error = zfs_suspend_fs(zfsvfs, osname, &mode);
+			if (error == 0) {
+				int resume_err;
+
+				error = dmu_recv_end(&drc);
+				resume_err = zfs_resume_fs(zfsvfs,
+				    osname, mode);
+				error = error ? error : resume_err;
+			} else {
+				dmu_recv_abort_cleanup(&drc);
+			}
 		} else {
 			error = dmu_recv_end(&drc);
 		}
 	}
-	if (zfsvfs != NULL)
+	if (zfsvfs != NULL) {
+		mutex_exit(&zfsvfs->z_online_recv_lock);
 		VFS_RELE(zfsvfs->z_vfs);
+	}
 
 	zc->zc_cookie = off - fp->f_offset;
 	if (VOP_SEEK(fp->f_vnode, fp->f_offset, &off, NULL) == 0)
@@ -2642,7 +2701,7 @@ zfs_ioc_share(zfs_cmd_t *zc)
 			}
 			if (zsmbexport_fs == NULL && ((zsmbexport_fs =
 			    (int (*)(void *, boolean_t))ddi_modsym(smbsrv_mod,
-			    "lmshrd_share_upcall", &error)) == NULL)) {
+			    "smb_server_share", &error)) == NULL)) {
 				mutex_exit(&zfs_share_lock);
 				return (ENOSYS);
 			}

@@ -1,5 +1,5 @@
 /*
- * CDDL HEADER START
+ * CDDL HEADER SART
  *
  * The contents of this file are subject to the terms of the
  * Common Development and Distribution License (the "License").
@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -58,7 +58,9 @@ struct libzfs_handle {
 	char *libzfs_log_str;
 	int libzfs_printerr;
 	void *libzfs_sharehdl; /* libshare handle */
+	uint_t libzfs_shareflags;
 };
+#define	ZFSSHARE_MISS	0x01	/* Didn't find entry in cache */
 
 struct zfs_handle {
 	libzfs_handle_t *zfs_hdl;
@@ -149,6 +151,7 @@ int changelist_haszonedchild(prop_changelist_t *);
 
 void remove_mountpoint(zfs_handle_t *);
 int create_parents(libzfs_handle_t *, char *, int);
+boolean_t isa_child_of(const char *dataset, const char *parent);
 
 zfs_handle_t *make_dataset_handle(libzfs_handle_t *, const char *);
 
