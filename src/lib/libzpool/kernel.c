@@ -411,17 +411,17 @@ vn_open(char *path, int x1, int flags, int mode, vnode_t **vpp, int x2, int x3)
 	if (fd == -1)
 		return (errno);
 
-	if (fstat64(fd, &st) == -1) {
+	*vpp = vp = umem_zalloc(sizeof (vnode_t), UMEM_NOFAIL);
+
+	if (fstat64(fd, &vp->v_stat) == -1) {
 		close(fd);
 		return (errno);
 	}
 
 	(void) fcntl(fd, F_SETFD, FD_CLOEXEC);
 
-	*vpp = vp = umem_zalloc(sizeof (vnode_t), UMEM_NOFAIL);
-
 	vp->v_fd = fd;
-	vp->v_size = st.st_size;
+	vp->v_size = vp->v_stat.st_size;
 	vp->v_path = spa_strdup(path);
 
 	return (0);

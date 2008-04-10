@@ -35,6 +35,8 @@
 #include <sys/resource.h>
 #include <sys/kmem.h>
 #include <vm/seg_enum.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 extern kmem_cache_t *vnode_cache;
 
@@ -147,6 +149,7 @@ typedef struct vnode {
 	enum vtype           v_type;      /* vnode type */
 	dev_t                v_rdev;      /* device (VCHR, VBLK) */
 	struct vnodeops      *v_op;       /* vnode operations */
+	struct stat64        v_stat;      /* stat info */
 } vnode_t;
 
 typedef struct vattr {

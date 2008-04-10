@@ -1,3 +1,4 @@
+
 /*
  * CDDL HEADER START
  *
@@ -31,6 +32,9 @@
 #include <sys/vdev_impl.h>
 #include <sys/zio.h>
 #include <sys/fs/zfs.h>
+
+//For flushing the write cache.
+#include "flushwc.h"
 
 /*
  * Virtual device vector for files.
@@ -236,10 +240,31 @@ vdev_file_io_start(zio_t *zio)
 
 		switch (zio->io_cmd) {
 		case DKIOCFLUSHWRITECACHE:
+			if (zfs_nocacheflush)
+				break;
+
+			/* This doesn't actually do much with O_DIRECT... */
 			zio->io_error = VOP_FSYNC(vf->vf_vnode, FSYNC | FDSYNC,
 			    kcred, NULL);
 			dprintf("fsync(%s) = %d\n", vdev_description(vd),
 			    zio->io_error);
+
+			if (vd->vdev_nowritecache) {
+				zio->io_error = ENOTSUP;
+				break;
+			}
+
+			/* Flush the write cache */
+			error = flushwc(vf->vf_vnode);
+			printf("flushwc(%s) = %d\n", vdev_description(vd),
+			    error);
+
+			if (error == ENOTSUP)
+				vd->vdev_nowritecache = B_TRUE;
+
+			if (error)
+				zio->io_error = error;
+
 			break;
 		default:
 			zio->io_error = ENOTSUP;

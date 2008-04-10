@@ -373,25 +373,24 @@ vn_copypath(struct vnode *src, struct vnode *dst)
 int vn_fromfd(int fd, char *path, int flags, struct vnode **vpp, boolean_t fromfd)
 {
 	vnode_t *vp;
-	struct stat64 st;
 
-	if (fstat64(fd, &st) == -1) {
+	*vpp = vp = kmem_cache_alloc(vnode_cache, KM_SLEEP);
+	memset(vp, 0, sizeof(vnode_t));
+
+	if (fstat64(fd, &vp->v_stat) == -1) {
 		close(fd);
 		return (errno);
 	}
 
 	(void) fcntl(fd, F_SETFD, FD_CLOEXEC);
 
-	*vpp = vp = kmem_cache_alloc(vnode_cache, KM_SLEEP);
-	memset(vp, 0, sizeof(vnode_t));
-
 	vp->v_fd = fd;
-	if(S_ISBLK(st.st_mode)) {
+	if(S_ISBLK(vp->v_stat.st_mode)) {
 		/* LINUX */
 		if(ioctl(fd, BLKGETSIZE64, &vp->v_size) != 0)
 			return errno;
 	} else
-		vp->v_size = st.st_size;
+		vp->v_size = vp->v_stat.st_size;
 	vp->v_path = strdup(path);
 
 	vp->v_type = VNON;
@@ -401,23 +400,23 @@ int vn_fromfd(int fd, char *path, int flags, struct vnode **vpp, boolean_t fromf
 	else
 		vn_setops(vp, root_fvnodeops);
 
-	if(S_ISREG(st.st_mode)) {
+	if(S_ISREG(vp->v_stat.st_mode)) {
 		vp->v_type = VREG;
 		if (flags & FREAD)
 			atomic_add_32(&((*vpp)->v_rdcnt), 1);
 		if (flags & FWRITE)
 			atomic_add_32(&((*vpp)->v_wrcnt), 1);
-	} else if(S_ISDIR(st.st_mode))
+	} else if(S_ISDIR(vp->v_stat.st_mode))
 		vp->v_type = VDIR;
-	else if(S_ISCHR(st.st_mode))
+	else if(S_ISCHR(vp->v_stat.st_mode))
 		vp->v_type = VCHR;
-	else if(S_ISBLK(st.st_mode))
+	else if(S_ISBLK(vp->v_stat.st_mode))
 		vp->v_type = VBLK;
-	else if(S_ISFIFO(st.st_mode))
+	else if(S_ISFIFO(vp->v_stat.st_mode))
 		vp->v_type = VFIFO;
-	else if(S_ISLNK(st.st_mode))
+	else if(S_ISLNK(vp->v_stat.st_mode))
 		vp->v_type = VLNK;
-	else if(S_ISSOCK(st.st_mode))
+	else if(S_ISSOCK(vp->v_stat.st_mode))
 		vp->v_type = VSOCK;
 
 	VERIFY(vp->v_type != VNON);

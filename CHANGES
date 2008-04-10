@@ -14,6 +14,7 @@ Features:
 Enhancements:
 	* Open block devices with O_EXCL.
 Bug fixes:
+	* MAJOR: Made zfs-fuse flush the write cache of ATA/SATA/SCSI disks (Thanks Eric Anopolsky!).
 	* Fix possible corruption problem on 32-bit machines.
 	* Fix crash when using 'zpool status -v' to list errors.
 	* Allow suid files and device nodes to be stored on zfs (Cameron Patrick).

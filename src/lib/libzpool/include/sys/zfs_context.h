@@ -324,6 +324,7 @@ typedef struct vnode {
 	uint64_t	v_size;
 	int		v_fd;
 	char		*v_path;
+	struct stat64   v_stat;
 } vnode_t;
 
 

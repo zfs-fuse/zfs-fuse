@@ -5,6 +5,8 @@
 \.orig$
 /\.sconsign
 
+~$
+
 /cscope\.files$
 /cscope\.out$
 
