@@ -13,6 +13,7 @@ Features:
 	* Turned zfs-fuse into a real daemon (Cameron Patrick, Bryan Donlan).
 Enhancements:
 	* Open block devices with O_EXCL.
+	* Log warning and error messages to syslog.
 Bug fixes:
 	* MAJOR: Made zfs-fuse flush the write cache of ATA/SATA/SCSI disks (Thanks Eric Anopolsky!).
 	* Fix possible corruption problem on 32-bit machines.

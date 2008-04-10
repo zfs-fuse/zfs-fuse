@@ -28,16 +28,27 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
+#include <umem.h>
 
-static char ce_prefix[CE_IGNORE][10] = { "", "NOTICE: ", "WARNING: ", "" };
-static char ce_suffix[CE_IGNORE][2] = { "", "\n", "\n", "" };
+#define MAX_PREFIX_SIZE 10
+
+static char ce_prefix[CE_IGNORE][MAX_PREFIX_SIZE] = { "", "NOTICE: ", "WARNING: ", "ERROR: " };
+static int ce_level[CE_IGNORE] = { LOG_INFO, LOG_NOTICE, LOG_WARNING, LOG_ERR};
 
 void
 vpanic(const char *fmt, va_list adx)
 {
-	(void) fprintf(stderr, "error: ");
-	(void) vfprintf(stderr, fmt, adx);
-	(void) fprintf(stderr, "\n");
+	int slen = strlen(fmt) + MAX_PREFIX_SIZE + 1;
+	char *real_fmt = umem_alloc(slen, UMEM_NOFAIL);
+
+	(void) strcpy(real_fmt, ce_prefix[CE_PANIC]);
+	(void) strcat(real_fmt, fmt);
+
+	vsyslog(LOG_DAEMON | ce_level[CE_PANIC], real_fmt, adx);
+
+	umem_free(real_fmt, slen);
 
 	abort();	/* think of it as a "user-level crash dump" */
 }
@@ -55,13 +66,21 @@ panic(const char *fmt, ...)
 void
 vcmn_err(int ce, const char *fmt, va_list adx)
 {
+	int slen;
+	char *real_fmt;
+
 	if (ce == CE_PANIC)
 		vpanic(fmt, adx);
-	if (ce != CE_NOTE) {	/* suppress noise in userland stress testing */
-		(void) fprintf(stderr, "%s", ce_prefix[ce]);
-		(void) vfprintf(stderr, fmt, adx);
-		(void) fprintf(stderr, "%s", ce_suffix[ce]);
-	}
+
+	slen = strlen(fmt) + MAX_PREFIX_SIZE + 1;
+	real_fmt = umem_alloc(slen, UMEM_NOFAIL);
+
+	(void) strcpy(real_fmt, ce_prefix[ce]);
+	(void) strcat(real_fmt, fmt);
+
+	vsyslog(LOG_DAEMON | ce_level[ce], real_fmt, adx);
+
+	umem_free(real_fmt, slen);
 }
 
 /*PRINTFLIKE2*/

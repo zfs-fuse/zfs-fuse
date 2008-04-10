@@ -27,6 +27,7 @@
 #include <sys/mount.h>
 #include <sys/types.h>
 #include <sys/cred.h>
+#include <sys/cmn_err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -60,7 +61,7 @@ void do_daemon(const char *pidfile)
 	if (pidfile) {
 		struct stat dummy;
 		if (0 == stat(pidfile, &dummy)) {
-			fprintf(stderr, "zfs_fuse: %s already exists; aborting.\n", pidfile);
+			cmn_err(CE_WARN, "%s already exists; aborting.", pidfile);
 			exit(1);
 		}
 	}
@@ -69,7 +70,10 @@ void do_daemon(const char *pidfile)
 
 	if (pidfile) {
 		FILE *f = fopen(pidfile, "w");
-		if (!f) exit(1); /* XXX: Ideally we should find a way to report this error */
+		if (!f) {
+			cmn_err(CE_WARN, "Error opening %s.", pidfile);
+			exit(1);
+		}
 		if (fprintf(f, "%d\n", getpid()) < 0) {
 			unlink(pidfile);
 			exit(1);
@@ -94,7 +98,7 @@ int do_init()
 		return -1;
 
 	if(pthread_create(&listener_thread, NULL, listener_loop, (void *) &ioctl_fd) != 0) {
-		fprintf(stderr, "Error creating listener thread\n");
+		cmn_err(CE_WARN, "Error creating listener thread.");
 		return -1;
 	}
 
@@ -108,7 +112,7 @@ void do_exit()
 	if(listener_thread_started) {
 		exit_listener = B_TRUE;
 		if(pthread_join(listener_thread, NULL) != 0)
-			fprintf(stderr, "Error in pthread_join()\n");
+			cmn_err(CE_WARN, "Error in pthread_join().");
 	}
 
 	zfsfuse_listener_exit();
@@ -118,7 +122,7 @@ void do_exit()
 
 	int ret = zfs_ioctl_fini();
 	if(ret != 0)
-		fprintf(stderr, "Error %i in zfs_ioctl_fini()\n", ret);
+		cmn_err(CE_WARN, "Error %i in zfs_ioctl_fini().\n", ret);
 
 	libsolkerncompat_exit();
 }

@@ -93,7 +93,7 @@ int zfsfuse_socket_create()
 	size_t size;
 
 	if(zfsfuse_do_locking() != 0) {
-		fprintf(stderr, "Error locking " LOCKFILE "\nMake sure there isn't another zfs-fuse process running and that you have appropriate permissions\n");
+		cmn_err(CE_WARN, "Error locking " LOCKFILE ". Make sure there isn't another zfs-fuse process running and that you have appropriate permissions.");
 		return -1;
 	}
 
@@ -101,7 +101,7 @@ int zfsfuse_socket_create()
 	sock = socket(PF_LOCAL, SOCK_STREAM, 0);
 	if(sock == -1) {
 		int err = errno;
-		fprintf(stderr, "Error creating UNIX socket: %s\n", strerror(err));
+		cmn_err(CE_WARN, "Error creating UNIX socket: %s.", strerror(err));
 		return -1;
 	}
 
@@ -120,13 +120,13 @@ int zfsfuse_socket_create()
 
 	if(bind(sock, &name, size) != 0) {
 		int err = errno;
-		fprintf(stderr, "Error binding UNIX socket to %s: %s\n", ZFS_DEV_NAME, strerror(err));
+		cmn_err(CE_WARN, "Error binding UNIX socket to %s: %s.", ZFS_DEV_NAME, strerror(err));
 		return -1;
 	}
 
 	if(listen(sock, 5) != 0) {
 		int err = errno;
-		fprintf(stderr, "Error binding UNIX socket to %s: %s\n", ZFS_DEV_NAME, strerror(err));
+		cmn_err(CE_WARN, "Error binding UNIX socket to %s: %s.", ZFS_DEV_NAME, strerror(err));
 		return -1;
 	}
 

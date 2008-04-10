@@ -33,7 +33,7 @@
 #include <sys/zio.h>
 #include <sys/fs/zfs.h>
 
-//For flushing the write cache.
+// For flushing the write cache.
 #include "flushwc.h"
 
 /*
@@ -259,11 +259,16 @@ vdev_file_io_start(zio_t *zio)
 			dprintf("flushwc(%s) = %d\n", vdev_description(vd),
 			    error);
 
-			if (error == ENOTSUP)
-				vd->vdev_nowritecache = B_TRUE;
+			if (error) {
+				cmn_err(CE_WARN, "Failed to flush write cache "
+				    "on device '%s'. Data on pool '%s' may be lost "
+				    "if power fails. No further warnings will "
+				    "be given.", vdev_description(vd),
+				    spa_name(vd->vdev_spa));
 
-			if (error)
+				vd->vdev_nowritecache = B_TRUE;
 				zio->io_error = error;
+			}
 
 			break;
 		default:
