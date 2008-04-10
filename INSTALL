@@ -12,6 +12,8 @@ from compiling correctly, simply upgrade to FUSE-2.6.0 or later).
    You will need the fuse, fuse-utils and/or libfuse packages
 (and associated -dev packages), depending on the distribution.
 
+ * libaio and libaio-dev (or libaio-devel) packages.
+
  * zlib (and associated headers usually provided by -dev package).
 
  * glibc version 2.3.3 or newer with NPTL enabled.
