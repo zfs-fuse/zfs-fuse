@@ -256,7 +256,7 @@ vdev_file_io_start(zio_t *zio)
 
 			/* Flush the write cache */
 			error = flushwc(vf->vf_vnode);
-			printf("flushwc(%s) = %d\n", vdev_description(vd),
+			dprintf("flushwc(%s) = %d\n", vdev_description(vd),
 			    error);
 
 			if (error == ENOTSUP)
