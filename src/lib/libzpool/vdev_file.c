@@ -264,11 +264,13 @@ vdev_file_io_start(zio_t *zio)
 			    error);
 
 			if (error) {
+#ifdef _KERNEL
 				cmn_err(CE_WARN, "Failed to flush write cache "
 				    "on device '%s'. Data on pool '%s' may be lost "
 				    "if power fails. No further warnings will "
 				    "be given.", vdev_description(vd),
 				    spa_name(vd->vdev_spa));
+#endif
 
 				vd->vdev_nowritecache = B_TRUE;
 				zio->io_error = error;
