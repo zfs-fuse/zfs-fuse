@@ -43,6 +43,8 @@
 extern "C" {
 #endif
 
+struct zio_aio_ctx;
+
 typedef struct spa_error_entry {
 	zbookmark_t	se_bookmark;
 	char		*se_name;
@@ -158,6 +160,7 @@ struct spa {
 	kcondvar_t	spa_zio_cv;		/* resume I/O pipeline */
 	kmutex_t	spa_zio_lock;		/* zio error lock */
 	uint8_t		spa_failmode;		/* failure mode for the pool */
+	struct zio_aio_ctx *spa_aio_ctx;	/* asynchronous I/O context */
 	/*
 	 * spa_refcnt & spa_config_lock must be the last elements
 	 * because refcount_t changes size based on compilation options.

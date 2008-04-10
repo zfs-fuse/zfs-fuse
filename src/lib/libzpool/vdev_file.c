@@ -226,6 +226,10 @@ vdev_file_io_start(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
 	vdev_file_t *vf = vd->vdev_tsd;
+#ifdef LINUX_AIO
+	struct iocb *iocbp = &zio->io_aio;
+#endif
+
 	ssize_t resid;
 	int error;
 
@@ -282,10 +286,8 @@ vdev_file_io_start(zio_t *zio)
 	 * In the kernel, don't bother double-caching, but in userland,
 	 * we want to test the vdev_cache code.
 	 */
-#ifndef _KERNEL
 	if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio) == 0)
 		return (ZIO_PIPELINE_STOP);
-#endif
 
 	if ((zio = vdev_queue_io(zio)) == NULL)
 		return (ZIO_PIPELINE_STOP);
@@ -301,6 +303,31 @@ vdev_file_io_start(zio_t *zio)
 		zio_interrupt(zio);
 		return (ZIO_PIPELINE_STOP);
 	}
+
+#ifdef LINUX_AIO
+	if (zio->io_aio_ctx && zio->io_aio_ctx->zac_enabled) {
+		if (zio->io_type == ZIO_TYPE_READ)
+			io_prep_pread(&zio->io_aio, vf->vf_vnode->v_fd,
+			    zio->io_data, zio->io_size, zio->io_offset);
+		else
+			io_prep_pwrite(&zio->io_aio, vf->vf_vnode->v_fd,
+			    zio->io_data, zio->io_size, zio->io_offset);
+
+		zio->io_aio.data = zio;
+
+		do {
+			error = io_submit(zio->io_aio_ctx->zac_ctx, 1, &iocbp);
+		} while (error == -EINTR);
+
+		if (error < 0) {
+			zio->io_error = -error;
+			zio_interrupt(zio);
+		} else
+			VERIFY(error == 1);
+
+		return (ZIO_PIPELINE_STOP);
+	}
+#endif
 
 	zio->io_error = vn_rdwr(zio->io_type == ZIO_TYPE_READ ?
 	    UIO_READ : UIO_WRITE, vf->vf_vnode, zio->io_data,

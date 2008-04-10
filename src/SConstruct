@@ -11,7 +11,7 @@ env = Environment()
 
 env['CC'] = 'gcc'
 env['LINKFLAGS'] = Split('-pipe -Wall -Werror')
-env['CCFLAGS'] = Split('-pipe -Wall -Werror -std=c99 -Wno-switch -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\"')
+env['CCFLAGS'] = Split('-pipe -Wall -Werror -std=c99 -Wno-switch -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\" -DLINUX_AIO')
 
 debug = int(ARGUMENTS.get('debug', '1'))
 

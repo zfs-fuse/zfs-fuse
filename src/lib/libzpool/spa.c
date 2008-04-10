@@ -480,7 +480,7 @@ spa_get_errlists(spa_t *spa, avl_tree_t *last, avl_tree_t *scrub)
 static void
 spa_activate(spa_t *spa)
 {
-	int t;
+	int t, error;
 
 	ASSERT(spa->spa_state == POOL_STATE_UNINITIALIZED);
 
@@ -488,6 +488,14 @@ spa_activate(spa_t *spa)
 
 	spa->spa_normal_class = metaslab_class_create();
 	spa->spa_log_class = metaslab_class_create();
+
+	/* Initialize async I/O context and thread */
+#ifdef LINUX_AIO
+	error = zio_aio_init(spa);
+	if (error)
+		cmn_err(CE_WARN, "error '%i' enabling async I/O for pool '%s'",
+		    error, spa->spa_name);
+#endif
 
 	for (t = 0; t < ZIO_TYPES; t++) {
 		spa->spa_zio_issue_taskq[t] = taskq_create("spa_zio_issue",
@@ -539,6 +547,10 @@ spa_deactivate(spa_t *spa)
 		spa->spa_zio_issue_taskq[t] = NULL;
 		spa->spa_zio_intr_taskq[t] = NULL;
 	}
+
+#ifdef LINUX_AIO
+	zio_aio_fini(spa);
+#endif
 
 	metaslab_class_destroy(spa->spa_normal_class);
 	spa->spa_normal_class = NULL;

@@ -2,6 +2,7 @@
 --------------------------------------------------
 	* Updated ZFS code to Nevada build 85.
 Features:
+	* Implemented async I/O.
 	* gzip compression support (upstream).
 	* Filesystems can have multiple copies of data (zfs set fs copies=x) (upstream).
 	* zpool status -v now displays paths of files with permanent errors (upstream).
