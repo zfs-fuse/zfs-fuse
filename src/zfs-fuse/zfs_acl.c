@@ -85,7 +85,7 @@
 #define	ALL_INHERIT	(ACE_FILE_INHERIT_ACE|ACE_DIRECTORY_INHERIT_ACE | \
     ACE_NO_PROPAGATE_INHERIT_ACE|ACE_INHERIT_ONLY_ACE|ACE_INHERITED_ACE)
 
-#define	SECURE_CLEAR	(ACE_WRITE_ACL|ACE_WRITE_OWNER)
+#define	RESTRICTED_CLEAR	(ACE_WRITE_ACL|ACE_WRITE_OWNER)
 
 #define	V4_ACL_WIDE_FLAGS (ZFS_ACL_AUTO_INHERIT|ZFS_ACL_DEFAULTED|\
     ZFS_ACL_PROTECTED)
@@ -1615,13 +1615,13 @@ zfs_acl_chmod_setattr(znode_t *zp, zfs_acl_t **aclp, uint64_t mode)
  * strip off write_owner and write_acl
  */
 static void
-zfs_securemode_update(zfsvfs_t *zfsvfs, zfs_acl_t *aclp, void *acep)
+zfs_restricted_update(zfsvfs_t *zfsvfs, zfs_acl_t *aclp, void *acep)
 {
 	uint32_t mask = aclp->z_ops.ace_mask_get(acep);
 
-	if ((zfsvfs->z_acl_inherit == ZFS_ACL_SECURE) &&
+	if ((zfsvfs->z_acl_inherit == ZFS_ACL_RESTRICTED) &&
 	    (aclp->z_ops.ace_type_get(acep) == ALLOW)) {
-		mask &= ~SECURE_CLEAR;
+		mask &= ~RESTRICTED_CLEAR;
 		aclp->z_ops.ace_mask_set(acep, mask);
 	}
 }
@@ -1647,7 +1647,7 @@ zfs_ace_can_use(znode_t *zp, uint16_t acep_flags)
  * inherit inheritable ACEs from parent
  */
 static zfs_acl_t *
-zfs_acl_inherit(znode_t *zp, zfs_acl_t *paclp)
+zfs_acl_inherit(znode_t *zp, zfs_acl_t *paclp, boolean_t *need_chmod)
 {
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	void		*pacep;
@@ -1660,7 +1660,9 @@ zfs_acl_inherit(znode_t *zp, zfs_acl_t *paclp)
 	size_t		ace_size;
 	void		*data1, *data2;
 	size_t		data1sz, data2sz;
+	enum vtype	vntype = ZTOV(zp)->v_type;
 
+	*need_chmod = B_TRUE;
 	pacep = NULL;
 	aclp = zfs_acl_alloc(zfs_acl_version_zp(zp));
 	if (zfsvfs->z_acl_inherit != ZFS_ACL_DISCARD) {
@@ -1673,82 +1675,90 @@ zfs_acl_inherit(znode_t *zp, zfs_acl_t *paclp)
 
 			ace_size = aclp->z_ops.ace_size(pacep);
 
-			if (zfs_ace_can_use(zp, iflags)) {
-				aclnode =
-				    zfs_acl_node_alloc(ace_size);
+			if (!zfs_ace_can_use(zp, iflags))
+				continue;
 
-				list_insert_tail(&aclp->z_acl, aclnode);
-				acep = aclnode->z_acldata;
-				zfs_set_ace(aclp, acep, access_mask, type,
-				    who, iflags|ACE_INHERITED_ACE);
+			/*
+			 * If owner@, group@, or everyone@ inheritable
+			 * then zfs_acl_chmod() isn't needed.
+			 */
+			if (zfsvfs->z_acl_inherit ==
+			    ZFS_ACL_PASSTHROUGH &&
+			    ((iflags & (ACE_OWNER|ACE_EVERYONE)) ||
+			    ((iflags & OWNING_GROUP) ==
+			    OWNING_GROUP)) && (vntype == VREG ||
+			    (vntype == VDIR &&
+			    (iflags & ACE_DIRECTORY_INHERIT_ACE))))
+				*need_chmod = B_FALSE;
+
+			aclnode = zfs_acl_node_alloc(ace_size);
+			list_insert_tail(&aclp->z_acl, aclnode);
+			acep = aclnode->z_acldata;
+			zfs_set_ace(aclp, acep, access_mask, type,
+			    who, iflags|ACE_INHERITED_ACE);
+
+			/*
+			 * Copy special opaque data if any
+			 */
+			if ((data1sz = paclp->z_ops.ace_data(pacep,
+			    &data1)) != 0) {
+				VERIFY((data2sz = aclp->z_ops.ace_data(acep,
+				    &data2)) == data1sz);
+				bcopy(data1, data2, data2sz);
+			}
+			aclp->z_acl_count++;
+			aclnode->z_ace_count++;
+			aclp->z_acl_bytes += aclnode->z_size;
+			newflags = aclp->z_ops.ace_flags_get(acep);
+
+			if (vntype == VDIR)
+				aclp->z_hints |= ZFS_INHERIT_ACE;
+
+			if ((iflags & ACE_NO_PROPAGATE_INHERIT_ACE) ||
+			    (vntype != VDIR)) {
+				newflags &= ~ALL_INHERIT;
+				aclp->z_ops.ace_flags_set(acep,
+				    newflags|ACE_INHERITED_ACE);
+				zfs_restricted_update(zfsvfs, aclp, acep);
+				continue;
+			}
+
+			ASSERT(vntype == VDIR);
+
+			newflags = aclp->z_ops.ace_flags_get(acep);
+			if ((iflags & (ACE_FILE_INHERIT_ACE |
+			    ACE_DIRECTORY_INHERIT_ACE)) !=
+			    ACE_FILE_INHERIT_ACE) {
+				aclnode2 = zfs_acl_node_alloc(ace_size);
+				list_insert_tail(&aclp->z_acl, aclnode2);
+				acep2 = aclnode2->z_acldata;
+				zfs_set_ace(aclp, acep2,
+				    access_mask, type, who,
+				    iflags|ACE_INHERITED_ACE);
+				newflags |= ACE_INHERIT_ONLY_ACE;
+				aclp->z_ops.ace_flags_set(acep, newflags);
+				newflags &= ~ALL_INHERIT;
+				aclp->z_ops.ace_flags_set(acep2,
+				    newflags|ACE_INHERITED_ACE);
 
 				/*
 				 * Copy special opaque data if any
 				 */
-				if ((data1sz = paclp->z_ops.ace_data(pacep,
+				if ((data1sz = aclp->z_ops.ace_data(acep,
 				    &data1)) != 0) {
 					VERIFY((data2sz =
-					    aclp->z_ops.ace_data(acep,
+					    aclp->z_ops.ace_data(acep2,
 					    &data2)) == data1sz);
-					bcopy(data1, data2, data2sz);
+					bcopy(data1, data2, data1sz);
 				}
 				aclp->z_acl_count++;
-				aclnode->z_ace_count++;
+				aclnode2->z_ace_count++;
 				aclp->z_acl_bytes += aclnode->z_size;
-				newflags = aclp->z_ops.ace_flags_get(acep);
-				if ((iflags &
-				    ACE_NO_PROPAGATE_INHERIT_ACE) ||
-				    (ZTOV(zp)->v_type != VDIR)) {
-					newflags &= ~ALL_INHERIT;
-					aclp->z_ops.ace_flags_set(acep,
-					    newflags|ACE_INHERITED_ACE);
-					zfs_securemode_update(zfsvfs,
-					    aclp, acep);
-					continue;
-				}
-
-				ASSERT(ZTOV(zp)->v_type == VDIR);
-
-				newflags = aclp->z_ops.ace_flags_get(acep);
-				if ((iflags & (ACE_FILE_INHERIT_ACE |
-				    ACE_DIRECTORY_INHERIT_ACE)) !=
-				    ACE_FILE_INHERIT_ACE) {
-					aclnode2 = zfs_acl_node_alloc(ace_size);
-					list_insert_tail(&aclp->z_acl,
-					    aclnode2);
-					acep2 = aclnode2->z_acldata;
-					zfs_set_ace(aclp, acep2,
-					    access_mask, type, who,
-					    iflags|ACE_INHERITED_ACE);
-					newflags |= ACE_INHERIT_ONLY_ACE;
-					aclp->z_ops.ace_flags_set(acep,
-					    newflags);
-					newflags &= ~ALL_INHERIT;
-					aclp->z_ops.ace_flags_set(acep2,
-					    newflags|ACE_INHERITED_ACE);
-
-					/*
-					 * Copy special opaque data if any
-					 */
-					if ((data1sz =
-					    aclp->z_ops.ace_data(acep,
-					    &data1)) != 0) {
-						VERIFY((data2sz =
-						    aclp->z_ops.ace_data(acep2,
-						    &data2)) == data1sz);
-						bcopy(data1, data2, data1sz);
-					}
-					aclp->z_acl_count++;
-					aclnode2->z_ace_count++;
-					aclp->z_acl_bytes += aclnode->z_size;
-					zfs_securemode_update(zfsvfs,
-					    aclp, acep2);
-				} else {
-					newflags |= ACE_INHERIT_ONLY_ACE;
-					aclp->z_ops.ace_flags_set(acep,
-					    newflags|ACE_INHERITED_ACE);
-				}
-
+				zfs_restricted_update(zfsvfs, aclp, acep2);
+			} else {
+				newflags |= ACE_INHERIT_ONLY_ACE;
+				aclp->z_ops.ace_flags_set(acep,
+				    newflags|ACE_INHERITED_ACE);
 			}
 		}
 	}
@@ -1771,6 +1781,7 @@ zfs_perm_init(znode_t *zp, znode_t *parent, int flag,
 	zfs_acl_t	*paclp;
 	xvattr_t	*xvap = (xvattr_t *)vap;
 	gid_t		gid;
+	boolean_t	need_chmod = B_TRUE;
 
 	if (setaclp)
 		aclp = setaclp;
@@ -1837,7 +1848,7 @@ zfs_perm_init(znode_t *zp, znode_t *parent, int flag,
 			mutex_enter(&parent->z_acl_lock);
 			VERIFY(0 == zfs_acl_node_read(parent, &paclp, B_FALSE));
 			mutex_exit(&parent->z_acl_lock);
-			aclp = zfs_acl_inherit(zp, paclp);
+			aclp = zfs_acl_inherit(zp, paclp, &need_chmod);
 			zfs_acl_free(paclp);
 		} else {
 			aclp = zfs_acl_alloc(zfs_acl_version_zp(zp));
@@ -1845,7 +1856,8 @@ zfs_perm_init(znode_t *zp, znode_t *parent, int flag,
 		mutex_exit(&parent->z_lock);
 		mutex_enter(&zp->z_lock);
 		mutex_enter(&zp->z_acl_lock);
-		zfs_acl_chmod(zp, mode, aclp);
+		if (need_chmod)
+			zfs_acl_chmod(zp, mode, aclp);
 	} else {
 		mutex_enter(&zp->z_lock);
 		mutex_enter(&zp->z_acl_lock);
@@ -2278,12 +2290,10 @@ zfs_zaccess_common(znode_t *zp, uint32_t v4_mode, uint32_t *working_mode,
 	zfs_acl_free(aclp);
 
 	/* Put the found 'denies' back on the working mode */
-	if (deny_mask) {
-		*working_mode |= deny_mask;
+	*working_mode |= deny_mask;
+
+	if (*working_mode)
 		return (EACCES);
-	} else if (*working_mode) {
-		return (ACCESS_UNDETERMINED);
-	}
 
 	return (0);
 }
@@ -2443,7 +2453,8 @@ zfs_zaccess_unix(znode_t *zp, mode_t mode, cred_t *cr)
 }
 
 static int
-zfs_delete_final_check(znode_t *zp, znode_t *dzp, cred_t *cr)
+zfs_delete_final_check(znode_t *zp, znode_t *dzp,
+    mode_t missing_perms, cred_t *cr)
 {
 	int error;
 	uid_t downer;
@@ -2451,7 +2462,7 @@ zfs_delete_final_check(znode_t *zp, znode_t *dzp, cred_t *cr)
 
 	downer = zfs_fuid_map_id(zfsvfs, dzp->z_phys->zp_uid, cr, ZFS_OWNER);
 
-	error = secpolicy_vnode_access(cr, ZTOV(zp), downer, S_IWRITE|S_IEXEC);
+	error = secpolicy_vnode_access(cr, ZTOV(dzp), downer, missing_perms);
 
 	if (error == 0)
 		error = zfs_sticky_remove_access(dzp, zp, cr);
@@ -2500,30 +2511,46 @@ zfs_zaccess_delete(znode_t *dzp, znode_t *zp, cred_t *cr)
 	uint32_t dzp_working_mode = 0;
 	uint32_t zp_working_mode = 0;
 	int dzp_error, zp_error;
+	mode_t missing_perms;
 	boolean_t dzpcheck_privs = B_TRUE;
 	boolean_t zpcheck_privs = B_TRUE;
 
 	/*
-	 * Arghh, this check is going to require a couple of questions
-	 * to be asked.  We want specific DELETE permissions to
+	 * We want specific DELETE permissions to
 	 * take precedence over WRITE/EXECUTE.  We don't
 	 * want an ACL such as this to mess us up.
 	 * user:joe:write_data:deny,user:joe:delete:allow
 	 *
 	 * However, deny permissions may ultimately be overridden
 	 * by secpolicy_vnode_access().
+	 *
+	 * We will ask for all of the necessary permissions and then
+	 * look at the working modes from the directory and target object
+	 * to determine what was found.
 	 */
 
 	if (zp->z_phys->zp_flags & (ZFS_IMMUTABLE | ZFS_NOUNLINK))
 		return (EPERM);
 
-	dzp_error = zfs_zaccess_common(dzp, ACE_DELETE_CHILD,
-	    &dzp_working_mode, &dzpcheck_privs, B_FALSE, cr);
-	zp_error = zfs_zaccess_common(zp, ACE_DELETE, &zp_working_mode,
-	    &zpcheck_privs, B_FALSE, cr);
+	/*
+	 * If the directory permissions allow the delete, we are done.
+	 */
+	if ((dzp_error = zfs_zaccess_common(dzp,
+	    ACE_DELETE_CHILD|ACE_EXECUTE|ACE_WRITE_DATA,
+	    &dzp_working_mode, &dzpcheck_privs, B_FALSE, cr)) == 0)
+		return (0);
 
-	if ((dzp_error && !dzpcheck_privs) || (zp_error && !zpcheck_privs))
+	/*
+	 * If target object has delete permission then we are done
+	 */
+	if ((zp_error = zfs_zaccess_common(zp, ACE_DELETE, &zp_working_mode,
+	    &zpcheck_privs, B_FALSE, cr)) == 0)
+		return (0);
+
+	if (!dzpcheck_privs)
 		return (dzp_error);
+	else if (!zpcheck_privs)
+		return (zp_error);
 
 	/*
 	 * First check the first row.
@@ -2542,44 +2569,32 @@ zfs_zaccess_delete(znode_t *dzp, znode_t *zp, cred_t *cr)
 		return (0);
 
 	/*
-	 * Now zp_error should either be EACCES which indicates
-	 * a "deny" delete entry or ACCESS_UNDETERMINED if the "delete"
-	 * entry exists on the target.
-	 *
-	 * dzp_error should be either EACCES which indicates a "deny"
-	 * entry for delete_child or ACCESS_UNDETERMINED if no delete_child
-	 * entry exists.  If value is EACCES then we are done
-	 * and zfs_delete_final_check() will make the final decision
-	 * regarding to allow the delete.
+	 * determine the needed permissions based off of the directories
+	 * working mode
 	 */
 
-	ASSERT(zp_error != 0 && dzp_error != 0);
+	missing_perms = (dzp_working_mode & ACE_WRITE_DATA) ? VWRITE : 0;
+	missing_perms |= (dzp_working_mode & ACE_EXECUTE) ? VEXEC : 0;
+
 	if (dzp_error == EACCES)
-		return (zfs_delete_final_check(zp, dzp, cr));
+		return (zfs_delete_final_check(zp, dzp, missing_perms, cr));
 
 	/*
 	 * Third Row
-	 * Only need to check for write/execute on parent
+	 * only need to see if we have write/execute on directory.
 	 */
 
-	dzp_error = zfs_zaccess_common(dzp, ACE_WRITE_DATA|ACE_EXECUTE,
-	    &dzp_working_mode, &dzpcheck_privs, B_FALSE, cr);
-
-	if (dzp_error && !dzpcheck_privs)
-		return (dzp_error);
-
-	if ((dzp_working_mode & (ACE_WRITE_DATA|ACE_EXECUTE)) == 0)
+	if (missing_perms == 0)
 		return (zfs_sticky_remove_access(dzp, zp, cr));
 
 	/*
 	 * Fourth Row
 	 */
 
-	if (((dzp_working_mode & (ACE_WRITE_DATA|ACE_EXECUTE)) != 0) &&
-	    ((zp_working_mode & ACE_DELETE) == 0))
+	if (missing_perms && ((zp_working_mode & ACE_DELETE) == 0))
 		return (zfs_sticky_remove_access(dzp, zp, cr));
 
-	return (zfs_delete_final_check(zp, dzp, cr));
+	return (zfs_delete_final_check(zp, dzp, missing_perms, cr));
 }
 
 int

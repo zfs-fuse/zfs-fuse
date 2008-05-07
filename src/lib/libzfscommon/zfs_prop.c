@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -96,8 +96,9 @@ zfs_prop_init(void)
 	static zprop_index_t acl_inherit_table[] = {
 		{ "discard",	ZFS_ACL_DISCARD },
 		{ "noallow",	ZFS_ACL_NOALLOW },
-		{ "secure",	ZFS_ACL_SECURE },
+		{ "restricted",	ZFS_ACL_RESTRICTED },
 		{ "passthrough", ZFS_ACL_PASSTHROUGH },
+		{ "secure",	ZFS_ACL_RESTRICTED }, /* bkwrd compatability */
 		{ NULL }
 	};
 
@@ -143,6 +144,13 @@ zfs_prop_init(void)
 		{ NULL }
 	};
 
+	static zprop_index_t canmount_table[] = {
+		{ "off",	ZFS_CANMOUNT_OFF },
+		{ "on",		ZFS_CANMOUNT_ON },
+		{ "noauto",	ZFS_CANMOUNT_NOAUTO },
+		{ NULL }
+	};
+
 	/* inherit index properties */
 	register_index(ZFS_PROP_CHECKSUM, "checksum", ZIO_CHECKSUM_DEFAULT,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
@@ -158,10 +166,10 @@ zfs_prop_init(void)
 	register_index(ZFS_PROP_ACLMODE, "aclmode", ZFS_ACL_GROUPMASK,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM,
 	    "discard | groupmask | passthrough", "ACLMODE", acl_mode_table);
-	register_index(ZFS_PROP_ACLINHERIT, "aclinherit", ZFS_ACL_SECURE,
+	register_index(ZFS_PROP_ACLINHERIT, "aclinherit", ZFS_ACL_RESTRICTED,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM,
-	    "discard | noallow | secure | passthrough", "ACLINHERIT",
-	    acl_inherit_table);
+	    "discard | noallow | restricted | passthrough",
+	    "ACLINHERIT", acl_inherit_table);
 	register_index(ZFS_PROP_COPIES, "copies", 1,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "1 | 2 | 3", "COPIES", copies_table);
@@ -197,10 +205,9 @@ zfs_prop_init(void)
 	register_index(ZFS_PROP_VERSION, "version", 0, PROP_DEFAULT,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT,
 	    "1 | 2 | 3 | current", "VERSION", version_table);
-
-	/* default index (boolean) properties */
-	register_index(ZFS_PROP_CANMOUNT, "canmount", 1, PROP_DEFAULT,
-	    ZFS_TYPE_FILESYSTEM, "on | off", "CANMOUNT", boolean_table);
+	register_index(ZFS_PROP_CANMOUNT, "canmount", ZFS_CANMOUNT_ON,
+	    PROP_DEFAULT, ZFS_TYPE_FILESYSTEM, "on | off | noauto",
+	    "CANMOUNT", canmount_table);
 
 	/* readonly index (boolean) properties */
 	register_index(ZFS_PROP_MOUNTED, "mounted", 0, PROP_READONLY,

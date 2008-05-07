@@ -23,34 +23,24 @@
  * Use is subject to license terms.
  */
 
-#ifndef _SYS_VDEV_DISK_H
-#define	_SYS_VDEV_DISK_H
+#ifndef _SYS_SPA_BOOT_H
+#define	_SYS_SPA_BOOT_H
 
 
 
-#include <sys/vdev.h>
-#ifdef _KERNEL
-#include <sys/buf.h>
-#include <sys/ddi.h>
-#include <sys/sunldi.h>
-#include <sys/sunddi.h>
-#endif
+#include <sys/nvpair.h>
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
-typedef struct vdev_disk {
-	ddi_devid_t	vd_devid;
-	char		*vd_minor;
-	ldi_handle_t	vd_lh;
-} vdev_disk_t;
+extern char *spa_get_bootfs();
+extern void spa_free_bootfs(char *bootfs);
+extern int spa_get_rootconf(char *devpath, char **bestdev_p,
+    nvlist_t **bestconf_p);
 
-#ifdef _KERNEL
-extern int vdev_disk_physio(ldi_handle_t, caddr_t, size_t, uint64_t, int);
-#endif
 #ifdef	__cplusplus
 }
 #endif
 
-#endif	/* _SYS_VDEV_DISK_H */
+#endif	/* _SYS_SPA_BOOT_H */
