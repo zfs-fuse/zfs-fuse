@@ -61,6 +61,7 @@
 #include <sys/sunddi.h>
 #include <sys/dnlc.h>
 #include <sys/dmu_objset.h>
+#include <sys/spa_boot.h>
 
 #include "util.h"
 
@@ -855,7 +856,7 @@ str_to_uint64(char *str, uint64_t *objnum)
  * string to a dataset name: "rootpool-name/root-filesystem-name".
  */
 static int
-parse_bootpath(char *bpath, char *outpath)
+zfs_parse_bootfs(char *bpath, char *outpath)
 {
 	char *slashp;
 	uint64_t objnum;
@@ -889,60 +890,66 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 	abort();
 #if 0
 	int error = 0;
-	int ret = 0;
 	static int zfsrootdone = 0;
 	zfsvfs_t *zfsvfs = NULL;
 	znode_t *zp = NULL;
 	vnode_t *vp = NULL;
-	char *zfs_bootpath;
-#if defined(_OBP)
-	int proplen;
-#endif
+	char *zfs_bootfs;
 
 	ASSERT(vfsp);
 
 	/*
 	 * The filesystem that we mount as root is defined in the
-	 * "zfs-bootfs" property.
+	 * boot property "zfs-bootfs" with a format of
+	 * "poolname/root-dataset-objnum".
 	 */
 	if (why == ROOT_INIT) {
 		if (zfsrootdone++)
 			return (EBUSY);
+		/*
+		 * the process of doing a spa_load will require the
+		 * clock to be set before we could (for example) do
+		 * something better by looking at the timestamp on
+		 * an uberblock, so just set it to -1.
+		 */
+		clkset(-1);
 
-#if defined(_OBP)
-		proplen = BOP_GETPROPLEN(bootops, "zfs-bootfs");
-		if (proplen == 0)
-			return (EIO);
-		zfs_bootpath = kmem_zalloc(proplen, KM_SLEEP);
-		if (BOP_GETPROP(bootops, "zfs-bootfs", zfs_bootpath) == -1) {
-			kmem_free(zfs_bootpath, proplen);
-			return (EIO);
+		if ((zfs_bootfs = spa_get_bootfs()) == NULL) {
+			cmn_err(CE_NOTE, "\nspa_get_bootfs: can not get "
+			    "bootfs name \n");
+			return (EINVAL);
 		}
-		error = parse_bootpath(zfs_bootpath, rootfs.bo_name);
-		kmem_free(zfs_bootpath, proplen);
-#else
-		if (ddi_prop_lookup_string(DDI_DEV_T_ANY, ddi_root_node(),
-		    DDI_PROP_DONTPASS, "zfs-bootfs", &zfs_bootpath) !=
-		    DDI_SUCCESS)
-			return (EIO);
 
-		error = parse_bootpath(zfs_bootpath, rootfs.bo_name);
-		ddi_prop_free(zfs_bootpath);
-#endif
-
-		if (error)
+		if (error = spa_import_rootpool(rootfs.bo_name)) {
+			spa_free_bootfs(zfs_bootfs);
+			cmn_err(CE_NOTE, "\nspa_import_rootpool: error %d\n",
+			    error);
 			return (error);
+		}
+
+		if (error = zfs_parse_bootfs(zfs_bootfs, rootfs.bo_name)) {
+			spa_free_bootfs(zfs_bootfs);
+			cmn_err(CE_NOTE, "\nzfs_parse_bootfs: error %d\n",
+			    error);
+			return (error);
+		}
+
+		spa_free_bootfs(zfs_bootfs);
 
 		if (error = vfs_lock(vfsp))
 			return (error);
 
-		if (error = zfs_domount(vfsp, rootfs.bo_name, CRED()))
+		if (error = zfs_domount(vfsp, rootfs.bo_name, CRED())) {
+			cmn_err(CE_NOTE, "\nzfs_domount: error %d\n", error);
 			goto out;
+		}
 
 		zfsvfs = (zfsvfs_t *)vfsp->vfs_data;
 		ASSERT(zfsvfs);
-		if (error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp))
+		if (error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp)) {
+			cmn_err(CE_NOTE, "\nzfs_zget: error %d\n", error);
 			goto out;
+		}
 
 		vp = ZTOV(zp);
 		mutex_enter(&vp->v_lock);
@@ -956,17 +963,11 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 		 */
 		VN_RELE(vp);
 
-		/*
-		 * Mount root as readonly initially, it will be remouted
-		 * read/write by /lib/svc/method/fs-usr.
-		 */
-		readonly_changed_cb(vfsp->vfs_data, B_TRUE);
 		vfs_add((struct vnode *)0, vfsp,
 		    (vfsp->vfs_flag & VFS_RDONLY) ? MS_RDONLY : 0);
 out:
 		vfs_unlock(vfsp);
-		ret = (error) ? error : 0;
-		return (ret);
+		return (error);
 	} else if (why == ROOT_REMOUNT) {
 		readonly_changed_cb(vfsp->vfs_data, B_FALSE);
 		vfsp->vfs_flag |= VFS_REMOUNT;
@@ -1670,8 +1671,6 @@ zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value)
 	/*
 	 * Look up the file system's value for the property.  For the
 	 * version property, we look up a slightly different string.
-	 * Also, there is no default VERSION value, so if we don't
-	 * find it, return the error.
 	 */
 	if (prop == ZFS_PROP_VERSION)
 		pname = ZPL_VERSION_STR;
@@ -1680,13 +1679,12 @@ zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value)
 
 	error = zap_lookup(os, MASTER_NODE_OBJ, pname, 8, 1, value);
 
-	if (!error) {
-		return (0);
-	} else if (prop == ZFS_PROP_VERSION || error != ENOENT) {
-		return (error);
-	} else {
+	if (error == ENOENT) {
 		/* No value set, use the default value */
 		switch (prop) {
+		case ZFS_PROP_VERSION:
+			*value = ZPL_VERSION;
+			break;
 		case ZFS_PROP_NORMALIZE:
 		case ZFS_PROP_UTF8ONLY:
 			*value = 0;
@@ -1695,10 +1693,11 @@ zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value)
 			*value = ZFS_CASE_SENSITIVE;
 			break;
 		default:
-			return (ENOENT);
+			return (error);
 		}
+		error = 0;
 	}
-	return (0);
+	return (error);
 }
 
 #if 0

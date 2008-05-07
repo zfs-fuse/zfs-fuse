@@ -38,6 +38,7 @@
  * Kernel memory
  */
 #define KM_SLEEP    UMEM_NOFAIL
+#define KM_PUSHPAGE KM_SLEEP
 #define KM_NOSLEEP  UMEM_DEFAULT
 #define KMC_NODEBUG UMC_NODEBUG
 

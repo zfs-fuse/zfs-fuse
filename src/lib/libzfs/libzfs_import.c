@@ -782,7 +782,9 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv,
 	int i;
 	DIR *dirp = NULL;
 	struct dirent64 *dp;
-	char path[MAXPATHLEN];
+	char path[MAXPATHLEN], path2[MAXPATHLEN];
+	char *end;
+	size_t pathleft;
 	struct stat64 statbuf;
 	nvlist_t *ret = NULL, *config;
 	static char *default_dir = "/dev";
@@ -792,7 +794,6 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv,
 	vdev_entry_t *ve, *venext;
 	config_entry_t *ce, *cenext;
 	name_entry_t *ne, *nenext;
-
 
 	if (argc == 0) {
 		argc = 1;
@@ -805,18 +806,25 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv,
 	 * and toplevel GUID.
 	 */
 	for (i = 0; i < argc; i++) {
-		if (argv[i][0] != '/') {
+		char *rdsk;
+
+		/* use realpath to normalize the path */
+		if (realpath(argv[i], path) == 0) {
 			(void) zfs_error_fmt(hdl, EZFS_BADPATH,
 			    dgettext(TEXT_DOMAIN, "cannot open '%s'"),
 			    argv[i]);
 			goto error;
 		}
+		end = &path[strlen(path)];
+		*end++ = '/';
+		*end = 0;
+		pathleft = &path[sizeof (path)] - end;
 
-		if ((dirp = opendir(argv[i])) == NULL) {
+		if ((dirp = opendir(rdsk)) == NULL) {
 			zfs_error_aux(hdl, strerror(errno));
 			(void) zfs_error_fmt(hdl, EZFS_BADPATH,
 			    dgettext(TEXT_DOMAIN, "cannot open '%s'"),
-			    argv[i]);
+			    rdsk);
 			goto error;
 		}
 
@@ -824,28 +832,27 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv,
 		 * This is not MT-safe, but we have no MT consumers of libzfs
 		 */
 		while ((dp = readdir64(dirp)) != NULL) {
+			const char *name = dp->d_name;
+			if (name[0] == '.' &&
+			    (name[1] == 0 || (name[1] == '.' && name[2] == 0)))
+				continue;
 
-			(void) snprintf(path, sizeof (path), "%s/%s",
-			    argv[i], dp->d_name);
+			snprintf(path2, sizeof (path2), "%s%s", rdsk, name);
 
-			if (stat64(path, &statbuf) != 0)
+			if ((fd = open64(path2, O_RDONLY)) < 0)
 				continue;
 
 			/*
-			 * Ignore directories (which includes "." and "..").
+			 * Ignore failed stats.  We only want regular
+			 * files, character devs and block devs.
 			 */
-			if (S_ISDIR(statbuf.st_mode))
+			if (fstat64(fd, &statbuf) != 0 ||
+			    (!S_ISREG(statbuf.st_mode) &&
+			    !S_ISCHR(statbuf.st_mode) &&
+			    !S_ISBLK(statbuf.st_mode))) {
+				(void) close(fd);
 				continue;
-
-			/*
-			 * Ignore special (non-character or non-block) files.
-			 */
-			if (!S_ISREG(statbuf.st_mode) &&
-			    !S_ISBLK(statbuf.st_mode))
-				continue;
-
-			if ((fd = open64(path, O_RDONLY)) < 0)
-				continue;
+			}
 
 			if ((zpool_read_label(fd, &config)) != 0) {
 				(void) close(fd);
@@ -855,9 +862,12 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv,
 
 			(void) close(fd);
 
-			if (config != NULL)
+			if (config != NULL) {
+				/* use the non-raw path for the config */
+				(void) strlcpy(end, name, pathleft);
 				if (add_config(hdl, &pools, path, config) != 0)
 					goto error;
+			}
 		}
 
 		(void) closedir(dirp);

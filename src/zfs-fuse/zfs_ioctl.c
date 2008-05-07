@@ -990,8 +990,8 @@ zfs_ioc_vdev_add(zfs_cmd_t *zc)
 {
 	spa_t *spa;
 	int error;
-	nvlist_t *config, **l2cache;
-	uint_t nl2cache;
+	nvlist_t *config, **l2cache, **spares;
+	uint_t nl2cache = 0, nspares = 0;
 
 	error = spa_open(zc->zc_name, &spa, FTAG);
 	if (error != 0)
@@ -1002,13 +1002,20 @@ zfs_ioc_vdev_add(zfs_cmd_t *zc)
 	(void) nvlist_lookup_nvlist_array(config, ZPOOL_CONFIG_L2CACHE,
 	    &l2cache, &nl2cache);
 
+	(void) nvlist_lookup_nvlist_array(config, ZPOOL_CONFIG_SPARES,
+	    &spares, &nspares);
+
 	/*
 	 * A root pool with concatenated devices is not supported.
-	 * Thus, can not add a device to a root pool with one device.
-	 * Allow for l2cache devices to be added.
+	 * Thus, can not add a device to a root pool.
+	 *
+	 * Intent log device can not be added to a rootpool because
+	 * during mountroot, zil is replayed, a seperated log device
+	 * can not be accessed during the mountroot time.
+	 *
+	 * l2cache and spare devices are ok to be added to a rootpool.
 	 */
-	if (spa->spa_root_vdev->vdev_children == 1 && spa->spa_bootfs != 0 &&
-	    nl2cache == 0) {
+	if (spa->spa_bootfs != 0 && nl2cache == 0 && nspares == 0) {
 		spa_close(spa, FTAG);
 		return (EDOM);
 	}
@@ -1354,7 +1361,7 @@ zfs_ioc_snapshot_list_next(zfs_cmd_t *zc)
 	return (error);
 }
 
-static int
+int
 zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 {
 	nvpair_t *elem;
@@ -1813,7 +1820,7 @@ zfs_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
  */
 static int
 zfs_fill_zplprops(const char *dataset, nvlist_t *createprops,
-    nvlist_t *zplprops, uint64_t zplver)
+    nvlist_t *zplprops, uint64_t zplver, boolean_t *is_ci)
 {
 	objset_t *os;
 	char parentname[MAXNAMELEN];
@@ -1893,6 +1900,9 @@ zfs_fill_zplprops(const char *dataset, nvlist_t *createprops,
 	VERIFY(nvlist_add_uint64(zplprops,
 	    zfs_prop_to_name(ZFS_PROP_CASE), sense) == 0);
 
+	if (is_ci)
+		*is_ci = (sense == ZFS_CASE_INSENSITIVE);
+
 	dmu_objset_close(os);
 	return (0);
 }
@@ -1927,6 +1937,7 @@ zfs_ioc_create(zfs_cmd_t *zc)
 		return ENOSYS;
 	default:
 		cbfunc = NULL;
+		break;
 	}
 	if (strchr(zc->zc_name, '@') ||
 	    strchr(zc->zc_name, '%'))
@@ -1956,7 +1967,9 @@ zfs_ioc_create(zfs_cmd_t *zc)
 			nvlist_free(nvprops);
 			return (error);
 		}
-		error = dmu_objset_create(zc->zc_name, type, clone, NULL, NULL);
+
+		error = dmu_objset_create(zc->zc_name, type, clone, 0,
+		    NULL, NULL);
 		if (error) {
 			dmu_objset_close(clone);
 			nvlist_free(nvprops);
@@ -1964,6 +1977,8 @@ zfs_ioc_create(zfs_cmd_t *zc)
 		}
 		dmu_objset_close(clone);
 	} else {
+		boolean_t is_insensitive = B_FALSE;
+
 		if (cbfunc == NULL) {
 			nvlist_free(nvprops);
 			return (EINVAL);
@@ -2041,15 +2056,15 @@ zfs_ioc_create(zfs_cmd_t *zc)
 			VERIFY(nvlist_alloc(&zct.zct_zplprops,
 			    NV_UNIQUE_NAME, KM_SLEEP) == 0);
 			error = zfs_fill_zplprops(zc->zc_name, nvprops,
-			    zct.zct_zplprops, version);
+			    zct.zct_zplprops, version, &is_insensitive);
 			if (error != 0) {
 				nvlist_free(nvprops);
 				nvlist_free(zct.zct_zplprops);
 				return (error);
 			}
 		}
-		error = dmu_objset_create(zc->zc_name, type, NULL, cbfunc,
-		    &zct);
+		error = dmu_objset_create(zc->zc_name, type, NULL,
+		    is_insensitive ? DS_FLAG_CI_DATASET : 0, cbfunc, &zct);
 		nvlist_free(zct.zct_zplprops);
 	}
 
@@ -2060,7 +2075,6 @@ zfs_ioc_create(zfs_cmd_t *zc)
 		if ((error = zfs_set_prop_nvlist(zc->zc_name, nvprops)) != 0)
 			(void) dmu_objset_destroy(zc->zc_name);
 	}
-
 	nvlist_free(nvprops);
 	return (error);
 }
@@ -2962,7 +2976,7 @@ static struct cb_ops zfs_cb_ops = {
 	zvol_close,	/* close */
 	zvol_strategy,	/* strategy */
 	nodev,		/* print */
-	nodev,		/* dump */
+	zvol_dump,	/* dump */
 	zvol_read,	/* read */
 	zvol_write,	/* write */
 	zfsdev_ioctl,	/* ioctl */

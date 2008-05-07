@@ -28,5 +28,6 @@
 #define _SYS_SUNLDI_H
 
 typedef void * ldi_ident_t;
+typedef void * ldi_handle_t;
 
 #endif

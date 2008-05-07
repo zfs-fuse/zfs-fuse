@@ -1455,7 +1455,7 @@ top:
 	vnevent_remove(vp, dvp, name, ct);
 
 	if (realnmp)
-		dnlc_remove(dvp, realnmp->pn_path);
+		dnlc_remove(dvp, realnmp->pn_buf);
 	else
 		dnlc_remove(dvp, name);
 
@@ -2667,11 +2667,9 @@ top:
 				    pzp->zp_acl.z_acl_extern_obj, 0,
 				    aclp->z_acl_bytes);
 			}
-		} else if (!(pzp->zp_flags & ZFS_ACL_TRIVIAL)) {
-			if (aclp->z_acl_bytes > ZFS_ACE_SPACE) {
-				dmu_tx_hold_write(tx, DMU_NEW_OBJECT,
-				    0, aclp->z_acl_bytes);
-			}
+		} else if (aclp->z_acl_bytes > ZFS_ACE_SPACE) {
+			dmu_tx_hold_write(tx, DMU_NEW_OBJECT,
+			    0, aclp->z_acl_bytes);
 		}
 	}
 

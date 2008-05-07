@@ -42,8 +42,6 @@ extern "C" {
 
 struct znode_phys;
 
-#define	ACCESS_UNDETERMINED	-1
-
 #define	ACE_SLOT_CNT	6
 #define	ZFS_ACL_VERSION_INITIAL 0ULL
 #define	ZFS_ACL_VERSION_FUID	1ULL
@@ -182,7 +180,7 @@ typedef struct zfs_acl {
 #define	ZFS_ACL_NOALLOW		1
 #define	ZFS_ACL_GROUPMASK	2
 #define	ZFS_ACL_PASSTHROUGH	3
-#define	ZFS_ACL_SECURE		4
+#define	ZFS_ACL_RESTRICTED	4
 
 struct znode;
 struct zfsvfs;
