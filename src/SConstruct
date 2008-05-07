@@ -80,7 +80,6 @@ SConscript('cmd/ztest/SConscript')
 SConscript('cmd/zpool/SConscript')
 SConscript('cmd/zfs/SConscript')
 SConscript('zfs-fuse/SConscript')
-SConscript('SConscript-symlinks')
 
 env.Install(install_dir, 'cmd/zdb/zdb')
 env.Install(install_dir, 'cmd/ztest/ztest')
