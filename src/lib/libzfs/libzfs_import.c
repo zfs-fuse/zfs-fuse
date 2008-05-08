@@ -819,6 +819,7 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv,
 		*end++ = '/';
 		*end = 0;
 		pathleft = &path[sizeof (path)] - end;
+		rdsk = path;
 
 		if ((dirp = opendir(rdsk)) == NULL) {
 			zfs_error_aux(hdl, strerror(errno));
