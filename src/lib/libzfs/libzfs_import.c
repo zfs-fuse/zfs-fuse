@@ -840,20 +840,17 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv,
 
 			snprintf(path2, sizeof (path2), "%s%s", rdsk, name);
 
-			if ((fd = open64(path2, O_RDONLY)) < 0)
-				continue;
-
 			/*
 			 * Ignore failed stats.  We only want regular
-			 * files, character devs and block devs.
+			 * files and block devs.
 			 */
-			if (fstat64(fd, &statbuf) != 0 ||
+			if (stat64(path2, &statbuf) != 0 ||
 			    (!S_ISREG(statbuf.st_mode) &&
-			    !S_ISCHR(statbuf.st_mode) &&
-			    !S_ISBLK(statbuf.st_mode))) {
-				(void) close(fd);
+			    !S_ISBLK(statbuf.st_mode)))
 				continue;
-			}
+
+			if ((fd = open64(path2, O_RDONLY)) < 0)
+				continue;
 
 			if ((zpool_read_label(fd, &config)) != 0) {
 				(void) close(fd);
