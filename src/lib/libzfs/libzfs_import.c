@@ -861,9 +861,7 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv,
 			(void) close(fd);
 
 			if (config != NULL) {
-				/* use the non-raw path for the config */
-				(void) strlcpy(end, name, pathleft);
-				if (add_config(hdl, &pools, path, config) != 0)
+				if (add_config(hdl, &pools, path2, config) != 0)
 					goto error;
 			}
 		}
