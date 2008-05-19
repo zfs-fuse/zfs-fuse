@@ -2140,6 +2140,10 @@ static void zio_aio_thread(zio_aio_ctx_t *ctx)
 		}
 	}
 
+	rc = io_destroy(ctx->zac_ctx);
+	if (rc != 0)
+		cmn_err(CE_WARN, "error '%i' in function io_destroy()", rc);
+
 	kmem_free(ctx, sizeof (zio_aio_ctx_t));
 }
 
@@ -2175,6 +2179,8 @@ int zio_aio_init(spa_t *spa)
  */
 void zio_aio_fini(spa_t *spa)
 {
+	int rc;
+
 	if (spa->spa_aio_ctx == NULL)
 		return; /* AIO never started in the first place */
 
@@ -2186,6 +2192,10 @@ void zio_aio_fini(spa_t *spa)
 		 * An error occured in the AIO thread, so we'll free
 		 * zio_aio_ctx_t ourselves.
 		 */
+		rc = io_destroy(spa->spa_aio_ctx->zac_ctx);
+		if (rc != 0)
+			cmn_err(CE_WARN, "error '%i' in function io_destroy()", rc);
+
 		kmem_free(spa->spa_aio_ctx, sizeof (zio_aio_ctx_t));
 		spa->spa_aio_ctx = NULL;
 	}
