@@ -361,10 +361,8 @@ vdev_file_io_done(zio_t *zio)
 
 	vdev_queue_io_done(zio);
 
-#ifndef _KERNEL
 	if (zio->io_type == ZIO_TYPE_WRITE)
 		vdev_cache_write(zio);
-#endif
 
 	return (ZIO_PIPELINE_CONTINUE);
 }
