@@ -7,8 +7,7 @@
 
 ~$
 
-/cscope\.files$
-/cscope\.out$
+cscope\.
 
 ^src/zfs-fuse/zfs-fuse$
 ^src/zfs-fuse/zfs-fuse$
