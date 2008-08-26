@@ -24,6 +24,7 @@ Bug fixes:
 	* Linux compatibility fix when trying to remove non-empty directory.
 	* Fix unexpected return codes when working with unlinked files/directories.
 	* Add support for gcc 4.2 (patch by Michal Kowalczuk, some fixes by Roland/devzero).
+	* Fixed bug where atime was not working.
 
 2007/03/06 - Release 0.4.0_beta1
 --------------------------------------------------
