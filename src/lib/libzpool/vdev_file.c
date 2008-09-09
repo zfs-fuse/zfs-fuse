@@ -1,3 +1,4 @@
+
 /*
  * CDDL HEADER START
  *
@@ -33,6 +34,9 @@
 #include <sys/fs/zfs.h>
 #include <sys/fm/fs/zfs.h>
 
+// For flushing the write cache.
+#include "flushwc.h"
+
 /*
  * Virtual device vector for files.
  */
@@ -65,13 +69,14 @@ vdev_file_open_common(vdev_t *vd)
 	    spa_mode | FOFFMAX, 0, &vp, 0, 0, rootdir, -1);
 
 	if (error) {
+		dprintf("vn_openat() returned error %i\n", error);
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
 		return (error);
 	}
 
 	vf->vf_vnode = vp;
 
-#ifdef _KERNEL
+#if 0
 	/*
 	 * Make sure it's a regular file.
 	 */
@@ -102,6 +107,7 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	vattr.va_mask = AT_SIZE;
 	error = VOP_GETATTR(vf->vf_vnode, &vattr, 0, kcred, NULL);
 	if (error) {
+		dprintf("vdev_file_open(): VOP_GETATTR() returned error %i\n", error);
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
 		return (error);
 	}
@@ -226,6 +232,10 @@ vdev_file_io_start(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
 	vdev_file_t *vf = vd->vdev_tsd;
+#ifdef LINUX_AIO
+	struct iocb *iocbp = &zio->io_aio;
+#endif
+
 	ssize_t resid;
 	int error;
 
@@ -240,10 +250,38 @@ vdev_file_io_start(zio_t *zio)
 
 		switch (zio->io_cmd) {
 		case DKIOCFLUSHWRITECACHE:
+			if (zfs_nocacheflush)
+				break;
+
+			/* This doesn't actually do much with O_DIRECT... */
 			zio->io_error = VOP_FSYNC(vf->vf_vnode, FSYNC | FDSYNC,
 			    kcred, NULL);
 			dprintf("fsync(%s) = %d\n", vdev_description(vd),
 			    zio->io_error);
+
+			if (vd->vdev_nowritecache) {
+				zio->io_error = ENOTSUP;
+				break;
+			}
+
+			/* Flush the write cache */
+			error = flushwc(vf->vf_vnode);
+			dprintf("flushwc(%s) = %d\n", vdev_description(vd),
+			    error);
+
+			if (error) {
+#ifdef _KERNEL
+				cmn_err(CE_WARN, "Failed to flush write cache "
+				    "on device '%s'. Data on pool '%s' may be lost "
+				    "if power fails. No further warnings will "
+				    "be given.", vdev_description(vd),
+				    spa_name(vd->vdev_spa));
+#endif
+
+				vd->vdev_nowritecache = B_TRUE;
+				zio->io_error = error;
+			}
+
 			break;
 		default:
 			zio->io_error = ENOTSUP;
@@ -256,10 +294,8 @@ vdev_file_io_start(zio_t *zio)
 	 * In the kernel, don't bother double-caching, but in userland,
 	 * we want to test the vdev_cache code.
 	 */
-#ifndef _KERNEL
 	if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio) == 0)
 		return (ZIO_PIPELINE_STOP);
-#endif
 
 	if ((zio = vdev_queue_io(zio)) == NULL)
 		return (ZIO_PIPELINE_STOP);
@@ -275,6 +311,31 @@ vdev_file_io_start(zio_t *zio)
 		zio_interrupt(zio);
 		return (ZIO_PIPELINE_STOP);
 	}
+
+#ifdef LINUX_AIO
+	if (zio->io_aio_ctx && zio->io_aio_ctx->zac_enabled) {
+		if (zio->io_type == ZIO_TYPE_READ)
+			io_prep_pread(&zio->io_aio, vf->vf_vnode->v_fd,
+			    zio->io_data, zio->io_size, zio->io_offset);
+		else
+			io_prep_pwrite(&zio->io_aio, vf->vf_vnode->v_fd,
+			    zio->io_data, zio->io_size, zio->io_offset);
+
+		zio->io_aio.data = zio;
+
+		do {
+			error = io_submit(zio->io_aio_ctx->zac_ctx, 1, &iocbp);
+		} while (error == -EINTR);
+
+		if (error < 0) {
+			zio->io_error = -error;
+			zio_interrupt(zio);
+		} else
+			VERIFY(error == 1);
+
+		return (ZIO_PIPELINE_STOP);
+	}
+#endif
 
 	zio->io_error = vn_rdwr(zio->io_type == ZIO_TYPE_READ ?
 	    UIO_READ : UIO_WRITE, vf->vf_vnode, zio->io_data,
@@ -311,10 +372,8 @@ vdev_file_io_done(zio_t *zio)
 
 	vdev_queue_io_done(zio);
 
-#ifndef _KERNEL
 	if (zio->io_type == ZIO_TYPE_WRITE)
 		vdev_cache_write(zio);
-#endif
 
 	return (ZIO_PIPELINE_CONTINUE);
 }
@@ -334,7 +393,7 @@ vdev_ops_t vdev_file_ops = {
 /*
  * From userland we access disks just like files.
  */
-#ifndef _KERNEL
+#if 1
 
 vdev_ops_t vdev_disk_ops = {
 	vdev_file_open,

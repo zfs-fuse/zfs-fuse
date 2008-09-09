@@ -413,7 +413,7 @@ dump_zpldir(objset_t *os, uint64_t object, void *data, size_t size)
 	    zap_cursor_retrieve(&zc, &attr) == 0;
 	    zap_cursor_advance(&zc)) {
 		(void) printf("\t\t%s = %lld (type: %s)\n",
-		    attr.za_name, ZFS_DIRENT_OBJ(attr.za_first_integer),
+		    attr.za_name, (longlong_t) ZFS_DIRENT_OBJ(attr.za_first_integer),
 		    typenames[ZFS_DIRENT_TYPE(attr.za_first_integer)]);
 	}
 	zap_cursor_fini(&zc);
@@ -1789,7 +1789,7 @@ dump_block_stats(spa_t *spa)
 		(void) printf("block traversal size %llu != alloc %llu "
 		    "(leaked %lld)\n",
 		    (u_longlong_t)tzb->zb_asize,
-		    (u_longlong_t)alloc + logalloc,
+		    (u_longlong_t)(alloc + logalloc),
 		    (u_longlong_t)(alloc + logalloc - tzb->zb_asize));
 		leaks = 1;
 	}

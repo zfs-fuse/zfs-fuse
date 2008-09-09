@@ -55,6 +55,45 @@ extern "C" {
 #define	DRR_FLAG_CI_DATA	(1<<1)
 
 /*
+ * zfs-fuse socket messages
+ */
+
+enum {
+	IOCTL_REQ, IOCTL_ANS, COPYIN_REQ, COPYINSTR_REQ, COPYINSTR_ANS, COPYOUT_REQ, MOUNT_REQ, GETF_REQ
+};
+
+typedef struct {
+	int32_t cmd_type;
+	union {
+		struct ioctl_req {
+			int32_t cmd;
+			uint64_t arg;
+		} ioctl_req;
+
+		int32_t ioctl_ans_ret;
+
+		struct copy_req {
+			uint64_t ptr;
+			uint64_t size;
+		} copy_req;
+
+		struct copy_ans {
+			int32_t ret;
+			uint64_t lencopied;
+		} copy_ans;
+
+		struct mount_req {
+			uint32_t speclen;
+			uint32_t dirlen;
+			int32_t mflag;
+			int32_t optlen;
+		} mount_req;
+
+		int32_t getf_req_fd;
+	} cmd_u __attribute__ ((aligned(8)));
+} zfsfuse_cmd_t __attribute__ ((aligned(8)));
+
+/*
  * zfs ioctl command structure
  */
 typedef struct dmu_replay_record {

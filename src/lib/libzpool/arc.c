@@ -129,6 +129,7 @@
 #include <vm/anon.h>
 #include <sys/fs/swapnode.h>
 #include <sys/dnlc.h>
+#include <sys/kmem.h>
 #endif
 #include <sys/callb.h>
 #include <sys/kstat.h>
@@ -1040,6 +1041,7 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 				to_delta = ab->b_size;
 			}
 			atomic_add_64(size, to_delta);
+			atomic_add_64(&new_state->arcs_size, to_delta);
 
 			if (use_mutex)
 				mutex_exit(&new_state->arcs_mtx);
@@ -1052,7 +1054,7 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 	}
 
 	/* adjust state sizes */
-	if (to_delta)
+	if (to_delta && (refcnt != 0 || new_state == arc_anon))
 		atomic_add_64(&new_state->arcs_size, to_delta);
 	if (from_delta) {
 		ASSERT3U(old_state->arcs_size, >=, from_delta);
@@ -1744,7 +1746,7 @@ arc_shrink(void)
 	if (arc_c > arc_c_min) {
 		uint64_t to_free;
 
-#ifdef _KERNEL
+#if 0
 		to_free = MAX(arc_c >> arc_shrink_shift, ptob(needfree));
 #else
 		to_free = arc_c >> arc_shrink_shift;
@@ -1770,6 +1772,7 @@ arc_shrink(void)
 static int
 arc_reclaim_needed(void)
 {
+#if 0
 	uint64_t extra;
 
 #ifdef _KERNEL
@@ -1823,6 +1826,7 @@ arc_reclaim_needed(void)
 	if (spa_get_random(100) == 0)
 		return (1);
 #endif
+#endif
 	return (0);
 }
 
@@ -1835,7 +1839,7 @@ arc_kmem_reap_now(arc_reclaim_strategy_t strat)
 	extern kmem_cache_t	*zio_buf_cache[];
 	extern kmem_cache_t	*zio_data_buf_cache[];
 
-#ifdef _KERNEL
+#if 0
 	if (arc_meta_used >= arc_meta_limit) {
 		/*
 		 * We are exceeding our meta-data cache limit.
@@ -1875,7 +1879,7 @@ arc_kmem_reap_now(arc_reclaim_strategy_t strat)
 static void
 arc_reclaim_thread(void)
 {
-	clock_t			growtime = 0;
+	int64_t			growtime = 0;
 	arc_reclaim_strategy_t	last_reclaim = ARC_RECLAIM_CONS;
 	callb_cpr_t		cpr;
 
@@ -1898,12 +1902,12 @@ arc_reclaim_thread(void)
 			}
 
 			/* reset the growth delay for every reclaim */
-			growtime = lbolt + (arc_grow_retry * hz);
+			growtime = lbolt64 + (arc_grow_retry * hz);
 
 			arc_kmem_reap_now(last_reclaim);
 			arc_warm = B_TRUE;
 
-		} else if (arc_no_grow && lbolt >= growtime) {
+		} else if (arc_no_grow && lbolt64 >= growtime) {
 			arc_no_grow = FALSE;
 		}
 
@@ -1999,7 +2003,7 @@ arc_evict_needed(arc_buf_contents_t type)
 	if (type == ARC_BUFC_METADATA && arc_meta_used >= arc_meta_limit)
 		return (1);
 
-#ifdef _KERNEL
+#if 0
 	/*
 	 * If zio data pages are being allocated out of a separate heap segment,
 	 * then enforce that the size of available vmem for this area remains
@@ -2952,13 +2956,11 @@ arc_has_callback(arc_buf_t *buf)
 	return (buf->b_efunc != NULL);
 }
 
-#ifdef ZFS_DEBUG
 int
 arc_referenced(arc_buf_t *buf)
 {
 	return (refcount_count(&buf->b_hdr->b_refcnt));
 }
-#endif
 
 static void
 arc_write_ready(zio_t *zio)
@@ -3218,7 +3220,7 @@ arc_free(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 static int
 arc_memory_throttle(uint64_t reserve, uint64_t txg)
 {
-#ifdef _KERNEL
+#if 0
 	uint64_t inflight_data = arc_anon->arcs_size;
 	uint64_t available_memory = ptob(freemem);
 	static uint64_t page_load = 0;
@@ -3337,7 +3339,7 @@ arc_init(void)
 	/* Start out with 1/8 of all memory */
 	arc_c = physmem * PAGESIZE / 8;
 
-#ifdef _KERNEL
+#if 0
 	/*
 	 * On architectures where the physical memory can be larger
 	 * than the addressable space (intel in 32-bit mode), we may
@@ -3346,14 +3348,14 @@ arc_init(void)
 	arc_c = MIN(arc_c, vmem_size(heap_arena, VMEM_ALLOC | VMEM_FREE) / 8);
 #endif
 
-	/* set min cache to 1/32 of all memory, or 64MB, whichever is more */
-	arc_c_min = MAX(arc_c / 4, 64<<20);
-	/* set max to 3/4 of all memory, or all but 1GB, whichever is more */
-	if (arc_c * 8 >= 1<<30)
-		arc_c_max = (arc_c * 8) - (1<<30);
-	else
-		arc_c_max = arc_c_min;
-	arc_c_max = MAX(arc_c * 6, arc_c_max);
+	/* set min cache to 16 MB */
+	arc_c_min = 16<<20;
+#ifdef _KERNEL
+	/* set max cache to ZFSFUSE_MAX_ARCSIZE */
+	arc_c_max = ZFSFUSE_MAX_ARCSIZE;
+#else
+	arc_c_max = 64<<20;
+#endif
 
 	/*
 	 * Allow the tunables to override our calculations if they are

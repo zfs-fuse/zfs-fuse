@@ -850,6 +850,7 @@ vdev_open(vdev_t *vd)
 		    VDEV_AUX_ERR_EXCEEDED);
 		return (ENXIO);
 	} else if (vd->vdev_offline) {
+		dprintf("vdev_open(): vd->vdev_offline\n");
 		ASSERT(vd->vdev_children == 0);
 		vdev_set_state(vd, B_TRUE, VDEV_STATE_OFFLINE, VDEV_AUX_NONE);
 		return (ENXIO);

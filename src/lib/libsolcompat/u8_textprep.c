@@ -52,6 +52,7 @@
 #include <sys/errno.h>
 #include <sys/u8_textprep_data.h>
 
+#undef errno
 
 /* The maximum possible number of bytes in a UTF-8 character. */
 #define	U8_MB_CUR_MAX			(4)

@@ -475,7 +475,7 @@ spa_get_errlists(spa_t *spa, avl_tree_t *last, avl_tree_t *scrub)
 static void
 spa_activate(spa_t *spa)
 {
-	int t;
+	int t, error;
 
 	ASSERT(spa->spa_state == POOL_STATE_UNINITIALIZED);
 
@@ -483,6 +483,14 @@ spa_activate(spa_t *spa)
 
 	spa->spa_normal_class = metaslab_class_create();
 	spa->spa_log_class = metaslab_class_create();
+
+	/* Initialize async I/O context and thread */
+#ifdef LINUX_AIO
+	error = zio_aio_init(spa);
+	if (error)
+		cmn_err(CE_WARN, "error '%i' enabling async I/O for pool '%s'",
+		    error, spa->spa_name);
+#endif
 
 	for (t = 0; t < ZIO_TYPES; t++) {
 		spa->spa_zio_issue_taskq[t] = taskq_create("spa_zio_issue",
@@ -534,6 +542,10 @@ spa_deactivate(spa_t *spa)
 		spa->spa_zio_issue_taskq[t] = NULL;
 		spa->spa_zio_intr_taskq[t] = NULL;
 	}
+
+#ifdef LINUX_AIO
+	zio_aio_fini(spa);
+#endif
 
 	metaslab_class_destroy(spa->spa_normal_class);
 	spa->spa_normal_class = NULL;
@@ -1061,6 +1073,7 @@ spa_load(spa_t *spa, nvlist_t *config, spa_load_state_t state, int mosconfig)
 		goto out;
 
 	if (rvd->vdev_state <= VDEV_STATE_CANT_OPEN) {
+		dprintf("spa_load(): rvd->vdev_state <= VDEV_STATE_CANT_OPEN\n");
 		error = ENXIO;
 		goto out;
 	}
@@ -1079,6 +1092,7 @@ spa_load(spa_t *spa, nvlist_t *config, spa_load_state_t state, int mosconfig)
 	 * If we weren't able to find a single valid uberblock, return failure.
 	 */
 	if (ub->ub_txg == 0) {
+		dprintf("spa_load(): can't find single valid uberblock\n");
 		vdev_set_state(rvd, B_TRUE, VDEV_STATE_CANT_OPEN,
 		    VDEV_AUX_CORRUPT_DATA);
 		error = ENXIO;
@@ -1100,6 +1114,7 @@ spa_load(spa_t *spa, nvlist_t *config, spa_load_state_t state, int mosconfig)
 	 * incomplete configuration.
 	 */
 	if (rvd->vdev_guid_sum != ub->ub_guid_sum && mosconfig) {
+		dprintf("spa_load(): vdev guid sum doesn't match the uberblock\n");
 		vdev_set_state(rvd, B_TRUE, VDEV_STATE_CANT_OPEN,
 		    VDEV_AUX_BAD_GUID_SUM);
 		error = ENXIO;
@@ -1114,6 +1129,7 @@ spa_load(spa_t *spa, nvlist_t *config, spa_load_state_t state, int mosconfig)
 	spa->spa_first_txg = spa_last_synced_txg(spa) + 1;
 	error = dsl_pool_open(spa, spa->spa_first_txg, &spa->spa_dsl_pool);
 	if (error) {
+		dprintf("spa_load(): error %i in dsl_pool_open()\n", error);
 		vdev_set_state(rvd, B_TRUE, VDEV_STATE_CANT_OPEN,
 		    VDEV_AUX_CORRUPT_DATA);
 		goto out;
@@ -1353,6 +1369,7 @@ spa_load(spa_t *spa, nvlist_t *config, spa_load_state_t state, int mosconfig)
 	 * indicates one or more toplevel vdevs are faulted.
 	 */
 	if (rvd->vdev_state <= VDEV_STATE_CANT_OPEN) {
+		dprintf("spa_load(): one or more toplevel vdevs are faulted\n");
 		error = ENXIO;
 		goto out;
 	}
@@ -1405,6 +1422,8 @@ out:
 	spa->spa_minref = refcount_count(&spa->spa_refcount);
 	if (error && error != EBADF)
 		zfs_ereport_post(ereport, spa, NULL, NULL, 0, 0);
+	if (error)
+		dprintf("spa_load(): error %i\n", error);
 	spa->spa_load_state = SPA_LOAD_NONE;
 	spa->spa_ena = 0;
 
@@ -2202,7 +2221,8 @@ spa_import_common(const char *pool, nvlist_t *config, nvlist_t *props,
 	return (0);
 }
 
-#ifdef _KERNEL
+/* ZFSFUSE: not needed */
+#if 0
 /*
  * Build a "root" vdev for a top level vdev read in from a rootpool
  * device label.
@@ -4241,7 +4261,7 @@ spa_has_active_shared_spare(spa_t *spa)
 void
 spa_event_notify(spa_t *spa, vdev_t *vd, const char *name)
 {
-#ifdef _KERNEL
+#if 0
 	sysevent_t		*ev;
 	sysevent_attr_list_t	*attr = NULL;
 	sysevent_value_t	value;

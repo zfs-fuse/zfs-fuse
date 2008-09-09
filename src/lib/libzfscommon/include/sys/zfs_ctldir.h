@@ -48,7 +48,9 @@ extern "C" {
 
 void zfsctl_create(zfsvfs_t *);
 void zfsctl_destroy(zfsvfs_t *);
-vnode_t *zfsctl_root(znode_t *);
+/* ZFSFUSE: not implemented */
+/*vnode_t *zfsctl_root(znode_t *);*/
+#define zfsctl_root(zp) (abort(), NULL)
 void zfsctl_init(void);
 void zfsctl_fini(void);
 
@@ -56,9 +58,11 @@ int zfsctl_rename_snapshot(const char *from, const char *to);
 int zfsctl_destroy_snapshot(const char *snapname, int force);
 int zfsctl_umount_snapshots(vfs_t *, int, cred_t *);
 
-int zfsctl_root_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, pathname_t *pnp,
+/* ZFSFUSE: not implemented */
+/*int zfsctl_root_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, pathname_t *pnp,
     int flags, vnode_t *rdir, cred_t *cr, caller_context_t *ct,
-    int *direntflags, pathname_t *realpnp);
+    int *direntflags, pathname_t *realpnp);*/
+#define zfsctl_root_lookup(dvp,nm,vpp,pnp,f,rdir,cr,ct,df,rpnp) (abort(), 0)
 
 int zfsctl_make_fid(zfsvfs_t *zfsvfsp, uint64_t object, uint32_t gen,
     fid_t *fidp);

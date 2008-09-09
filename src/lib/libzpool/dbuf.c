@@ -1596,7 +1596,7 @@ dbuf_prefetch(dnode_t *dn, uint64_t blkid)
  */
 int
 dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid, int fail_sparse,
-    void *tag, dmu_buf_impl_t **dbp)
+    const void *tag, dmu_buf_impl_t **dbp)
 {
 	dmu_buf_impl_t *db, *parent = NULL;
 
@@ -1683,7 +1683,7 @@ top:
 }
 
 dmu_buf_impl_t *
-dbuf_hold(dnode_t *dn, uint64_t blkid, void *tag)
+dbuf_hold(dnode_t *dn, uint64_t blkid, const void *tag)
 {
 	dmu_buf_impl_t *db;
 	int err = dbuf_hold_impl(dn, 0, blkid, FALSE, tag, &db);
@@ -1717,7 +1717,7 @@ dbuf_add_ref(dmu_buf_impl_t *db, void *tag)
 
 #pragma weak dmu_buf_rele = dbuf_rele
 void
-dbuf_rele(dmu_buf_impl_t *db, void *tag)
+dbuf_rele(dmu_buf_impl_t *db, const void *tag)
 {
 	int64_t holds;
 

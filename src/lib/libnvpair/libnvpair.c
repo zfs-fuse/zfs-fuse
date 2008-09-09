@@ -141,7 +141,7 @@ nvlist_print_with_indent(FILE *fp, nvlist_t *nvl, int depth)
 		case DATA_TYPE_DOUBLE: {
 			double val;
 			(void) nvpair_value_double(nvp, &val);
-			(void) fprintf(fp, " 0x%llf", val);
+			(void) fprintf(fp, " 0x%f", val);
 			break;
 		}
 		case DATA_TYPE_STRING: {
@@ -565,7 +565,7 @@ nvpair_value_match_regex(nvpair_t *nvp, int ai,
 		boolean_t val, val_arg;
 
 		/* scanf boolean_t from value and check for match */
-		sr = sscanf(value, "%"SCNi32, &val_arg);
+		sr = sscanf(value, "%"SCNi32, (int *) &val_arg);
 		if ((sr == 1) &&
 		    (nvpair_value_boolean_value(nvp, &val) == 0) &&
 		    (val == val_arg))
@@ -576,7 +576,7 @@ nvpair_value_match_regex(nvpair_t *nvp, int ai,
 		boolean_t *val_array, val_arg;
 
 		/* check indexed value of array for match */
-		sr = sscanf(value, "%"SCNi32, &val_arg);
+		sr = sscanf(value, "%"SCNi32, (int *) &val_arg);
 		if ((sr == 1) &&
 		    (nvpair_value_boolean_array(nvp,
 		    &val_array, &a_len) == 0) &&

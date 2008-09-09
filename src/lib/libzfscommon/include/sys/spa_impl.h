@@ -43,6 +43,8 @@
 extern "C" {
 #endif
 
+struct zio_aio_ctx;
+
 typedef struct spa_error_entry {
 	zbookmark_t	se_bookmark;
 	char		*se_name;
@@ -163,6 +165,7 @@ struct spa {
 	kcondvar_t	spa_zio_cv;		/* resume I/O pipeline */
 	kmutex_t	spa_zio_lock;		/* zio error lock */
 	uint8_t		spa_failmode;		/* failure mode for the pool */
+	struct zio_aio_ctx *spa_aio_ctx;	/* asynchronous I/O context */
 	boolean_t	spa_import_faulted;	/* allow faulted vdevs */
 	boolean_t	spa_is_root;		/* pool is root */
 	int		spa_minref;		/* num refs when first opened */

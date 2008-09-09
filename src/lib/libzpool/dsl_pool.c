@@ -48,7 +48,7 @@ uint64_t zfs_write_limit_override = 0;
 
 kmutex_t zfs_write_limit_lock;
 
-static pgcnt_t old_physmem = 0;
+static uint64_t old_physmem = 0;
 
 static int
 dsl_pool_open_special_dir(dsl_pool_t *dp, const char *name, dsl_dir_t **ddp)

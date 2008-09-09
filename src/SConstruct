@@ -1,0 +1,90 @@
+import os, sys, re
+
+# Accepted parameters (and defaults):
+#
+#   install_dir=/usr/local/sbin - directory where the install target copies the binaries
+#   debug=1 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
+
+install_dir = ARGUMENTS.get('install_dir', '/usr/local/sbin')
+
+env = Environment()
+
+env['CC'] = 'gcc'
+env['LINKFLAGS'] = Split('-pipe -Wall -Werror')
+env['CCFLAGS'] = Split('-pipe -Wall -Werror -std=c99 -Wno-switch -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\" -DLINUX_AIO')
+
+debug = int(ARGUMENTS.get('debug', '1'))
+
+if not debug:
+	env.Append(LINKFLAGS = ['-s'])
+	env.Append(CCFLAGS = Split('-s -O2 -DNDEBUG'))
+else:
+	env.Append(LINKFLAGS = ['-ggdb'])
+	env.Append(CCFLAGS = ['-ggdb'])
+	if debug == 1:
+		env.Append(CCFLAGS = ['-O2'])
+	elif debug == 2:
+		env.Append(CCFLAGS = ['-DDEBUG'])
+	elif debug == 3:
+		env.Append(CCFLAGS = Split('-finstrument-functions -DDEBUG'))
+
+env['CPPPATH'] = []
+
+f = os.popen('uname -m')
+arch = f.readline().strip()
+f.close()
+
+def getarch(arch):
+	if arch == 'sparc64':
+		return 'sparc64'
+
+	if arch == 'x86_64':
+		return 'amd64'
+
+	if re.compile('i\d86').match(arch):
+		return 'i386'
+
+	return None
+
+myarch = getarch(arch)
+
+if not myarch:
+	print
+	print 'Sorry, only the x86, amd64 and sparc64 hardware architectures are supported'
+	sys.exit(1)
+
+if myarch == 'sparc64':
+	env.Append(CCFLAGS = '-mcpu=ultrasparc')
+	env.Append(ASFLAGS = '-mcpu=ultrasparc')
+
+env['ARCH'] = ARGUMENTS.get('target', myarch)
+
+if env['ARCH'] == 'i386' and myarch == 'amd64':
+	env.Append(CCFLAGS = '-m32')
+	env.Append(ASFLAGS = '-m32')
+	env.Append(LINKFLAGS = '-m32')
+
+Export('env')
+
+SConscript('lib/libavl/SConscript')
+SConscript('lib/libsolcompat/SConscript')
+SConscript('lib/libnvpair/SConscript')
+SConscript('lib/libumem/SConscript')
+SConscript('lib/libuutil/SConscript')
+SConscript('lib/libzfs/SConscript')
+SConscript('lib/libzfscommon/SConscript')
+SConscript('lib/libzpool/SConscript')
+SConscript('lib/libsolkerncompat/SConscript')
+SConscript('cmd/zdb/SConscript')
+SConscript('cmd/ztest/SConscript')
+SConscript('cmd/zpool/SConscript')
+SConscript('cmd/zfs/SConscript')
+SConscript('zfs-fuse/SConscript')
+
+env.Install(install_dir, 'cmd/zdb/zdb')
+env.Install(install_dir, 'cmd/ztest/ztest')
+env.Install(install_dir, 'cmd/zpool/zpool')
+env.Install(install_dir, 'cmd/zfs/zfs')
+env.Install(install_dir, 'zfs-fuse/zfs-fuse')
+
+env.Alias('install', install_dir)
