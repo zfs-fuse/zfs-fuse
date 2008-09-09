@@ -23,8 +23,6 @@
  * Use is subject to license terms.
  */
 
-
-
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -227,7 +225,6 @@ zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	xvattr_t *xvap = (xvattr_t *)vap;
 	void *end;
 	size_t lrsize;
-
 	size_t namesize = strlen(name) + 1;
 	size_t fuidsz = 0;
 
@@ -458,10 +455,16 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	 * Writes are handled in three different ways:
 	 *
 	 * WR_INDIRECT:
-	 *    If the write is greater than zfs_immediate_write_sz and there are
-	 *    no separate logs in this pool then later *if* we need to log the
-	 *    write then dmu_sync() is used to immediately write the block and
-	 *    its block pointer is put in the log record.
+	 *    In this mode, if we need to commit the write later, then the block
+	 *    is immediately written into the file system (using dmu_sync),
+	 *    and a pointer to the block is put into the log record.
+	 *    When the txg commits the block is linked in.
+	 *    This saves additionally writing the data into the log record.
+	 *    There are a few requirements for this to occur:
+	 *	- write is greater than zfs_immediate_write_sz
+	 *	- not using slogs (as slogs are assumed to always be faster
+	 *	  than writing into the main pool)
+	 *	- the write occupies only one block
 	 * WR_COPIED:
 	 *    If we know we'll immediately be committing the
 	 *    transaction (FSYNC or FDSYNC), the we allocate a larger
@@ -472,7 +475,7 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	 *    we retrieve the data using the dmu.
 	 */
 	slogging = spa_has_slogs(zilog->zl_spa);
-	if (resid > zfs_immediate_write_sz && !slogging)
+	if (resid > zfs_immediate_write_sz && !slogging && resid <= zp->z_blksz)
 		write_state = WR_INDIRECT;
 	else if (ioflag & (FSYNC | FDSYNC))
 		write_state = WR_COPIED;
@@ -489,11 +492,9 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 		ssize_t len;
 
 		/*
-		 * If there are slogs and the write would overflow the largest
-		 * block, then because we don't want to use the main pool
-		 * to dmu_sync, we have to split the write.
+		 * If the write would overflow the largest block then split it.
 		 */
-		if (slogging && resid > ZIL_MAX_LOG_DATA)
+		if (write_state != WR_INDIRECT && resid > ZIL_MAX_LOG_DATA)
 			len = SPA_MAXBLOCKSIZE >> 1;
 		else
 			len = resid;
@@ -640,7 +641,10 @@ zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
 	size_t txsize;
 	size_t aclbytes = vsecp->vsa_aclentsz;
 
-	txtype = (zp->z_zfsvfs->z_version == ZPL_VERSION_INITIAL) ?
+	if (zilog == NULL || zp->z_unlinked)
+		return;
+
+	txtype = (zp->z_zfsvfs->z_version < ZPL_VERSION_FUID) ?
 	    TX_ACL_V0 : TX_ACL;
 
 	if (txtype == TX_ACL)
@@ -648,13 +652,10 @@ zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
 	else
 		lrsize = sizeof (*lrv0);
 
-	if (zilog == NULL || zp->z_unlinked)
-		return;
-
 	txsize = lrsize +
 	    ((txtype == TX_ACL) ? ZIL_ACE_LENGTH(aclbytes) : aclbytes) +
 	    (fuidp ? fuidp->z_domain_str_sz : 0) +
-	    sizeof (uint64) * (fuidp ? fuidp->z_fuid_cnt : 0);
+	    sizeof (uint64_t) * (fuidp ? fuidp->z_fuid_cnt : 0);
 
 	itx = zil_itx_create(txtype, txsize);
 

@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef	_SYS_SYSEVENT_EVENTDEFS_H
 #define	_SYS_SYSEVENT_EVENTDEFS_H
-
-
 
 #ifdef	__cplusplus
 extern "C" {
@@ -50,8 +48,10 @@ extern "C" {
 #define	EC_DEV_ADD	"EC_dev_add"	/* device add event class */
 #define	EC_DEV_REMOVE	"EC_dev_remove"	/* device remove event class */
 #define	EC_DEV_BRANCH	"EC_dev_branch"	/* device tree branch event class */
+#define	EC_DEV_STATUS	"EC_dev_status"	/* device status event class */
 #define	EC_FM		"EC_fm"		/* FMA error report event */
 #define	EC_ZFS		"EC_zfs"	/* ZFS event */
+#define	EC_DATALINK	"EC_datalink"	/* datalink event */
 
 /*
  * The following event class is reserved for exclusive use
@@ -200,6 +200,9 @@ extern "C" {
 /* device tree branch removed */
 #define	ESC_DEV_BRANCH_REMOVE	"ESC_dev_branch_remove"
 
+/* device capacity dynamically changed */
+#define	ESC_DEV_DLE		"ESC_dev_dle"
+
 /* FMA Fault and Error event protocol subclass */
 #define	ESC_FM_ERROR		"ESC_FM_error"
 #define	ESC_FM_ERROR_REPLAY	"ESC_FM_error_replay"
@@ -208,14 +211,17 @@ extern "C" {
 #define	ESC_PLATFORM_SP_RESET	"ESC_platform_sp_reset"
 
 /*
- * EC_ACPIEV subclass definitions
+ * EC_PWRCTL subclass definitions
  */
-#define	EC_ACPIEV			"EC_acpiev"
-#define	ESC_ACPIEV_ADD			"ESC_acpiev_add"
-#define	ESC_ACPIEV_REMOVE		"ESC_acpiev_remove"
-#define	ESC_ACPIEV_WARN			"ESC_acpiev_warn"
-#define	ESC_ACPIEV_LOW			"ESC_acpiev_low"
-#define	ESC_ACPIEV_STATE_CHANGE		"ESC_acpiev_state_change"
+#define	EC_PWRCTL			"EC_pwrctl"
+#define	ESC_PWRCTL_ADD			"ESC_pwrctl_add"
+#define	ESC_PWRCTL_REMOVE		"ESC_pwrctl_remove"
+#define	ESC_PWRCTL_WARN			"ESC_pwrctl_warn"
+#define	ESC_PWRCTL_LOW			"ESC_pwrctl_low"
+#define	ESC_PWRCTL_STATE_CHANGE		"ESC_pwrctl_state_change"
+#define	ESC_PWRCTL_POWER_BUTTON		"ESC_pwrctl_power_button"
+#define	ESC_PWRCTL_BRIGHTNESS_UP	"ESC_pwrctl_brightness_up"
+#define	ESC_PWRCTL_BRIGHTNESS_DOWN	"ESC_pwrctl_brightness_down"
 
 /*
  * ZFS subclass definitions.  supporting attributes (name/value paris) are found
@@ -227,6 +233,12 @@ extern "C" {
 #define	ESC_ZFS_POOL_DESTROY	"ESC_ZFS_pool_destroy"
 #define	ESC_ZFS_VDEV_CLEAR	"ESC_ZFS_vdev_clear"
 #define	ESC_ZFS_VDEV_CHECK	"ESC_ZFS_vdev_check"
+#define	ESC_ZFS_CONFIG_SYNC	"ESC_ZFS_config_sync"
+
+/*
+ * datalink subclass definitions.
+ */
+#define	ESC_DATALINK_PHYS_ADD	"ESC_datalink_phys_add"	/* new physical link */
 
 #ifdef	__cplusplus
 }

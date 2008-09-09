@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef	_SYS_FS_ZFS_ZNODE_H
 #define	_SYS_FS_ZFS_ZNODE_H
-
-
 
 #ifdef _KERNEL
 #include <sys/isa_defs.h>
@@ -257,19 +255,19 @@ typedef struct znode {
  * Macros for dealing with dmu_buf_hold
  */
 #define	ZFS_OBJ_HASH(obj_num)	((obj_num) & (ZFS_OBJ_MTX_SZ - 1))
-#define	ZFS_OBJ_MUTEX(zp)	\
-	(&(zp)->z_zfsvfs->z_hold_mtx[ZFS_OBJ_HASH((zp)->z_id)])
+#define	ZFS_OBJ_MUTEX(zfsvfs, obj_num)	\
+	(&(zfsvfs)->z_hold_mtx[ZFS_OBJ_HASH(obj_num)])
 #define	ZFS_OBJ_HOLD_ENTER(zfsvfs, obj_num) \
-	mutex_enter(&(zfsvfs)->z_hold_mtx[ZFS_OBJ_HASH(obj_num)]);
+	mutex_enter(ZFS_OBJ_MUTEX((zfsvfs), (obj_num)))
 #define	ZFS_OBJ_HOLD_EXIT(zfsvfs, obj_num) \
-	mutex_exit(&(zfsvfs)->z_hold_mtx[ZFS_OBJ_HASH(obj_num)])
+	mutex_exit(ZFS_OBJ_MUTEX((zfsvfs), (obj_num)))
 
 /*
  * Macros to encode/decode ZFS stored time values from/to struct timespec
  */
 #define	ZFS_TIME_ENCODE(tp, stmp)		\
 {						\
-	(stmp)[0] = (uint64_t)(tp)->tv_sec; 	\
+	(stmp)[0] = (uint64_t)(tp)->tv_sec;	\
 	(stmp)[1] = (uint64_t)(tp)->tv_nsec;	\
 }
 
@@ -290,7 +288,7 @@ typedef struct znode {
 	if ((zfsvfs)->z_atime && !((zfsvfs)->z_vfs->vfs_flag & VFS_RDONLY)) \
 		zfs_time_stamper(zp, ACCESSED, NULL)
 
-extern int	zfs_init_fs(zfsvfs_t *, znode_t **, cred_t *);
+extern int	zfs_init_fs(zfsvfs_t *, znode_t **);
 extern void	zfs_set_dataprop(objset_t *);
 extern void	zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *,
     dmu_tx_t *tx);
@@ -337,6 +335,9 @@ extern void zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
     vsecattr_t *vsecp, zfs_fuid_info_t *fuidp);
 extern void zfs_xvattr_set(znode_t *zp, xvattr_t *xvap);
 extern void zfs_upgrade(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
+
+extern caddr_t zfs_map_page(page_t *, enum seg_rw);
+extern void zfs_unmap_page(page_t *, caddr_t);
 
 extern zil_get_data_t zfs_get_data;
 extern zil_replay_func_t *zfs_replay_vector[TX_MAX_TYPE];

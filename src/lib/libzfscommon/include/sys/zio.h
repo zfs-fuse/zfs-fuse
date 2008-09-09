@@ -248,6 +248,8 @@ struct zio {
 
 	/* Stuff for the vdev stack */
 	vdev_t		*io_vd;
+	vdev_t		**io_failed_vds;
+	uint64_t	io_failed_vds_count;
 	void		*io_vsd;
 	uint64_t	io_offset;
 	uint64_t	io_deadline;
@@ -289,19 +291,18 @@ extern zio_t *zio_null(zio_t *pio, spa_t *spa,
 extern zio_t *zio_root(spa_t *spa,
     zio_done_func_t *done, void *private, int flags);
 
-extern zio_t *zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
+extern zio_t *zio_read(zio_t *pio, spa_t *spa, const blkptr_t *bp, void *data,
     uint64_t size, zio_done_func_t *done, void *private,
-    int priority, int flags, zbookmark_t *zb);
+    int priority, int flags, const zbookmark_t *zb);
 
 extern zio_t *zio_write(zio_t *pio, spa_t *spa, int checksum, int compress,
     int ncopies, uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
     zio_done_func_t *ready, zio_done_func_t *done, void *private, int priority,
-    int flags, zbookmark_t *zb);
+    int flags, const zbookmark_t *zb);
 
-extern zio_t *zio_rewrite(zio_t *pio, spa_t *spa, int checksum,
-    uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
-    zio_done_func_t *done, void *private, int priority, int flags,
-    zbookmark_t *zb);
+extern zio_t *zio_rewrite(zio_t *pio, spa_t *spa, int checksum, uint64_t txg,
+    blkptr_t *bp, void *data, uint64_t size, zio_done_func_t *done,
+    void *private, int priority, int flags, zbookmark_t *zb);
 
 extern zio_t *zio_free(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
     zio_done_func_t *done, void *private);
@@ -380,6 +381,7 @@ extern int zio_inject_list_next(int *id, char *name, size_t buflen,
 extern int zio_clear_fault(int id);
 extern int zio_handle_fault_injection(zio_t *zio, int error);
 extern int zio_handle_device_injection(vdev_t *vd, int error);
+extern int zio_handle_label_injection(zio_t *zio, int error);
 
 #ifdef	__cplusplus
 }

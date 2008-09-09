@@ -114,6 +114,8 @@ typedef enum dmu_object_type {
 	DMU_OT_SYSACL,			/* SYSACL */
 	DMU_OT_FUID,			/* FUID table (Packed NVLIST UINT8) */
 	DMU_OT_FUID_SIZE,		/* FUID table size UINT64 */
+	DMU_OT_NEXT_CLONES,		/* ZAP */
+	DMU_OT_SCRUB_QUEUE,		/* ZAP */
 	DMU_OT_NUMTYPES
 } dmu_object_type_t;
 
@@ -136,12 +138,11 @@ void zfs_oldacl_byteswap(void *buf, size_t size);
 void zfs_acl_byteswap(void *buf, size_t size);
 void zfs_znode_byteswap(void *buf, size_t size);
 
-#define	DS_MODE_NONE		0	/* invalid, to aid debugging */
-#define	DS_MODE_STANDARD	1	/* normal access, no special needs */
-#define	DS_MODE_PRIMARY		2	/* the "main" access, e.g. a mount */
-#define	DS_MODE_EXCLUSIVE	3	/* exclusive access, e.g. to destroy */
-#define	DS_MODE_LEVELS		4
-#define	DS_MODE_LEVEL(x)	((x) & (DS_MODE_LEVELS - 1))
+#define	DS_MODE_NOHOLD		0	/* internal use only */
+#define	DS_MODE_USER		1	/* simple access, no special needs */
+#define	DS_MODE_OWNER		2	/* the "main" access, e.g. a mount */
+#define	DS_MODE_TYPE_MASK	0x3
+#define	DS_MODE_TYPE(x)		((x) & DS_MODE_TYPE_MASK)
 #define	DS_MODE_READONLY	0x8
 #define	DS_MODE_IS_READONLY(x)	((x) & DS_MODE_READONLY)
 #define	DS_MODE_INCONSISTENT	0x10
@@ -155,6 +156,7 @@ void zfs_znode_byteswap(void *buf, size_t size);
  * operation, including metadata.
  */
 #define	DMU_MAX_ACCESS (10<<20) /* 10MB */
+#define	DMU_MAX_DELETEBLKCNT (20480) /* ~5MB of indirect blocks */
 
 /*
  * Public routines to create, destroy, open, and close objsets.
@@ -201,6 +203,19 @@ typedef void dmu_buf_evict_func_t(struct dmu_buf *db, void *user_ptr);
 #define	DMU_POOL_HISTORY		"history"
 #define	DMU_POOL_PROPS			"pool_props"
 #define	DMU_POOL_L2CACHE		"l2cache"
+
+/* 4x8 zbookmark_t */
+#define	DMU_POOL_SCRUB_BOOKMARK		"scrub_bookmark"
+/* 1x8 zap obj DMU_OT_SCRUB_QUEUE */
+#define	DMU_POOL_SCRUB_QUEUE		"scrub_queue"
+/* 1x8 txg */
+#define	DMU_POOL_SCRUB_MIN_TXG		"scrub_min_txg"
+/* 1x8 txg */
+#define	DMU_POOL_SCRUB_MAX_TXG		"scrub_max_txg"
+/* 1x4 enum scrub_func */
+#define	DMU_POOL_SCRUB_FUNC		"scrub_func"
+/* 1x8 count */
+#define	DMU_POOL_SCRUB_ERRORS		"scrub_errors"
 
 /*
  * Allocate an object from this objset.  The range of object numbers
@@ -422,6 +437,9 @@ void dmu_tx_commit(dmu_tx_t *tx);
  */
 int dmu_free_range(objset_t *os, uint64_t object, uint64_t offset,
 	uint64_t size, dmu_tx_t *tx);
+int dmu_free_long_range(objset_t *os, uint64_t object, uint64_t offset,
+	uint64_t size);
+int dmu_free_object(objset_t *os, uint64_t object);
 
 /*
  * Convenience functions.

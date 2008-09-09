@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef	_SYS_DNODE_H
 #define	_SYS_DNODE_H
-
-
 
 #include <sys/zfs_context.h>
 #include <sys/avl.h>
@@ -41,10 +39,17 @@ extern "C" {
 #endif
 
 /*
- * Flags.
+ * dnode_hold() flags.
  */
 #define	DNODE_MUST_BE_ALLOCATED	1
 #define	DNODE_MUST_BE_FREE	2
+
+/*
+ * dnode_next_offset() flags.
+ */
+#define	DNODE_FIND_HOLE		1
+#define	DNODE_FIND_BACKWARDS	2
+#define	DNODE_FIND_HAVELOCK	4
 
 /*
  * Fixed constants.
@@ -223,12 +228,12 @@ void dnode_clear_range(dnode_t *dn, uint64_t blkid,
     uint64_t nblks, dmu_tx_t *tx);
 void dnode_diduse_space(dnode_t *dn, int64_t space);
 void dnode_willuse_space(dnode_t *dn, int64_t space, dmu_tx_t *tx);
-void dnode_new_blkid(dnode_t *dn, uint64_t blkid, dmu_tx_t *tx);
+void dnode_new_blkid(dnode_t *dn, uint64_t blkid, dmu_tx_t *tx, boolean_t);
 uint64_t dnode_block_freed(dnode_t *dn, uint64_t blkid);
 void dnode_init(void);
 void dnode_fini(void);
-int dnode_next_offset(dnode_t *dn, boolean_t hole, uint64_t *off, int minlvl,
-    uint64_t blkfill, uint64_t txg);
+int dnode_next_offset(dnode_t *dn, int flags, uint64_t *off,
+    int minlvl, uint64_t blkfill, uint64_t txg);
 void dnode_evict_dbufs(dnode_t *dn);
 
 #ifdef ZFS_DEBUG

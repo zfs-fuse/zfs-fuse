@@ -23,8 +23,6 @@
  * Use is subject to license terms.
  */
 
-
-
 #include <sys/zio.h>
 #include <sys/spa.h>
 #include <sys/u8_textprep.h>
@@ -151,6 +149,13 @@ zfs_prop_init(void)
 		{ NULL }
 	};
 
+	static zprop_index_t cache_table[] = {
+		{ "none",	ZFS_CACHE_NONE },
+		{ "metadata",	ZFS_CACHE_METADATA },
+		{ "all",	ZFS_CACHE_ALL },
+		{ NULL }
+	};
+
 	/* inherit index properties */
 	register_index(ZFS_PROP_CHECKSUM, "checksum", ZIO_CHECKSUM_DEFAULT,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
@@ -173,6 +178,14 @@ zfs_prop_init(void)
 	register_index(ZFS_PROP_COPIES, "copies", 1,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "1 | 2 | 3", "COPIES", copies_table);
+	register_index(ZFS_PROP_PRIMARYCACHE, "primarycache",
+	    ZFS_CACHE_ALL, PROP_INHERIT,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT | ZFS_TYPE_VOLUME,
+	    "all | none | metadata", "PRIMARYCACHE", cache_table);
+	register_index(ZFS_PROP_SECONDARYCACHE, "secondarycache",
+	    ZFS_CACHE_ALL, PROP_INHERIT,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT | ZFS_TYPE_VOLUME,
+	    "all | none | metadata", "SECONDARYCACHE", cache_table);
 
 	/* inherit index (boolean) properties */
 	register_index(ZFS_PROP_ATIME, "atime", 1, PROP_INHERIT,
@@ -254,6 +267,15 @@ zfs_prop_init(void)
 	register_number(ZFS_PROP_VOLBLOCKSIZE, "volblocksize", 8192,
 	    PROP_ONETIME,
 	    ZFS_TYPE_VOLUME, "512 to 128k, power of 2",	"VOLBLOCK");
+	register_number(ZFS_PROP_USEDSNAP, "usedbysnapshots", 0, PROP_READONLY,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "USEDSNAP");
+	register_number(ZFS_PROP_USEDDS, "usedbydataset", 0, PROP_READONLY,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "USEDDS");
+	register_number(ZFS_PROP_USEDCHILD, "usedbychildren", 0, PROP_READONLY,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "USEDCHILD");
+	register_number(ZFS_PROP_USEDREFRESERV, "usedbyrefreservation", 0,
+	    PROP_READONLY,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "USEDREFRESERV");
 
 	/* default number properties */
 	register_number(ZFS_PROP_QUOTA, "quota", 0, PROP_DEFAULT,
@@ -282,6 +304,8 @@ zfs_prop_init(void)
 	    PROP_READONLY, ZFS_TYPE_DATASET, "NAME");
 	register_hidden(ZFS_PROP_ISCSIOPTIONS, "iscsioptions", PROP_TYPE_STRING,
 	    PROP_INHERIT, ZFS_TYPE_VOLUME, "ISCSIOPTIONS");
+	register_hidden(ZFS_PROP_GUID, "guid", PROP_TYPE_NUMBER, PROP_READONLY,
+	    ZFS_TYPE_DATASET, "GUID");
 
 	/* oddball properties */
 	register_impl(ZFS_PROP_CREATION, "creation", PROP_TYPE_NUMBER, 0, NULL,
@@ -361,7 +385,7 @@ zfs_prop_index_to_string(zfs_prop_t prop, uint64_t index, const char **string)
 /*
  * Returns TRUE if the property applies to any of the given dataset types.
  */
-int
+boolean_t
 zfs_prop_valid_for_type(int prop, zfs_type_t types)
 {
 	return (zprop_valid_for_type(prop, types));

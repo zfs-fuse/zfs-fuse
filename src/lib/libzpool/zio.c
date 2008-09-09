@@ -340,6 +340,9 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	ASSERT3U(size, <=, SPA_MAXBLOCKSIZE);
 	ASSERT(P2PHASE(size, SPA_MINBLOCKSIZE) == 0);
 
+	/* Only we should set CONFIG_GRABBED */
+	ASSERT(!(flags & ZIO_FLAG_CONFIG_GRABBED));
+
 	zio = kmem_cache_alloc(zio_cache, KM_SLEEP);
 	bzero(zio, sizeof (zio_t));
 	zio->io_parent = pio;
@@ -418,6 +421,18 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	zio->io_orig_pipeline = zio->io_pipeline;
 	zio->io_orig_flags = zio->io_flags;
 
+	/*
+	 * If this is not a null zio, and config is not already held,
+	 * then the root zio should have grabbed the config lock.
+	 * If this is not a root zio, it should not have grabbed the
+	 * config lock.
+	 */
+	ASSERT((zio->io_root->io_flags & ZIO_FLAG_CONFIG_HELD) ||
+	    zio->io_type == ZIO_TYPE_NULL ||
+	    (zio->io_root->io_flags & ZIO_FLAG_CONFIG_GRABBED));
+	ASSERT(zio->io_root == zio ||
+	    !(zio->io_flags & ZIO_FLAG_CONFIG_GRABBED));
+
 	return (zio);
 }
 
@@ -452,9 +467,9 @@ zio_root(spa_t *spa, zio_done_func_t *done, void *private, int flags)
 }
 
 zio_t *
-zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
+zio_read(zio_t *pio, spa_t *spa, const blkptr_t *bp, void *data,
     uint64_t size, zio_done_func_t *done, void *private,
-    int priority, int flags, zbookmark_t *zb)
+    int priority, int flags, const zbookmark_t *zb)
 {
 	zio_t *zio;
 
@@ -467,7 +482,8 @@ zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
 	if (spa_get_failmode(spa) != ZIO_FAILURE_MODE_CONTINUE)
 		ZIO_ENTER(spa);
 
-	zio = zio_create(pio, spa, bp->blk_birth, bp, data, size, done, private,
+	zio = zio_create(pio, spa, bp->blk_birth, (blkptr_t *)bp,
+	    data, size, done, private,
 	    ZIO_TYPE_READ, priority, flags | ZIO_FLAG_USER,
 	    ZIO_STAGE_OPEN, ZIO_READ_PIPELINE);
 	zio->io_bookmark = *zb;
@@ -486,7 +502,7 @@ zio_t *
 zio_write(zio_t *pio, spa_t *spa, int checksum, int compress, int ncopies,
     uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
     zio_done_func_t *ready, zio_done_func_t *done, void *private, int priority,
-    int flags, zbookmark_t *zb)
+    int flags, const zbookmark_t *zb)
 {
 	zio_t *zio;
 
@@ -527,10 +543,9 @@ zio_write(zio_t *pio, spa_t *spa, int checksum, int compress, int ncopies,
 }
 
 zio_t *
-zio_rewrite(zio_t *pio, spa_t *spa, int checksum,
-    uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
-    zio_done_func_t *done, void *private, int priority, int flags,
-    zbookmark_t *zb)
+zio_rewrite(zio_t *pio, spa_t *spa, int checksum, uint64_t txg,
+    blkptr_t *bp, void *data, uint64_t size, zio_done_func_t *done,
+    void *private, int priority, int flags, zbookmark_t *zb)
 {
 	zio_t *zio;
 
@@ -796,6 +811,20 @@ zio_vdev_child_io(zio_t *zio, blkptr_t *bp, vdev_t *vd, uint64_t offset,
  * Initiate I/O, either sync or async
  * ==========================================================================
  */
+static void
+zio_destroy(zio_t *zio)
+{
+	mutex_destroy(&zio->io_lock);
+	cv_destroy(&zio->io_cv);
+	if (zio->io_failed_vds != NULL) {
+		kmem_free(zio->io_failed_vds,
+		    zio->io_failed_vds_count * sizeof (vdev_t *));
+		zio->io_failed_vds = NULL;
+		zio->io_failed_vds_count = 0;
+	}
+	kmem_cache_free(zio_cache, zio);
+}
+
 int
 zio_wait(zio_t *zio)
 {
@@ -813,9 +842,7 @@ zio_wait(zio_t *zio)
 	mutex_exit(&zio->io_lock);
 
 	error = zio->io_error;
-	mutex_destroy(&zio->io_lock);
-	cv_destroy(&zio->io_cv);
-	kmem_cache_free(zio_cache, zio);
+	zio_destroy(zio);
 
 	return (error);
 }
@@ -864,13 +891,44 @@ zio_wait_for_children(zio_t *zio, uint32_t stage, uint64_t *countp)
 }
 
 static void
+zio_add_failed_vdev(zio_t *pio, zio_t *zio)
+{
+	uint64_t oldcount = pio->io_failed_vds_count;
+	vdev_t **new_vds;
+	int i;
+
+	ASSERT(MUTEX_HELD(&pio->io_lock));
+
+	if (zio->io_vd == NULL)
+		return;
+
+	for (i = 0; i < oldcount; i++) {
+		if (pio->io_failed_vds[i] == zio->io_vd)
+			return;
+	}
+
+	new_vds = kmem_zalloc((oldcount + 1) * sizeof (vdev_t *), KM_SLEEP);
+	if (pio->io_failed_vds != NULL) {
+		bcopy(pio->io_failed_vds, new_vds,
+		    oldcount * sizeof (vdev_t *));
+		kmem_free(pio->io_failed_vds, oldcount * sizeof (vdev_t *));
+	}
+	pio->io_failed_vds = new_vds;
+	pio->io_failed_vds[oldcount] = zio->io_vd;
+	pio->io_failed_vds_count++;
+}
+
+static void
 zio_notify_parent(zio_t *zio, uint32_t stage, uint64_t *countp)
 {
 	zio_t *pio = zio->io_parent;
 
 	mutex_enter(&pio->io_lock);
-	if (pio->io_error == 0 && !(zio->io_flags & ZIO_FLAG_DONT_PROPAGATE))
+	if (pio->io_error == 0 && !(zio->io_flags & ZIO_FLAG_DONT_PROPAGATE)) {
 		pio->io_error = zio->io_error;
+		if (zio->io_error && zio->io_error != ENOTSUP)
+			zio_add_failed_vdev(pio, zio);
+	}
 	ASSERT3U(*countp, >, 0);
 	if (--*countp == 0 && pio->io_stalled == stage) {
 		pio->io_stalled = 0;
@@ -1083,6 +1141,38 @@ zio_vdev_suspend_io(zio_t *zio)
 	return (ZIO_PIPELINE_STOP);
 }
 
+static void
+zio_handle_io_failure(zio_t *zio, vdev_t *vd)
+{
+	spa_t *spa = zio->io_spa;
+	blkptr_t *bp = zio->io_bp;
+	char *blkbuf;
+
+#ifdef ZFS_DEBUG
+	blkbuf = kmem_alloc(BP_SPRINTF_LEN, KM_NOSLEEP);
+	if (blkbuf) {
+		sprintf_blkptr(blkbuf, BP_SPRINTF_LEN,
+		    bp ? bp : &zio->io_bp_copy);
+	}
+	cmn_err(CE_WARN, "ZFS: %s (%s on %s off %llx: zio %p %s): error %d",
+	    zio->io_error == ECKSUM ? "bad checksum" : "I/O failure",
+	    zio_type_name[zio->io_type], vdev_description(vd),
+	    (u_longlong_t)zio->io_offset, (void *)zio,
+	    blkbuf ? blkbuf : "", zio->io_error);
+	if (blkbuf)
+		kmem_free(blkbuf, BP_SPRINTF_LEN);
+#endif
+
+	if (spa_get_failmode(spa) == ZIO_FAILURE_MODE_PANIC) {
+		fm_panic("Pool '%s' has encountered an uncorrectable I/O "
+		    "failure and the failure mode property for this pool "
+		    "is set to panic.", spa_name(spa));
+	}
+	zfs_ereport_post(FM_EREPORT_ZFS_IO_FAILURE, spa, NULL, NULL, 0, 0);
+	vdev_set_state(vd, vd == spa->spa_root_vdev ? B_TRUE : B_FALSE,
+	    VDEV_STATE_FAULTED, VDEV_AUX_IO_FAILURE);
+}
+
 static int
 zio_assess(zio_t *zio)
 {
@@ -1164,32 +1254,23 @@ zio_assess(zio_t *zio)
 		 * a result of vdev failures vs. a full pool.
 		 */
 		if (!(zio->io_flags & ZIO_FLAG_CANFAIL)) {
-			char *blkbuf;
+			int i;
 
-#ifdef ZFS_DEBUG
-			blkbuf = kmem_alloc(BP_SPRINTF_LEN, KM_NOSLEEP);
-			if (blkbuf) {
-				sprintf_blkptr(blkbuf, BP_SPRINTF_LEN,
-				    bp ? bp : &zio->io_bp_copy);
+			for (i = 0; i < zio->io_failed_vds_count; i++) {
+				zio_handle_io_failure(zio,
+				    zio->io_failed_vds[i]);
 			}
-			cmn_err(CE_WARN, "ZFS: %s (%s on %s off %llx: zio %p "
-			    "%s): error %d", zio->io_error == ECKSUM ?
-			    "bad checksum" : "I/O failure",
-			    zio_type_name[zio->io_type],
-			    vdev_description(vd),
-			    (u_longlong_t)zio->io_offset,
-			    (void *)zio, blkbuf ? blkbuf : "", zio->io_error);
-#endif
-
-			if (spa_get_failmode(spa) == ZIO_FAILURE_MODE_PANIC) {
-				fm_panic("Pool '%s' has encountered an "
-				    "uncorrectable I/O failure and the "
-				    "failure mode property for this pool "
-				    "is set to panic.", spa_name(spa));
+			if (zio->io_failed_vds_count == 0) {
+				zio_handle_io_failure(zio,
+				    vd ? vd : spa->spa_root_vdev);
 			}
-			cmn_err(CE_WARN, "Pool '%s' has encountered "
-			    "an uncorrectable I/O error. "
-			    "Manual intervention is required.", spa_name(spa));
+			if (zio->io_failed_vds != NULL) {
+				kmem_free(zio->io_failed_vds,
+				    zio->io_failed_vds_count *
+				    sizeof (vdev_t *));
+				zio->io_failed_vds = NULL;
+				zio->io_failed_vds_count = 0;
+			}
 			return (zio_vdev_suspend_io(zio));
 		}
 	}
@@ -1248,9 +1329,7 @@ zio_done(zio_t *zio)
 		cv_broadcast(&zio->io_cv);
 		mutex_exit(&zio->io_lock);
 	} else {
-		mutex_destroy(&zio->io_lock);
-		cv_destroy(&zio->io_cv);
-		kmem_cache_free(zio_cache, zio);
+		zio_destroy(zio);
 	}
 
 	return (ZIO_PIPELINE_STOP);
@@ -1591,9 +1670,8 @@ zio_write_allocate_gang_members(zio_t *zio, metaslab_class_t *mc)
 			BP_SET_PSIZE(gbp, lsize);
 			BP_SET_COMPRESS(gbp, ZIO_COMPRESS_OFF);
 			gbp->blk_birth = txg;
-			zio_nowait(zio_rewrite(zio, spa,
-			    zio->io_checksum, txg, gbp,
-			    (char *)zio->io_data + loff, lsize,
+			zio_nowait(zio_rewrite(zio, spa, zio->io_checksum, txg,
+			    gbp, (char *)zio->io_data + loff, lsize,
 			    zio_write_allocate_gang_member_done, NULL,
 			    zio->io_priority,
 			    zio->io_flags & ZIO_FLAG_GANG_INHERIT,
@@ -1770,8 +1848,12 @@ zio_should_retry(zio_t *zio)
 		return (B_FALSE);
 	if (zio->io_delegate_list != NULL)
 		return (B_FALSE);
-	if (vd && vd != vd->vdev_top)
-		return (B_FALSE);
+	if (vd != NULL) {
+		if (vd != vd->vdev_top)
+			return (B_FALSE);
+		if (vd->vdev_is_failing)
+			return (B_FALSE);
+	}
 	if (zio->io_flags & ZIO_FLAG_DONT_RETRY)
 		return (B_FALSE);
 	if (zio->io_retries > 0)

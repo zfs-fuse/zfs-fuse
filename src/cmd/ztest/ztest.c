@@ -205,14 +205,14 @@ ztest_info_t ztest_info[] = {
 	{ ztest_zap_parallel,			100,	&zopt_always	},
 	{ ztest_traverse,			1,	&zopt_often	},
 	{ ztest_dsl_prop_get_set,		1,	&zopt_sometimes	},
-	{ ztest_dmu_objset_create_destroy,	1,	&zopt_sometimes	},
-	{ ztest_dmu_snapshot_create_destroy,	1,	&zopt_rarely	},
-	{ ztest_spa_create_destroy,		1,	&zopt_sometimes	},
+	{ ztest_dmu_objset_create_destroy,	1,	&zopt_sometimes },
+	{ ztest_dmu_snapshot_create_destroy,	1,	&zopt_rarely },
+	{ ztest_spa_create_destroy,		1,	&zopt_sometimes },
 	{ ztest_fault_inject,			1,	&zopt_sometimes	},
 	{ ztest_spa_rename,			1,	&zopt_rarely	},
-	{ ztest_vdev_attach_detach,		1,	&zopt_rarely	},
-	{ ztest_vdev_LUN_growth,		1,	&zopt_rarely	},
-	{ ztest_vdev_add_remove,		1,	&zopt_vdevtime	},
+	{ ztest_vdev_attach_detach,		1,	&zopt_rarely },
+	{ ztest_vdev_LUN_growth,		1,	&zopt_rarely },
+	{ ztest_vdev_add_remove,		1,	&zopt_vdevtime },
 	{ ztest_scrub,				1,	&zopt_vdevtime	},
 };
 
@@ -800,7 +800,7 @@ ztest_spa_create_destroy(ztest_args_t *za)
 	 * Attempt to create using a bad file.
 	 */
 	nvroot = make_vdev_root(0, 0, 0, 0, 1);
-	error = spa_create("ztest_bad_file", nvroot, NULL, NULL);
+	error = spa_create("ztest_bad_file", nvroot, NULL, NULL, NULL);
 	nvlist_free(nvroot);
 	if (error != ENOENT)
 		fatal(0, "spa_create(bad_file) = %d", error);
@@ -809,7 +809,7 @@ ztest_spa_create_destroy(ztest_args_t *za)
 	 * Attempt to create using a bad mirror.
 	 */
 	nvroot = make_vdev_root(0, 0, 0, 2, 1);
-	error = spa_create("ztest_bad_mirror", nvroot, NULL, NULL);
+	error = spa_create("ztest_bad_mirror", nvroot, NULL, NULL, NULL);
 	nvlist_free(nvroot);
 	if (error != ENOENT)
 		fatal(0, "spa_create(bad_mirror) = %d", error);
@@ -820,7 +820,7 @@ ztest_spa_create_destroy(ztest_args_t *za)
 	 */
 	(void) rw_rdlock(&ztest_shared->zs_name_lock);
 	nvroot = make_vdev_root(0, 0, 0, 0, 1);
-	error = spa_create(za->za_pool, nvroot, NULL, NULL);
+	error = spa_create(za->za_pool, nvroot, NULL, NULL, NULL);
 	nvlist_free(nvroot);
 	if (error != EEXIST)
 		fatal(0, "spa_create(whatever) = %d", error);
@@ -1046,12 +1046,15 @@ ztest_vdev_attach_detach(ztest_args_t *za)
 	/*
 	 * If someone grew the LUN, the replacement may be too small.
 	 */
-	if (error == EOVERFLOW)
+	if (error == EOVERFLOW || error == EBUSY)
 		expected_error = error;
 
-	if (error != expected_error) {
-		fatal(0, "attach (%s, %s, %d) returned %d, expected %d",
-		    oldpath, newpath, replacing, error, expected_error);
+	/* XXX workaround 6690467 */
+	if (error != expected_error && expected_error != EBUSY) {
+		fatal(0, "attach (%s %llu, %s %llu, %d) "
+		    "returned %d, expected %d",
+		    oldpath, (longlong_t)oldsize, newpath,
+		    (longlong_t)newsize, replacing, error, expected_error);
 	}
 
 	(void) mutex_unlock(&ztest_shared->zs_vdev_lock);
@@ -1135,7 +1138,7 @@ ztest_destroy_cb(char *name, void *arg)
 	 * Verify that the dataset contains a directory object.
 	 */
 	error = dmu_objset_open(name, DMU_OST_OTHER,
-	    DS_MODE_STANDARD | DS_MODE_READONLY, &os);
+	    DS_MODE_USER | DS_MODE_READONLY, &os);
 	ASSERT3U(error, ==, 0);
 	error = dmu_object_info(os, ZTEST_DIROBJ, doi);
 	if (error != ENOENT) {
@@ -1150,7 +1153,11 @@ ztest_destroy_cb(char *name, void *arg)
 	 * Destroy the dataset.
 	 */
 	error = dmu_objset_destroy(name);
-	ASSERT3U(error, ==, 0);
+	if (error) {
+		(void) dmu_objset_open(name, DMU_OST_OTHER,
+		    DS_MODE_USER | DS_MODE_READONLY, &os);
+		fatal(0, "dmu_objset_destroy(os=%p) = %d\n", &os, error);
+	}
 	return (0);
 }
 
@@ -1190,9 +1197,9 @@ void
 ztest_dmu_objset_create_destroy(ztest_args_t *za)
 {
 	int error;
-	objset_t *os;
+	objset_t *os, *os2;
 	char name[100];
-	int mode, basemode, expected_error;
+	int basemode, expected_error;
 	zilog_t *zilog;
 	uint64_t seq;
 	uint64_t objects;
@@ -1202,9 +1209,9 @@ ztest_dmu_objset_create_destroy(ztest_args_t *za)
 	(void) snprintf(name, 100, "%s/%s_temp_%llu", za->za_pool, za->za_pool,
 	    (u_longlong_t)za->za_instance);
 
-	basemode = DS_MODE_LEVEL(za->za_instance);
-	if (basemode == DS_MODE_NONE)
-		basemode++;
+	basemode = DS_MODE_TYPE(za->za_instance);
+	if (basemode != DS_MODE_USER && basemode != DS_MODE_OWNER)
+		basemode = DS_MODE_USER;
 
 	/*
 	 * If this dataset exists from a previous run, process its replay log
@@ -1212,7 +1219,7 @@ ztest_dmu_objset_create_destroy(ztest_args_t *za)
 	 * (invoked from ztest_destroy_cb() below) should just throw it away.
 	 */
 	if (ztest_random(2) == 0 &&
-	    dmu_objset_open(name, DMU_OST_OTHER, DS_MODE_PRIMARY, &os) == 0) {
+	    dmu_objset_open(name, DMU_OST_OTHER, DS_MODE_OWNER, &os) == 0) {
 		zr.zr_os = os;
 		zil_replay(os, &zr, &zr.zr_assign, ztest_replay_vector);
 		dmu_objset_close(os);
@@ -1298,21 +1305,24 @@ ztest_dmu_objset_create_destroy(ztest_args_t *za)
 		fatal(0, "created existing dataset, error = %d", error);
 
 	/*
-	 * Verify that multiple dataset opens are allowed, but only when
+	 * Verify that multiple dataset holds are allowed, but only when
 	 * the new access mode is compatible with the base mode.
-	 * We use a mixture of typed and typeless opens, and when the
-	 * open succeeds, verify that the discovered type is correct.
 	 */
-	for (mode = DS_MODE_STANDARD; mode < DS_MODE_LEVELS; mode++) {
-		objset_t *os2;
-		error = dmu_objset_open(name, DMU_OST_OTHER, mode, &os2);
-		expected_error = (basemode + mode < DS_MODE_LEVELS) ? 0 : EBUSY;
-		if (error != expected_error)
-			fatal(0, "dmu_objset_open('%s') = %d, expected %d",
-			    name, error, expected_error);
-		if (error == 0)
+	if (basemode == DS_MODE_OWNER) {
+		error = dmu_objset_open(name, DMU_OST_OTHER, DS_MODE_USER,
+		    &os2);
+		if (error)
+			fatal(0, "dmu_objset_open('%s') = %d", name, error);
+		else
 			dmu_objset_close(os2);
 	}
+	error = dmu_objset_open(name, DMU_OST_OTHER, DS_MODE_OWNER, &os2);
+	expected_error = (basemode == DS_MODE_OWNER) ? EBUSY : 0;
+	if (error != expected_error)
+		fatal(0, "dmu_objset_open('%s') = %d, expected %d",
+		    name, error, expected_error);
+	if (error == 0)
+		dmu_objset_close(os2);
 
 	zil_close(zilog);
 	dmu_objset_close(os);
@@ -1544,7 +1554,7 @@ ztest_dmu_object_alloc_free(ztest_args_t *za)
 	 * Destroy the previous batch of objects.
 	 */
 	for (b = 0; b < batchsize; b++) {
-		VERIFY(0 == dmu_read(os, batchobj, b * sizeof (uint64_t),
+		VERIFY3U(0, ==, dmu_read(os, batchobj, b * sizeof (uint64_t),
 		    sizeof (uint64_t), &object));
 		if (object == 0)
 			continue;
@@ -2674,13 +2684,9 @@ ztest_scrub(ztest_args_t *za)
 {
 	spa_t *spa = za->za_spa;
 
-	mutex_enter(&spa_namespace_lock);
-	(void) spa_scrub(spa, POOL_SCRUB_EVERYTHING, B_FALSE);
-	mutex_exit(&spa_namespace_lock);
+	(void) spa_scrub(spa, POOL_SCRUB_EVERYTHING);
 	(void) poll(NULL, 0, 1000); /* wait a second, then force a restart */
-	mutex_enter(&spa_namespace_lock);
-	(void) spa_scrub(spa, POOL_SCRUB_EVERYTHING, B_FALSE);
-	mutex_exit(&spa_namespace_lock);
+	(void) spa_scrub(spa, POOL_SCRUB_EVERYTHING);
 }
 
 /*
@@ -2932,7 +2938,7 @@ ztest_spa_import_export(char *oldname, char *newname)
 	/*
 	 * Export it.
 	 */
-	error = spa_export(oldname, &config);
+	error = spa_export(oldname, &config, B_FALSE);
 	if (error)
 		fatal(0, "spa_export('%s') = %d", oldname, error);
 
@@ -3232,7 +3238,7 @@ ztest_run(char *pool)
 				    name, error);
 			}
 			error = dmu_objset_open(name, DMU_OST_OTHER,
-			    DS_MODE_STANDARD, &za[d].za_os);
+			    DS_MODE_USER, &za[d].za_os);
 			if (error)
 				fatal(0, "dmu_objset_open('%s') = %d",
 				    name, error);
@@ -3356,7 +3362,7 @@ ztest_init(char *pool)
 	(void) spa_destroy(pool);
 	ztest_shared->zs_vdev_primaries = 0;
 	nvroot = make_vdev_root(zopt_vdev_size, 0, zopt_raidz, zopt_mirrors, 1);
-	error = spa_create(pool, nvroot, NULL, NULL);
+	error = spa_create(pool, nvroot, NULL, NULL, NULL);
 	nvlist_free(nvroot);
 
 	if (error)
@@ -3387,7 +3393,7 @@ main(int argc, char **argv)
 	(void) setvbuf(stdout, NULL, _IOLBF, 0);
 
 	/* Override location of zpool.cache */
-	spa_config_dir = "/tmp";
+	spa_config_path = "/tmp/zpool.cache";
 
 	ztest_random_fd = open("/dev/urandom", O_RDONLY);
 

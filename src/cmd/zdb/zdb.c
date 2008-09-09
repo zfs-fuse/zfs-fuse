@@ -23,8 +23,6 @@
  * Use is subject to license terms.
  */
 
-
-
 #include <stdio.h>
 #include <stdio_ext.h>
 #include <stdlib.h>
@@ -719,7 +717,7 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 {
 	dsl_dir_phys_t *dd = data;
 	time_t crtime;
-	char used[6], compressed[6], uncompressed[6], quota[6], resv[6];
+	char nice[6];
 
 	if (dd == NULL)
 		return;
@@ -727,12 +725,6 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	ASSERT3U(size, >=, sizeof (dsl_dir_phys_t));
 
 	crtime = dd->dd_creation_time;
-	nicenum(dd->dd_used_bytes, used);
-	nicenum(dd->dd_compressed_bytes, compressed);
-	nicenum(dd->dd_uncompressed_bytes, uncompressed);
-	nicenum(dd->dd_quota, quota);
-	nicenum(dd->dd_reserved, resv);
-
 	(void) printf("\t\tcreation_time = %s", ctime(&crtime));
 	(void) printf("\t\thead_dataset_obj = %llu\n",
 	    (u_longlong_t)dd->dd_head_dataset_obj);
@@ -742,15 +734,32 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	    (u_longlong_t)dd->dd_origin_obj);
 	(void) printf("\t\tchild_dir_zapobj = %llu\n",
 	    (u_longlong_t)dd->dd_child_dir_zapobj);
-	(void) printf("\t\tused_bytes = %s\n", used);
-	(void) printf("\t\tcompressed_bytes = %s\n", compressed);
-	(void) printf("\t\tuncompressed_bytes = %s\n", uncompressed);
-	(void) printf("\t\tquota = %s\n", quota);
-	(void) printf("\t\treserved = %s\n", resv);
+	nicenum(dd->dd_used_bytes, nice);
+	(void) printf("\t\tused_bytes = %s\n", nice);
+	nicenum(dd->dd_compressed_bytes, nice);
+	(void) printf("\t\tcompressed_bytes = %s\n", nice);
+	nicenum(dd->dd_uncompressed_bytes, nice);
+	(void) printf("\t\tuncompressed_bytes = %s\n", nice);
+	nicenum(dd->dd_quota, nice);
+	(void) printf("\t\tquota = %s\n", nice);
+	nicenum(dd->dd_reserved, nice);
+	(void) printf("\t\treserved = %s\n", nice);
 	(void) printf("\t\tprops_zapobj = %llu\n",
 	    (u_longlong_t)dd->dd_props_zapobj);
 	(void) printf("\t\tdeleg_zapobj = %llu\n",
 	    (u_longlong_t)dd->dd_deleg_zapobj);
+	(void) printf("\t\tflags = %llx\n",
+	    (u_longlong_t)dd->dd_flags);
+
+#define	DO(which) \
+	nicenum(dd->dd_used_breakdown[DD_USED_ ## which], nice); \
+	(void) printf("\t\tused_breakdown[" #which "] = %s\n", nice)
+	DO(HEAD);
+	DO(SNAP);
+	DO(CHILD);
+	DO(CHILD_RSRV);
+	DO(REFRSRV);
+#undef DO
 }
 
 /*ARGSUSED*/
@@ -773,7 +782,7 @@ dump_dsl_dataset(objset_t *os, uint64_t object, void *data, size_t size)
 	nicenum(ds->ds_unique_bytes, unique);
 	sprintf_blkptr(blkbuf, BP_SPRINTF_LEN, &ds->ds_bp);
 
-	(void) printf("\t\tdataset_obj = %llu\n",
+	(void) printf("\t\tdir_obj = %llu\n",
 	    (u_longlong_t)ds->ds_dir_obj);
 	(void) printf("\t\tprev_snap_obj = %llu\n",
 	    (u_longlong_t)ds->ds_prev_snap_obj);
@@ -800,6 +809,10 @@ dump_dsl_dataset(objset_t *os, uint64_t object, void *data, size_t size)
 	    (u_longlong_t)ds->ds_guid);
 	(void) printf("\t\tflags = %llx\n",
 	    (u_longlong_t)ds->ds_flags);
+	(void) printf("\t\tnext_clones_obj = %llu\n",
+	    (u_longlong_t)ds->ds_next_clones_obj);
+	(void) printf("\t\tprops_obj = %llu\n",
+	    (u_longlong_t)ds->ds_props_obj);
 	(void) printf("\t\tbp = %s\n", blkbuf);
 }
 
@@ -1007,6 +1020,8 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES] = {
 	dump_uint8,		/* ZFS SYSACL			*/
 	dump_none,		/* FUID nvlist			*/
 	dump_packed_nvlist,	/* FUID nvlist size		*/
+	dump_zap,		/* DSL dataset next clones	*/
+	dump_zap,		/* DSL scrub queue		*/
 };
 
 static void
@@ -1093,13 +1108,13 @@ dump_object(objset_t *os, uint64_t object, int verbosity, int *print_header)
 		}
 
 		for (;;) {
-			error = dnode_next_offset(dn, B_FALSE, &start, minlvl,
-			    blkfill, 0);
+			error = dnode_next_offset(dn,
+			    0, &start, minlvl, blkfill, 0);
 			if (error)
 				break;
 			end = start;
-			error = dnode_next_offset(dn, B_TRUE, &end, minlvl,
-			    blkfill, 0);
+			error = dnode_next_offset(dn,
+			    DNODE_FIND_HOLE, &end, minlvl, blkfill, 0);
 			nicenum(end - start, segsize);
 			(void) printf("\t\tsegment [%016llx, %016llx)"
 			    " size %5s\n", (u_longlong_t)start,
@@ -1139,8 +1154,8 @@ dump_dir(objset_t *os)
 	if (dds.dds_type == DMU_OST_META) {
 		dds.dds_creation_txg = TXG_INITIAL;
 		usedobjs = os->os->os_rootbp->blk_fill;
-		refdbytes =
-		    os->os->os_spa->spa_dsl_pool->dp_mos_dir->dd_used_bytes;
+		refdbytes = os->os->os_spa->spa_dsl_pool->
+		    dp_mos_dir->dd_phys->dd_used_bytes;
 	} else {
 		dmu_objset_space(os, &refdbytes, &scratch, &usedobjs, &scratch);
 	}
@@ -1172,6 +1187,9 @@ dump_dir(objset_t *os)
 		    dmu_objset_ds(os)->ds_phys->ds_deadlist_obj, "Deadlist");
 
 	if (verbosity < 2)
+		return;
+
+	if (os->os->os_rootbp->blk_birth == 0)
 		return;
 
 	if (zopt_objects != 0) {
@@ -1235,6 +1253,52 @@ dump_config(const char *pool)
 }
 
 static void
+dump_cachefile(const char *cachefile)
+{
+	int fd;
+	struct stat64 statbuf;
+	char *buf;
+	nvlist_t *config;
+
+	if ((fd = open64(cachefile, O_RDONLY)) < 0) {
+		(void) printf("cannot open '%s': %s\n", cachefile,
+		    strerror(errno));
+		exit(1);
+	}
+
+	if (fstat64(fd, &statbuf) != 0) {
+		(void) printf("failed to stat '%s': %s\n", cachefile,
+		    strerror(errno));
+		exit(1);
+	}
+
+	if ((buf = malloc(statbuf.st_size)) == NULL) {
+		(void) fprintf(stderr, "failed to allocate %llu bytes\n",
+		    (u_longlong_t)statbuf.st_size);
+		exit(1);
+	}
+
+	if (read(fd, buf, statbuf.st_size) != statbuf.st_size) {
+		(void) fprintf(stderr, "failed to read %llu bytes\n",
+		    (u_longlong_t)statbuf.st_size);
+		exit(1);
+	}
+
+	(void) close(fd);
+
+	if (nvlist_unpack(buf, statbuf.st_size, &config, 0) != 0) {
+		(void) fprintf(stderr, "failed to unpack nvlist\n");
+		exit(1);
+	}
+
+	free(buf);
+
+	dump_nvlist(config, 0);
+
+	nvlist_free(config);
+}
+
+static void
 dump_label(const char *dev)
 {
 	int fd;
@@ -1290,7 +1354,7 @@ dump_one_dir(char *dsname, void *arg)
 	objset_t *os;
 
 	error = dmu_objset_open(dsname, DMU_OST_ANY,
-	    DS_MODE_STANDARD | DS_MODE_READONLY, &os);
+	    DS_MODE_USER | DS_MODE_READONLY, &os);
 	if (error) {
 		(void) printf("Could not open %s\n", dsname);
 		return (0);
@@ -2182,7 +2246,9 @@ nvlist_string_match(nvlist_t *config, char *name, char *tgt)
 {
 	char *s;
 
-	verify(nvlist_lookup_string(config, name, &s) == 0);
+	if (nvlist_lookup_string(config, name, &s) != 0)
+		return (B_FALSE);
+
 	return (strcmp(s, tgt) == 0);
 }
 
@@ -2191,7 +2257,9 @@ nvlist_uint64_match(nvlist_t *config, char *name, uint64_t tgt)
 {
 	uint64_t val;
 
-	verify(nvlist_lookup_uint64(config, name, &val) == 0);
+	if (nvlist_lookup_uint64(config, name, &val) != 0)
+		return (B_FALSE);
+
 	return (val == tgt);
 }
 
@@ -2265,19 +2333,16 @@ pool_match(nvlist_t *config, char *tgt)
 }
 
 static int
-find_exported_zpool(char *pool_id, nvlist_t **configp, char *vdev_dir,
-    char *cachefile)
+find_exported_zpool(char *pool_id, nvlist_t **configp, char *vdev_dir)
 {
 	nvlist_t *pools;
 	int error = ENOENT;
 	nvlist_t *match = NULL;
 
 	if (vdev_dir != NULL)
-		pools = zpool_find_import(g_zfs, 1, &vdev_dir, B_TRUE);
-	else if (cachefile != NULL)
-		pools = zpool_find_import_cached(g_zfs, cachefile, B_TRUE);
+		pools = zpool_find_import_activeok(g_zfs, 1, &vdev_dir);
 	else
-		pools = zpool_find_import(g_zfs, 0, NULL, B_TRUE);
+		pools = zpool_find_import_activeok(g_zfs, 0, NULL);
 
 	if (pools != NULL) {
 		nvpair_t *elem = NULL;
@@ -2316,7 +2381,6 @@ main(int argc, char **argv)
 	int flag, set;
 	int exported = 0;
 	char *vdev_dir = NULL;
-	char *cachefile = NULL;
 
 	(void) setrlimit(RLIMIT_NOFILE, &rl);
 	(void) enable_extended_FILE_stdio(-1, -1);
@@ -2384,7 +2448,7 @@ main(int argc, char **argv)
 			verbose++;
 			break;
 		case 'U':
-			cachefile = optarg;
+			spa_config_path = optarg;
 			break;
 		case 'e':
 			exported = 1;
@@ -2441,7 +2505,7 @@ main(int argc, char **argv)
 
 	if (argc < 1) {
 		if (dump_opt['C']) {
-			dump_config(NULL);
+			dump_cachefile(spa_config_path);
 			return (0);
 		}
 		usage();
@@ -2476,21 +2540,18 @@ main(int argc, char **argv)
 	if (dump_opt['C'])
 		dump_config(argv[0]);
 
-	if (exported == 0 && cachefile == NULL) {
-		if (strchr(argv[0], '/') != NULL) {
-			error = dmu_objset_open(argv[0], DMU_OST_ANY,
-			    DS_MODE_STANDARD | DS_MODE_READONLY, &os);
-		} else {
-			error = spa_open(argv[0], &spa, FTAG);
-		}
-	} else {
+	error = 0;
+	if (exported) {
 		/*
 		 * Check to see if the name refers to an exported zpool
 		 */
+		char *slash;
 		nvlist_t *exported_conf = NULL;
 
-		error = find_exported_zpool(argv[0], &exported_conf, vdev_dir,
-		    cachefile);
+		if ((slash = strchr(argv[0], '/')) != NULL)
+			*slash = '\0';
+
+		error = find_exported_zpool(argv[0], &exported_conf, vdev_dir);
 		if (error == 0) {
 			nvlist_t *nvl = NULL;
 
@@ -2504,11 +2565,22 @@ main(int argc, char **argv)
 			}
 
 			if (error == 0)
-				error = spa_import(argv[0], exported_conf, nvl);
-			if (error == 0)
-				error = spa_open(argv[0], &spa, FTAG);
+				error = spa_import_faulted(argv[0],
+				    exported_conf, nvl);
 
 			nvlist_free(nvl);
+		}
+
+		if (slash != NULL)
+			*slash = '/';
+	}
+
+	if (error == 0) {
+		if (strchr(argv[0], '/') != NULL) {
+			error = dmu_objset_open(argv[0], DMU_OST_ANY,
+			    DS_MODE_USER | DS_MODE_READONLY, &os);
+		} else {
+			error = spa_open(argv[0], &spa, FTAG);
 		}
 	}
 

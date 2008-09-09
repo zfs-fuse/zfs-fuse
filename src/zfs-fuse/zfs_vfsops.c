@@ -477,8 +477,9 @@ zfs_register_callbacks(vfs_t *vfsp)
 
 		dmu_objset_name(os, osname);
 		if (error = dsl_prop_get_integer(osname, "nbmand", &nbmand,
-		    NULL))
-		return (error);
+		    NULL)) {
+			return (error);
+		}
 	}
 
 	/*
@@ -638,7 +639,7 @@ zfs_freezfsvfs(zfsvfs_t *zfsvfs)
 }
 
 static int
-zfs_domount(vfs_t *vfsp, char *osname, cred_t *cr)
+zfs_domount(vfs_t *vfsp, char *osname)
 {
 	dev_t mount_dev;
 	uint64_t recordsize, readonly;
@@ -693,14 +694,13 @@ zfs_domount(vfs_t *vfsp, char *osname, cred_t *cr)
 	if (error = dsl_prop_get_integer(osname, "readonly", &readonly, NULL))
 		goto out;
 
+	mode = DS_MODE_OWNER;
 	if (readonly)
-		mode = DS_MODE_PRIMARY | DS_MODE_READONLY;
-	else
-		mode = DS_MODE_PRIMARY;
+		mode |= DS_MODE_READONLY;
 
 	error = dmu_objset_open(osname, DMU_OST_ZFS, mode, &zfsvfs->z_os);
 	if (error == EROFS) {
-		mode = DS_MODE_PRIMARY | DS_MODE_READONLY;
+		mode = DS_MODE_OWNER | DS_MODE_READONLY;
 		error = dmu_objset_open(osname, DMU_OST_ZFS, mode,
 		    &zfsvfs->z_os);
 	}
@@ -708,7 +708,7 @@ zfs_domount(vfs_t *vfsp, char *osname, cred_t *cr)
 	if (error)
 		goto out;
 
-	if (error = zfs_init_fs(zfsvfs, &zp, cr))
+	if (error = zfs_init_fs(zfsvfs, &zp))
 		goto out;
 
 	/* The call to zfs_init_fs leaves the vnode held, release it here. */
@@ -867,6 +867,7 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 	znode_t *zp = NULL;
 	vnode_t *vp = NULL;
 	char *zfs_bootfs;
+	char *zfs_devid;
 
 	ASSERT(vfsp);
 
@@ -886,40 +887,42 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 		 */
 		clkset(-1);
 
-		if ((zfs_bootfs = spa_get_bootfs()) == NULL) {
-			cmn_err(CE_NOTE, "\nspa_get_bootfs: can not get "
-			    "bootfs name \n");
+		if ((zfs_bootfs = spa_get_bootprop("zfs-bootfs")) == NULL) {
+			cmn_err(CE_NOTE, "spa_get_bootfs: can not get "
+			    "bootfs name");
 			return (EINVAL);
 		}
-
-		if (error = spa_import_rootpool(rootfs.bo_name)) {
-			spa_free_bootfs(zfs_bootfs);
-			cmn_err(CE_NOTE, "\nspa_import_rootpool: error %d\n",
+		zfs_devid = spa_get_bootprop("diskdevid");
+		error = spa_import_rootpool(rootfs.bo_name, zfs_devid);
+		if (zfs_devid)
+			spa_free_bootprop(zfs_devid);
+		if (error) {
+			spa_free_bootprop(zfs_bootfs);
+			cmn_err(CE_NOTE, "spa_import_rootpool: error %d",
 			    error);
 			return (error);
 		}
-
 		if (error = zfs_parse_bootfs(zfs_bootfs, rootfs.bo_name)) {
-			spa_free_bootfs(zfs_bootfs);
-			cmn_err(CE_NOTE, "\nzfs_parse_bootfs: error %d\n",
+			spa_free_bootprop(zfs_bootfs);
+			cmn_err(CE_NOTE, "zfs_parse_bootfs: error %d",
 			    error);
 			return (error);
 		}
 
-		spa_free_bootfs(zfs_bootfs);
+		spa_free_bootprop(zfs_bootfs);
 
 		if (error = vfs_lock(vfsp))
 			return (error);
 
-		if (error = zfs_domount(vfsp, rootfs.bo_name, CRED())) {
-			cmn_err(CE_NOTE, "\nzfs_domount: error %d\n", error);
+		if (error = zfs_domount(vfsp, rootfs.bo_name)) {
+			cmn_err(CE_NOTE, "zfs_domount: error %d", error);
 			goto out;
 		}
 
 		zfsvfs = (zfsvfs_t *)vfsp->vfs_data;
 		ASSERT(zfsvfs);
 		if (error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp)) {
-			cmn_err(CE_NOTE, "\nzfs_zget: error %d\n", error);
+			cmn_err(CE_NOTE, "zfs_zget: error %d", error);
 			goto out;
 		}
 
@@ -930,10 +933,8 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 		rootvp = vp;
 
 		/*
-		 * The zfs_zget call above returns with a hold on vp, we release
-		 * it here.
+		 * Leave rootvp held.  The root file system is never unmounted.
 		 */
-		VN_RELE(vp);
 
 		vfs_add((struct vnode *)0, vfsp,
 		    (vfsp->vfs_flag & VFS_RDONLY) ? MS_RDONLY : 0);
@@ -1057,7 +1058,7 @@ zfs_mount(vfs_t *vfsp, vnode_t *mvp, struct mounta *uap, cred_t *cr)
 		goto out;
 	}
 
-	error = zfs_domount(vfsp, osname, cr);
+	error = zfs_domount(vfsp, osname);
 
 out:
 	pn_free(&spn);
@@ -1313,7 +1314,7 @@ zfs_umount(vfs_t *vfsp, int fflag, cred_t *cr)
 		mutex_exit(&os->os->os_user_ptr_lock);
 
 		/*
-		 * Finally close the objset
+		 * Finally release the objset
 		 */
 		dmu_objset_close(os);
 	}
@@ -1582,7 +1583,7 @@ zfs_set_version(const char *name, uint64_t newvers)
 	if (newvers < ZPL_VERSION_INITIAL || newvers > ZPL_VERSION)
 		return (EINVAL);
 
-	error = dmu_objset_open(name, DMU_OST_ZFS, DS_MODE_PRIMARY, &os);
+	error = dmu_objset_open(name, DMU_OST_ZFS, DS_MODE_OWNER, &os);
 	if (error)
 		return (error);
 
@@ -1623,7 +1624,7 @@ int
 zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value)
 {
 	const char *pname;
-	int error;
+	int error = ENOENT;
 
 	/*
 	 * Look up the file system's value for the property.  For the
@@ -1634,7 +1635,8 @@ zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value)
 	else
 		pname = zfs_prop_to_name(prop);
 
-	error = zap_lookup(os, MASTER_NODE_OBJ, pname, 8, 1, value);
+	if (os != NULL)
+		error = zap_lookup(os, MASTER_NODE_OBJ, pname, 8, 1, value);
 
 	if (error == ENOENT) {
 		/* No value set, use the default value */

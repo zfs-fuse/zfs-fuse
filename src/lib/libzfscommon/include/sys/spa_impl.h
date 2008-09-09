@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -75,6 +75,18 @@ typedef struct spa_config_lock {
 	refcount_t	scl_count;
 } spa_config_lock_t;
 
+typedef struct spa_config_dirent {
+	list_node_t	scd_link;
+	char		*scd_path;
+} spa_config_dirent_t;
+
+typedef enum spa_log_state {
+	SPA_LOG_UNKNOWN = 0,	/* unknown log state */
+	SPA_LOG_MISSING,	/* missing log(s) */
+	SPA_LOG_CLEAR,		/* clear the log(s) */
+	SPA_LOG_GOOD,		/* log(s) are good */
+} spa_log_state_t;
+
 struct spa {
 	/*
 	 * Fields protected by spa_namespace_lock.
@@ -114,21 +126,15 @@ struct spa {
 	uberblock_t	spa_ubsync;		/* last synced uberblock */
 	uberblock_t	spa_uberblock;		/* current uberblock */
 	kmutex_t	spa_scrub_lock;		/* resilver/scrub lock */
-	kthread_t	*spa_scrub_thread;	/* scrub/resilver thread */
-	traverse_handle_t *spa_scrub_th;	/* scrub traverse handle */
-	uint64_t	spa_scrub_restart_txg;	/* need to restart */
-	uint64_t	spa_scrub_mintxg;	/* min txg we'll scrub */
-	uint64_t	spa_scrub_maxtxg;	/* max txg we'll scrub */
 	uint64_t	spa_scrub_inflight;	/* in-flight scrub I/Os */
 	uint64_t	spa_scrub_maxinflight;	/* max in-flight scrub I/Os */
 	uint64_t	spa_scrub_errors;	/* scrub I/O error count */
-	int		spa_scrub_suspended;	/* tell scrubber to suspend */
-	kcondvar_t	spa_scrub_cv;		/* scrub thread state change */
 	kcondvar_t	spa_scrub_io_cv;	/* scrub I/O completion */
-	uint8_t		spa_scrub_stop;		/* tell scrubber to stop */
 	uint8_t		spa_scrub_active;	/* active or suspended? */
 	uint8_t		spa_scrub_type;		/* type of scrub we're doing */
 	uint8_t		spa_scrub_finished;	/* indicator to rotate logs */
+	uint8_t		spa_scrub_started;	/* started since last boot */
+	uint8_t		spa_scrub_reopen;	/* scrub doing vdev_reopen */
 	kmutex_t	spa_async_lock;		/* protect async state */
 	kthread_t	*spa_async_thread;	/* thread doing async task */
 	int		spa_async_suspended;	/* async tasks suspended */
@@ -152,12 +158,15 @@ struct spa {
 	uint64_t	spa_pool_props_object;	/* object for properties */
 	uint64_t	spa_bootfs;		/* default boot filesystem */
 	boolean_t	spa_delegation;		/* delegation on/off */
-	char		*spa_config_dir;	/* cache file directory */
-	char		*spa_config_file;	/* cache file name */
+	list_t		spa_config_list;	/* previous cache file(s) */
 	list_t		spa_zio_list;		/* zio error list */
 	kcondvar_t	spa_zio_cv;		/* resume I/O pipeline */
 	kmutex_t	spa_zio_lock;		/* zio error lock */
 	uint8_t		spa_failmode;		/* failure mode for the pool */
+	boolean_t	spa_import_faulted;	/* allow faulted vdevs */
+	boolean_t	spa_is_root;		/* pool is root */
+	int		spa_minref;		/* num refs when first opened */
+	spa_log_state_t spa_log_state;		/* log state */
 	/*
 	 * spa_refcnt & spa_config_lock must be the last elements
 	 * because refcount_t changes size based on compilation options.
@@ -168,8 +177,13 @@ struct spa {
 	refcount_t	spa_refcount;		/* number of opens */
 };
 
-extern const char *spa_config_dir;
-extern kmutex_t spa_namespace_lock;
+extern const char *spa_config_path;
+
+#define	BOOTFS_COMPRESS_VALID(compress) \
+	((compress) == ZIO_COMPRESS_LZJB || \
+	((compress) == ZIO_COMPRESS_ON && \
+	ZIO_COMPRESS_ON_VALUE == ZIO_COMPRESS_LZJB) || \
+	(compress) == ZIO_COMPRESS_OFF)
 
 #ifdef	__cplusplus
 }
