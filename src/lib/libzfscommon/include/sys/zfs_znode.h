@@ -116,7 +116,9 @@ extern "C" {
  * Convert mode bits (zp_mode) to BSD-style DT_* values for storing in
  * the directory entries.
  */
+#ifndef IFTODT
 #define	IFTODT(mode) (((mode) & S_IFMT) >> 12)
+#endif
 
 /*
  * The directory entry has the type (currently unused on Solaris) in the
@@ -298,7 +300,7 @@ extern void	zfs_grow_blocksize(znode_t *, uint64_t, dmu_tx_t *);
 extern int	zfs_freesp(znode_t *, uint64_t, uint64_t, int, boolean_t);
 extern void	zfs_znode_init(void);
 extern void	zfs_znode_fini(void);
-extern int	zfs_zget(zfsvfs_t *, uint64_t, znode_t **);
+extern int	zfs_zget(zfsvfs_t *, uint64_t, znode_t **, boolean_t);
 extern int	zfs_rezget(znode_t *);
 extern void	zfs_zinactive(znode_t *);
 extern void	zfs_znode_delete(znode_t *, dmu_tx_t *);
@@ -336,8 +338,11 @@ extern void zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
 extern void zfs_xvattr_set(znode_t *zp, xvattr_t *xvap);
 extern void zfs_upgrade(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 
+/* ZFSFUSE: not needed */
+#if 0
 extern caddr_t zfs_map_page(page_t *, enum seg_rw);
 extern void zfs_unmap_page(page_t *, caddr_t);
+#endif
 
 extern zil_get_data_t zfs_get_data;
 extern zil_replay_func_t *zfs_replay_vector[TX_MAX_TYPE];

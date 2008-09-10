@@ -45,7 +45,7 @@ void
 txg_init(dsl_pool_t *dp, uint64_t txg)
 {
 	tx_state_t *tx = &dp->dp_tx;
-	int c;
+	int c, i;
 	bzero(tx, sizeof (tx_state_t));
 
 	tx->tx_cpu = kmem_zalloc(max_ncpus * sizeof (tx_cpu_t), KM_SLEEP);
@@ -73,7 +73,7 @@ void
 txg_fini(dsl_pool_t *dp)
 {
 	tx_state_t *tx = &dp->dp_tx;
-	int c;
+	int c, i;
 
 	ASSERT(tx->tx_threads == 0);
 

@@ -1,0 +1,61 @@
+Prerequisites
+-------------
+
+In order to compile and use zfs-fuse, you need the following:
+
+ * Linux kernel 2.6.x (2.6.15 or later recommended).
+
+ * FUSE 2.5.x or greater (Gentoo users: FUSE-2.6.0rc1 and some 
+earlier pre-release versions have a bug that prevents zfs-fuse
+from compiling correctly, simply upgrade to FUSE-2.6.0 or later).
+
+   You will need the fuse, fuse-utils and/or libfuse packages
+(and associated -dev packages), depending on the distribution.
+
+ * libaio and libaio-dev (or libaio-devel) packages.
+
+ * zlib (and associated headers usually provided by -dev package).
+
+ * glibc version 2.3.3 or newer with NPTL enabled.
+   You can check these requirements with following commands:
+
+   getconf GNU_LIBC_VERSION
+   getconf GNU_LIBPTHREAD_VERSION
+
+   The output should be "glibc 2.3.3" and "NTPL 2.3.3" (or newer,
+   of course).
+
+ * SCons (packaged in most distributions)
+   Only needed for compilation.
+   Website: http://www.scons.org
+
+Currently, it only works on the x86, amd64 and sparc64 architectures.
+
+In order to use pools created on Solaris, you will probably need kernel
+support for GPT/EFI partitions. EVMS is highly recommended in this case,
+see http://evms.sourceforge.net
+
+Compiling
+---------
+
+If you don't have SCons yet, do the usual 'sudo apt-get install scons',
+'emerge scons' or 'yum install scons'.
+
+To compile follow these steps:
+
+  1) cd src
+  2) scons
+
+That's it!
+
+If the compilation fails, please report a bug. See the BUGS file for
+instructions.
+
+Installing
+----------
+
+To install, run 'scons install' with appropriate privileges. It will
+install the binaries in /usr/local/sbin by default.
+
+Run 'scons install install_dir=/path/to/dir' if you want to install it in
+another directory.

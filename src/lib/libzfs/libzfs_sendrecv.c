@@ -47,7 +47,7 @@
 #include "zfs_prop.h"
 #include "libzfs_impl.h"
 
-#include <fletcher.c> /* XXX */
+#include <sys/zio_checksum.h>
 
 static int zfs_receive_impl(libzfs_handle_t *, const char *, recvflags_t,
     int, avl_tree_t *, char **);
@@ -1665,7 +1665,7 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 			(void) printf("found clone origin %s\n", zc.zc_string);
 	}
 
-	stream_wantsnewfs = (drrb->drr_fromguid == NULL ||
+	stream_wantsnewfs = (drrb->drr_fromguid == 0 ||
 	    (drrb->drr_flags & DRR_FLAG_CLONE));
 
 	if (stream_wantsnewfs) {

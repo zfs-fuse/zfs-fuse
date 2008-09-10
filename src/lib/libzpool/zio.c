@@ -35,6 +35,13 @@
 #include <sys/zio_compress.h>
 #include <sys/zio_checksum.h>
 
+#ifdef LINUX_AIO
+#include <libaio.h>
+
+#define AIO_MAXIO 2000
+#define AIO_MAXEVENTS 256
+#endif
+
 /*
  * ==========================================================================
  * I/O priority table
@@ -95,7 +102,7 @@ kmem_cache_t *zio_cache;
 kmem_cache_t *zio_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 kmem_cache_t *zio_data_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 
-#ifdef _KERNEL
+#if 0
 extern vmem_t *zio_alloc_arena;
 #endif
 
@@ -126,7 +133,7 @@ zio_init(void)
 	size_t c;
 	vmem_t *data_alloc_arena = NULL;
 
-#ifdef _KERNEL
+#if 0
 	data_alloc_arena = zio_alloc_arena;
 #endif
 
@@ -361,6 +368,9 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
 	zio->io_stage = stage;
 	zio->io_pipeline = pipeline;
 	zio->io_timestamp = lbolt64;
+#ifdef LINUX_AIO
+	zio->io_aio_ctx = spa->spa_aio_ctx;
+#endif
 	mutex_init(&zio->io_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&zio->io_cv, NULL, CV_DEFAULT, NULL);
 	zio_push_transform(zio, data, size, size);
@@ -992,7 +1002,7 @@ zio_ready(zio_t *zio)
 		zio_notify_parent(zio, ZIO_STAGE_WAIT_FOR_CHILDREN_READY,
 		    &pio->io_children_notready);
 
-	if (zio->io_bp)
+	if (zio->io_bp && zio->io_bp != &zio->io_bp_copy)
 		zio->io_bp_copy = *zio->io_bp;
 
 	return (ZIO_PIPELINE_CONTINUE);
@@ -2162,3 +2172,116 @@ zio_flush(zio_t *zio, vdev_t *vd)
 	    NULL, NULL, ZIO_PRIORITY_NOW,
 	    ZIO_FLAG_CANFAIL | ZIO_FLAG_DONT_RETRY));
 }
+
+#ifdef LINUX_AIO
+
+/*
+ * AIO thread. Waits for finished AIOs and dispatches them to the
+ * ZIO interrupt threads.
+ */
+static void zio_aio_thread(zio_aio_ctx_t *ctx)
+{
+	struct timespec timeout;
+	struct io_event events[AIO_MAXEVENTS];
+	struct iocb *iocb;
+	zio_t *zio;
+	int rc, i;
+
+	while (ctx->zac_enabled) {
+		timeout.tv_sec = 1;
+		timeout.tv_nsec = 0;
+
+		rc = io_getevents(ctx->zac_ctx, 1, AIO_MAXEVENTS, events,
+		    &timeout);
+		if (rc == 0 || rc == -EINTR)
+			continue;
+
+		if (rc < 0) {
+			cmn_err(CE_WARN, "error '%i' in function "
+			    "io_getevents(), disabling async I/O.", rc);
+			/*
+			 * We have no choice but to exit...
+			 *
+			 * zio_fini_aio() will free zio_aio_ctx_t since it
+			 * may still be in use by other threads.
+			 */
+			ctx->zac_enabled = B_FALSE;
+			return;
+		}
+
+		for (i = 0; i < rc; i++) {
+			iocb = events[i].obj;
+			zio = (zio_t *) events[i].data;
+
+			zio->io_error = -events[i].res2;
+			if (zio->io_error == 0 &&
+			    events[i].res != iocb->u.c.nbytes)
+				zio->io_error = EIO;
+
+			zio_interrupt(zio);
+		}
+	}
+
+	rc = io_destroy(ctx->zac_ctx);
+	if (rc != 0)
+		cmn_err(CE_WARN, "error '%i' in function io_destroy()", rc);
+
+	kmem_free(ctx, sizeof (zio_aio_ctx_t));
+}
+
+/*
+ * Initialize asynchronous I/O for a pool
+ */
+int zio_aio_init(spa_t *spa)
+{
+	zio_aio_ctx_t *ctx;
+	int error;
+
+	spa->spa_aio_ctx = kmem_alloc(sizeof (zio_aio_ctx_t), KM_SLEEP);
+	ctx = spa->spa_aio_ctx;
+
+	memset(&ctx->zac_ctx, 0, sizeof (io_context_t));
+
+	error = io_queue_init(AIO_MAXIO, &ctx->zac_ctx);
+
+	if (!error) {
+		ctx->zac_enabled = B_TRUE;
+		ctx->zac_thread = thread_create(NULL, 0, zio_aio_thread,
+		    ctx, 0, &p0, TS_RUN, maxclsyspri);
+	} else {
+		kmem_free(ctx, sizeof (zio_aio_ctx_t));
+		spa->spa_aio_ctx = NULL;
+	}
+
+	return error;
+}
+
+/*
+ * Terminate an asynchronous I/O context
+ */
+void zio_aio_fini(spa_t *spa)
+{
+	int rc;
+
+	if (spa->spa_aio_ctx == NULL)
+		return; /* AIO never started in the first place */
+
+	if (spa->spa_aio_ctx->zac_enabled) {
+		/* AIO thread will free zio_aio_ctx_t */
+		spa->spa_aio_ctx->zac_enabled = B_FALSE;
+	} else {
+		/*
+		 * An error occured in the AIO thread, so we'll free
+		 * zio_aio_ctx_t ourselves.
+		 */
+		rc = io_destroy(spa->spa_aio_ctx->zac_ctx);
+		if (rc != 0)
+			cmn_err(CE_WARN, "error '%i' in function io_destroy()", rc);
+
+		kmem_free(spa->spa_aio_ctx, sizeof (zio_aio_ctx_t));
+		spa->spa_aio_ctx = NULL;
+	}
+
+	/* XXX: there should exist a thread_join().. */
+}
+#endif

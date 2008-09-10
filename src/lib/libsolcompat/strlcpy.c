@@ -49,7 +49,7 @@ strlcpy(char *dst, const char *src, size_t len)
 		copied = len - 1;
 	else
 		copied = slen;
-	(void) memcpy(dst, src, copied);
+	(void) memmove(dst, src, copied);
 	dst[copied] = '\0';
 	return (slen);
 }

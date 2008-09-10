@@ -518,7 +518,6 @@ dnode_buf_pageout(dmu_buf_t *db, void *arg)
 
 	for (i = 0; i < epb; i++) {
 		dnode_t *dn = children_dnodes[i];
-		int n;
 
 		if (dn == NULL)
 			continue;
@@ -533,7 +532,7 @@ dnode_buf_pageout(dmu_buf_t *db, void *arg)
 		ASSERT(list_head(&dn->dn_dbufs) == NULL);
 		ASSERT(refcount_is_zero(&dn->dn_tx_holds));
 
-		for (n = 0; n < TXG_SIZE; n++)
+		for (int n = 0; n < TXG_SIZE; n++)
 			ASSERT(!list_link_active(&dn->dn_dirty_link[n]));
 #endif
 		children_dnodes[i] = NULL;
@@ -850,7 +849,8 @@ dnode_new_blkid(dnode_t *dn, uint64_t blkid, dmu_tx_t *tx, boolean_t have_read)
 	ASSERT(blkid != DB_BONUS_BLKID);
 
 	ASSERT(have_read ?
-	    RW_READ_HELD(&dn->dn_struct_rwlock) :
+	    (RW_LOCK_HELD(&dn->dn_struct_rwlock) &&
+	    !RW_WRITE_HELD(&dn->dn_struct_rwlock)) :
 	    RW_WRITE_HELD(&dn->dn_struct_rwlock));
 
 	/*

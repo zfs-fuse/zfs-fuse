@@ -31,8 +31,20 @@
 #include <sys/zfs_context.h>
 #include <sys/zio.h>
 
+#ifdef LINUX_AIO
+#include <libaio.h>
+#endif
+
 #ifdef	__cplusplus
 extern "C" {
+#endif
+
+#ifdef LINUX_AIO
+typedef struct zio_aio_ctx {
+	io_context_t zac_ctx;     /* AIO context */
+	kthread_t    *zac_thread; /* AIO thread */
+	boolean_t    zac_enabled; /* is AIO enabled? */
+} zio_aio_ctx_t;
 #endif
 
 /*

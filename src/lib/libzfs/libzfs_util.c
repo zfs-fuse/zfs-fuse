@@ -42,6 +42,7 @@
 #include <sys/types.h>
 
 #include <libzfs.h>
+#include <zfsfuse.h>
 
 #include "libzfs_impl.h"
 #include "zfs_prop.h"
@@ -520,13 +521,13 @@ zfs_nicenum(uint64_t num, char *buf, size_t buflen)
 	u = " KMGTPE"[index];
 
 	if (index == 0) {
-		(void) snprintf(buf, buflen, "%llu", n);
+		(void) snprintf(buf, buflen, "%llu", (u_longlong_t) n);
 	} else if ((num & ((1ULL << 10 * index) - 1)) == 0) {
 		/*
 		 * If this is an even multiple of the base, always display
 		 * without any decimal precision.
 		 */
-		(void) snprintf(buf, buflen, "%llu%c", n, u);
+		(void) snprintf(buf, buflen, "%llu%c", (u_longlong_t) n, u);
 	} else {
 		/*
 		 * We want to choose a precision that reflects the best choice
@@ -561,12 +562,13 @@ libzfs_init(void)
 		return (NULL);
 	}
 
-	if ((hdl->libzfs_fd = open(ZFS_DEV, O_RDWR)) < 0) {
+	/* ZFSFUSE */
+	if ((hdl->libzfs_fd = zfsfuse_open(ZFS_SOCK_NAME, O_RDWR)) == -1) {
 		free(hdl);
 		return (NULL);
 	}
 
-	if ((hdl->libzfs_mnttab = fopen(MNTTAB, "r")) == NULL) {
+	if ((hdl->libzfs_mnttab = setmntent(MNTTAB, "r")) == NULL) {
 		(void) close(hdl->libzfs_fd);
 		free(hdl);
 		return (NULL);
@@ -585,7 +587,7 @@ libzfs_fini(libzfs_handle_t *hdl)
 {
 	(void) close(hdl->libzfs_fd);
 	if (hdl->libzfs_mnttab)
-		(void) fclose(hdl->libzfs_mnttab);
+		(void) endmntent(hdl->libzfs_mnttab);
 	if (hdl->libzfs_sharetab)
 		(void) fclose(hdl->libzfs_sharetab);
 	zfs_uninit_libshare(hdl);
@@ -664,7 +666,7 @@ zcmd_alloc_dst_nvlist(libzfs_handle_t *hdl, zfs_cmd_t *zc, size_t len)
 		len = 2048;
 	zc->zc_nvlist_dst_size = len;
 	if ((zc->zc_nvlist_dst = (uint64_t)(uintptr_t)
-	    zfs_alloc(hdl, zc->zc_nvlist_dst_size)) == NULL)
+	    zfs_alloc(hdl, zc->zc_nvlist_dst_size)) == (uint64_t)(uintptr_t) NULL)
 		return (-1);
 
 	return (0);
@@ -681,7 +683,7 @@ zcmd_expand_dst_nvlist(libzfs_handle_t *hdl, zfs_cmd_t *zc)
 	free((void *)(uintptr_t)zc->zc_nvlist_dst);
 	if ((zc->zc_nvlist_dst = (uint64_t)(uintptr_t)
 	    zfs_alloc(hdl, zc->zc_nvlist_dst_size))
-	    == NULL)
+	    == (uint64_t)(uintptr_t) NULL)
 		return (-1);
 
 	return (0);

@@ -67,7 +67,7 @@ typedef enum {
 	DATA_TYPE_UINT8,
 	DATA_TYPE_BOOLEAN_ARRAY,
 	DATA_TYPE_INT8_ARRAY,
-#if !defined(_KERNEL)
+#if 1
 	DATA_TYPE_UINT8_ARRAY,
 	DATA_TYPE_DOUBLE
 #else
@@ -268,7 +268,7 @@ int nvpair_value_uint64_array(nvpair_t *, uint64_t **, uint_t *);
 int nvpair_value_string_array(nvpair_t *, char ***, uint_t *);
 int nvpair_value_nvlist_array(nvpair_t *, nvlist_t ***, uint_t *);
 int nvpair_value_hrtime(nvpair_t *, hrtime_t *);
-#if !defined(_KERNEL)
+#if 1
 int nvpair_value_double(nvpair_t *, double *);
 #endif
 

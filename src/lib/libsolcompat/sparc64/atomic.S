@@ -26,6 +26,7 @@
 
 	.file	"atomic.s"
 
+#define _ASM
 #include <sys/asm_linkage.h>
 
 #if defined(_KERNEL)
@@ -728,7 +729,7 @@ add_64:
 	retl
 	srlx	%o3, 32, %o0		! return upper 32-bits in %o0
 	SET_SIZE(atomic_swap_64)
-
+/* these are not used by ZFS
 	ENTRY(atomic_set_long_excl)
 	mov	1, %o3
 	slln	%o3, %o1, %o3
@@ -766,7 +767,7 @@ add_64:
 	retl
 	nop
 	SET_SIZE(atomic_clear_long_excl)
-
+*/
 #if !defined(_KERNEL)
 
 	/*
@@ -799,3 +800,7 @@ add_64:
 	SET_SIZE(membar_consumer)
 
 #endif	/* !_KERNEL */
+
+#ifdef __ELF__
+.section .note.GNU-stack,"",%progbits
+#endif

@@ -186,6 +186,10 @@ extern int zfs_parse_options(char *, zfs_share_proto_t);
 
 extern int zfs_unshare_proto(zfs_handle_t *zhp,
     const char *, zfs_share_proto_t *);
+
+/* ZFSFUSE */
+int zfsfuse_mount(libzfs_handle_t *hdl, const char *spec, const char *dir, int mflag, char *fstype, char *dataptr, int datalen, char *optptr, int optlen);
+
 #ifdef	__cplusplus
 }
 #endif

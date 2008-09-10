@@ -1611,7 +1611,7 @@ nvlist_lookup_nvpair_ei_sep(nvlist_t *nvl, const char *name, const char sep,
 			sepp = idxp;
 
 			/* determine the index value */
-#if defined(_KERNEL) && !defined(_BOOT)
+#if 0
 			if (ddi_strtol(idxp, &idxep, 0, &idx))
 				goto fail;
 #else
@@ -1817,7 +1817,7 @@ nvpair_value_uint64(nvpair_t *nvp, uint64_t *val)
 	return (nvpair_value_common(nvp, DATA_TYPE_UINT64, NULL, val));
 }
 
-#if !defined(_KERNEL)
+#if 1
 int
 nvpair_value_double(nvpair_t *nvp, double *val)
 {
