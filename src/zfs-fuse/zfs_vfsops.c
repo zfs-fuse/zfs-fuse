@@ -267,7 +267,6 @@ xattr_changed_cb(void *arg, uint64_t newval)
 	}
 }
 
-#if 0
 static void
 blksz_changed_cb(void *arg, uint64_t newval)
 {
@@ -280,7 +279,7 @@ blksz_changed_cb(void *arg, uint64_t newval)
 	zfsvfs->z_max_blksz = newval;
 	zfsvfs->z_vfs->vfs_bsize = newval;
 }
-#endif
+
 static void
 readonly_changed_cb(void *arg, uint64_t newval)
 {
@@ -347,7 +346,6 @@ exec_changed_cb(void *arg, uint64_t newval)
 	}
 }
 
-#if 0
 /*
  * The nbmand mount option can be changed at mount time.
  * We can't allow it to be toggled on live file systems or incorrect
@@ -400,14 +398,10 @@ acl_inherit_changed_cb(void *arg, uint64_t newval)
 
 	zfsvfs->z_acl_inherit = newval;
 }
-#endif
 
 static int
 zfs_register_callbacks(vfs_t *vfsp)
 {
-	/* ZFS-FUSE: not implemented */
-	return 0;
-#if 0
 	struct dsl_dataset *ds = NULL;
 	objset_t *os = NULL;
 	zfsvfs_t *zfsvfs = NULL;
@@ -574,7 +568,6 @@ unregister:
 	    zfsvfs);
 	(void) dsl_prop_unregister(ds, "vscan", vscan_changed_cb, zfsvfs);
 	return (error);
-#endif
 }
 
 static int
@@ -786,7 +779,6 @@ out:
 void
 zfs_unregister_callbacks(zfsvfs_t *zfsvfs)
 {
-#if 0
 	objset_t *os = zfsvfs->z_os;
 	struct dsl_dataset *ds;
 
@@ -828,7 +820,6 @@ zfs_unregister_callbacks(zfsvfs_t *zfsvfs)
 		VERIFY(dsl_prop_unregister(ds, "vscan",
 		    vscan_changed_cb, zfsvfs) == 0);
 	}
-#endif
 }
 
 /*
