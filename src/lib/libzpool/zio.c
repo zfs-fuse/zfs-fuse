@@ -1249,8 +1249,8 @@ zio_assess(zio_t *zio)
 		 * We handle this condition based on the spa's failmode
 		 * property.
 		 */
-		if (zio_write_retry && zio->io_error != ENOSPC &&
-		    IO_IS_ALLOCATING(zio))
+		if ((zio_write_retry || zio_io_fail_shift) &&
+		    zio->io_error != ENOSPC && IO_IS_ALLOCATING(zio))
 			return (zio_vdev_retry_io(zio));
 
 		ASSERT(!(zio->io_flags & ZIO_FLAG_WRITE_RETRY));
