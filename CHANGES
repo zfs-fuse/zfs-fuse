@@ -1,6 +1,6 @@
 2008-09-11 - Release 0.5.0
 --------------------------------------------------
-	* Updated ZFS code to Nevada build 89.
+	* Updated ZFS code to Nevada build 98.
 Features:
 	* Implemented async I/O.
 	* gzip compression support (upstream).
