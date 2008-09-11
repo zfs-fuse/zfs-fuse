@@ -1,4 +1,4 @@
-2008-09-11 - Release 0.5.0
+2008-09-12 - Release 0.5.0
 --------------------------------------------------
 	* Updated ZFS code to Nevada build 98.
 Features:
@@ -25,6 +25,7 @@ Bug fixes:
 	* Fix unexpected return codes when working with unlinked files/directories.
 	* Add support for gcc 4.2 (patch by Michal Kowalczuk, some fixes by Roland/devzero).
 	* Fixed bug where atime was not working.
+	* Fixed bug where "zpool create/add/attach" did not warn if device was part of existing pool.
 
 2007-03-06 - Release 0.4.0_beta1
 --------------------------------------------------

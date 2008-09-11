@@ -986,8 +986,6 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 /*
  * Determine if the given path is a hot spare within the given configuration.
  */
-/* zfs-fuse: this function is only used inside check_in_use() */
-#if 0
 static boolean_t
 is_spare(nvlist_t *config, const char *path)
 {
@@ -1032,7 +1030,6 @@ is_spare(nvlist_t *config, const char *path)
 
 	return (B_FALSE);
 }
-#endif
 
 /*
  * Go through and find any devices that are in use.  We rely on libdiskmgt for
@@ -1042,8 +1039,6 @@ static int
 check_in_use(nvlist_t *config, nvlist_t *nv, int force, int isreplacing,
     int isspare)
 {
-/* zfs-fuse: TODO */
-#if 0
 	nvlist_t **child;
 	uint_t c, children;
 	char *type, *path;
@@ -1074,11 +1069,7 @@ check_in_use(nvlist_t *config, nvlist_t *nv, int force, int isreplacing,
 				return (0);
 		}
 
-		if (strcmp(type, VDEV_TYPE_DISK) == 0)
-			ret = check_device(path, force, isspare);
-
-		if (strcmp(type, VDEV_TYPE_FILE) == 0)
-			ret = check_file(path, force, isspare);
+		ret = check_file(path, force, isspare);
 
 		return (ret);
 	}
@@ -1102,7 +1093,6 @@ check_in_use(nvlist_t *config, nvlist_t *nv, int force, int isreplacing,
 			    isreplacing, B_FALSE)) != 0)
 				return (ret);
 
-#endif
 	return (0);
 }
 
