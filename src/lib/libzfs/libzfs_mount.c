@@ -359,6 +359,10 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 		} else if (errno == EPERM) {
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "Insufficient privileges"));
+		} else if (errno == EIO) {
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "Input/output error.\nMake sure the FUSE module is "
+			    "loaded."));
 		} else {
 			zfs_error_aux(hdl, strerror(errno));
 		}

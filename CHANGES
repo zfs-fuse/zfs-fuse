@@ -1,3 +1,8 @@
+????-??-?? - Release 0.5.1
+--------------------------------------------------
+Enhancements:
+	* Display more informative error messages when the FUSE module is not loaded or when zdb is used while zfs-fuse is not running.
+
 2008-09-12 - Release 0.5.0
 --------------------------------------------------
 	* Updated ZFS code to Nevada build 98.
