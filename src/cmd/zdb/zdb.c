@@ -2485,7 +2485,8 @@ main(int argc, char **argv)
 
 	kernel_init(FREAD);
 	g_zfs = libzfs_init();
-	ASSERT(g_zfs != NULL);
+	if (g_zfs == NULL)
+		(void) fatal("error initializing libzfs\nPlease make sure zfs-fuse is running\n");
 
 	/*
 	 * Disable vdev caching.  If we don't do this, live pool traversal
