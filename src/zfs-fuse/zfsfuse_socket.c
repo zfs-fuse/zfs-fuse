@@ -106,6 +106,7 @@ int zfsfuse_socket_create()
 	}
 
 	/* Try to create the directory, ignore errors */
+	mkdir(ZPOOL_CACHE_DIR, 0700);
 	mkdir(ZFS_SOCK_DIR, 0700);
 
 	/* Bind a name to the socket. */

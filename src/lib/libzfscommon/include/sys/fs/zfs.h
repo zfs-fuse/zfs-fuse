@@ -378,7 +378,8 @@ typedef enum zfs_cache_type {
  * The location of the pool configuration repository, shared between kernel and
  * userland.
  */
-#define	ZPOOL_CACHE		"/etc/zfs/zpool.cache"
+#define	ZPOOL_CACHE_DIR		"/etc/zfs"
+#define	ZPOOL_CACHE		ZPOOL_CACHE_DIR "/zpool.cache"
 
 /*
  * vdev states are ordered from least to most healthy.
