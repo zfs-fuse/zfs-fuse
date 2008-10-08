@@ -2,6 +2,8 @@
 --------------------------------------------------
 Enhancements:
 	* Display more informative error messages when the FUSE module is not loaded or when zdb is used while zfs-fuse is not running.
+Bug fixes:
+	* Fixed regression where ZFS pools would disappear when rebooting or restarting zfs-fuse.
 
 2008-09-12 - Release 0.5.0
 --------------------------------------------------
