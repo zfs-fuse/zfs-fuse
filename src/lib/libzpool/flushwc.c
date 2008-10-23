@@ -56,13 +56,7 @@ static int flushSCSIwc(int fd) {
   io_hdr.interface_id = 'S';
   io_hdr.dxfer_direction = SG_DXFER_NONE;
   cmdp[0] = 0x35; // This is a SYNCHRONIZE CACHE(10) command.
-  cmdp[1] = 0x02; // This command should be synchronous.
-  /* The above value is very important. While the SG_IO ioctl
-   * itself is synchronous, the drive may return a good status
-   * to the command before the writeback cache is fully synchronized.
-   * Setting cmdp[2] = 0x02 sets the IMMED flag on the command,
-   * essentially making this SCSI command synchronous.
-   */
+  cmdp[1] = 0x00; // This command should be synchronous.
   cmdp[2] = 0x00; // 2-5 are the starting LBA.
   cmdp[3] = 0x00;
   cmdp[4] = 0x00;
