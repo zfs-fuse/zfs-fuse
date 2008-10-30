@@ -6,6 +6,7 @@ Bug fixes:
 	* Fixed regression where ZFS pools would disappear when rebooting or restarting zfs-fuse.
 	* Fixed compilation error when compiling under Fedora 9 (reported by Uwe Kubosch).
 	* Fixed minor possibility of write reordering happen during txg sync on SCSI devices.
+	* Fixed compilation problem under openSUSE 11.0 (Andy Yelland).
 
 2008-09-12 - Release 0.5.0
 --------------------------------------------------

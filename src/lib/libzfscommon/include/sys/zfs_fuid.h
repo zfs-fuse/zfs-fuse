@@ -110,7 +110,7 @@ extern uint64_t zfs_fuid_create(zfsvfs_t *, uint64_t, cred_t *, zfs_fuid_type_t,
 extern void zfs_fuid_map_ids(struct znode *zp, cred_t *cr, uid_t *uid,
     uid_t *gid);
 extern zfs_fuid_info_t *zfs_fuid_info_alloc(void);
-extern void zfs_fuid_info_free();
+extern void zfs_fuid_info_free(zfs_fuid_info_t *);
 extern boolean_t zfs_groupmember(zfsvfs_t *, uint64_t, cred_t *);
 #endif
 
