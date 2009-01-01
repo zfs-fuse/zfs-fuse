@@ -16,7 +16,7 @@ build-stamp:
 
 	# Add here commands to compile the package.
 	scons -C src debug=1 optim=$(OPTIM)
-	xsltproc --nonet /usr/share/sgml/docbook/stylesheet/xsl/nwalsh/manpages/docbook.xsl debian/zfs-fuse.man.xml
+	xsltproc --nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl debian/zfs-fuse.man.xml
 
 	touch $@
 
