@@ -112,3 +112,5 @@ if "tags" in sys.argv:
     os.system("ctags --extra=+f `find -name '*.c'` `find -name '*.h'`")
 
 env.Alias('install', [install_dir, man_dir, cfg_dir])
+
+Clean('clean', ['.sconsign.dblite', 'path.pyc'])
