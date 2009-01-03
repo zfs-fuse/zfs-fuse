@@ -20,6 +20,7 @@ set -e
 case "$1" in
     remove|deconfigure)
       invoke-rc.d zfs-fuse stop || exit $?
+      rm -f /var/lib/zfs/zpool.cache
       ;;
     upgrade)
     ;;
