@@ -24,16 +24,17 @@ if osname == "Linux":
   env.Append(CPPFLAGS = " -DLINUX_AIO")
 
 debug = int(ARGUMENTS.get('debug', '0'))
+optim = ARGUMENTS.get('optim', '-O2')
 
 if not debug:
 	env.Append(LINKFLAGS = ['-s'])
-	env.Append(CCFLAGS = Split('-s -O2 -DNDEBUG'))
+	env.Append(CCFLAGS = ['-s', optim, '-DNDEBUG'])
 else:
 	env.Append(LINKFLAGS = ['-ggdb'])
 	env.Append(CCFLAGS = ['-ggdb'])
 # Be careful here, one of DEBUG or NDEBUG must be defined, if you undef both, you'll get unexpected results
 	if debug == 1:
-		env.Append(CCFLAGS = Split('-O2 -DDEBUG'))
+		env.Append(CCFLAGS = [optim, '-DDEBUG'])
 	elif debug == 2:
 		env.Append(CCFLAGS = ['-DDEBUG'])
 	elif debug == 3:
