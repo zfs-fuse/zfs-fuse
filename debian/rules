@@ -27,8 +27,6 @@ clean:
 
 	# Add here commands to clean up after the build process.
 	scons -c -C src
-	rm -f src/.sconsign.dblite
-	rm -f src/path.pyc
 	rm -f zfs-fuse.8
 
 	dh_clean 
