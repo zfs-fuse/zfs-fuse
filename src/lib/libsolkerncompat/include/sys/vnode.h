@@ -37,6 +37,11 @@
 #include <vm/seg_enum.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/taskq.h>
+
+#ifdef	__cplusplus
+extern "C" {
+#endif
 
 extern kmem_cache_t *vnode_cache;
 
@@ -288,6 +293,10 @@ extern void vn_vfsunlock(vnode_t *vp);
 #endif
 
 #define VN_RELE(vp)                     vn_rele(vp)
+#define	VN_RELE_ASYNC(vp, taskq)	{ \
+	vn_rele_async(vp, taskq); \
+}
+
 #define	VN_HOLD(vp) { \
 	mutex_enter(&(vp)->v_lock); \
 	(vp)->v_count++; \
@@ -299,6 +308,7 @@ extern void vn_reinit(vnode_t *vp);
 extern void vn_recycle(vnode_t *vp);
 extern void vn_free(vnode_t *vp);
 extern void vn_rele(vnode_t *vp);
+extern void vn_rele_async(struct vnode *vp, struct taskq *taskq);
 
 extern int vn_open(char *pnamep, enum uio_seg seg, int filemode, int createmode, struct vnode **vpp, enum create crwhy, mode_t umask);
 extern int vn_openat(char *pnamep, enum uio_seg seg, int filemode, int createmode, struct vnode **vpp, enum create crwhy, mode_t umask, struct vnode *startvp, int fd);
@@ -869,6 +879,15 @@ xoptattr_t      *xva_getxoptattr(xvattr_t *);   /* Get ptr to xoptattr_t */
         (xvap)->xva_reqattrmap[XVA_INDEX(attr)] |= XVA_ATTRBIT(attr)
 
 /*
+ * XVA_CLR_REQ() clears an attribute bit in the proper element in the bitmap
+ * of requested attributes (xva_reqattrmap[]).
+ */
+#define	XVA_CLR_REQ(xvap, attr)					\
+	ASSERT((xvap)->xva_vattr.va_mask | AT_XVATTR);		\
+	ASSERT((xvap)->xva_magic == XVA_MAGIC);			\
+	(xvap)->xva_reqattrmap[XVA_INDEX(attr)] &= ~XVA_ATTRBIT(attr)
+
+/*
  * XVA_SET_RTN() sets an attribute bit in the proper element in the bitmap
  * of returned attributes (xva_rtnattrmap[]).
  */
@@ -897,4 +916,8 @@ xoptattr_t      *xva_getxoptattr(xvattr_t *);   /* Get ptr to xoptattr_t */
                 ((xvap)->xva_mapsize > XVA_INDEX(attr))) ?              \
         ((XVA_RTNATTRMAP(xvap))[XVA_INDEX(attr)] & XVA_ATTRBIT(attr)) : 0)
 
+#endif
+
+#ifdef	__cplusplus
+}
 #endif

@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -33,8 +33,6 @@
 
 #ifndef _SYS_CRED_H
 #define	_SYS_CRED_H
-
-
 
 #include <sys/types.h>
 
@@ -79,6 +77,7 @@ extern cred_t *crdup(cred_t *);
 extern void crdup_to(cred_t *, cred_t *);
 extern cred_t *crgetcred(void);
 extern void crset(struct proc *, cred_t *);
+extern void crset_zone_privall(cred_t *);
 extern int groupmember(gid_t, const cred_t *);
 extern int supgroupmember(gid_t, const cred_t *);
 extern int hasprocperm(const cred_t *, const cred_t *);
@@ -176,7 +175,7 @@ extern struct ksidlist *crgetsidlist(const cred_t *);
 extern int crsetpriv(cred_t *, ...);
 #endif
 
-#define crgetsidlist(c)    (abort(), NULL)
+#define crgetsidlist(c)    (NULL)
 #define crgetsid(c,i)      (NULL)
 
 extern struct credklpd *crgetcrklpd(const cred_t *);

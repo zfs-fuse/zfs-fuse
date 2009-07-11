@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef	_SYS_ZIL_H
 #define	_SYS_ZIL_H
-
-
 
 #include <sys/types.h>
 #include <sys/spa.h>
@@ -58,8 +56,14 @@ typedef struct zil_header {
 	uint64_t zh_replay_seq;	/* highest replayed sequence number */
 	blkptr_t zh_log;	/* log chain */
 	uint64_t zh_claim_seq;	/* highest claimed sequence number */
-	uint64_t zh_pad[5];
+	uint64_t zh_flags;	/* header flags */
+	uint64_t zh_pad[4];
 } zil_header_t;
+
+/*
+ * zh_flags bit settings
+ */
+#define	ZIL_REPLAY_NEEDED 0x1	/* replay needed - internal only */
 
 /*
  * Log block trailer - structure at the end of the header and each log block
@@ -301,7 +305,27 @@ typedef struct {
  */
 
 /*
- * ZFS intent log transaction structure
+ * Writes are handled in three different ways:
+ *
+ * WR_INDIRECT:
+ *    In this mode, if we need to commit the write later, then the block
+ *    is immediately written into the file system (using dmu_sync),
+ *    and a pointer to the block is put into the log record.
+ *    When the txg commits the block is linked in.
+ *    This saves additionally writing the data into the log record.
+ *    There are a few requirements for this to occur:
+ *	- write is greater than zfs/zvol_immediate_write_sz
+ *	- not using slogs (as slogs are assumed to always be faster
+ *	  than writing into the main pool)
+ *	- the write occupies only one block
+ * WR_COPIED:
+ *    If we know we'll immediately be committing the
+ *    transaction (FSYNC or FDSYNC), the we allocate a larger
+ *    log record here for the data and copy the data in.
+ * WR_NEED_COPY:
+ *    Otherwise we don't allocate a buffer, and *if* we need to
+ *    flush the write later then a buffer is allocated and
+ *    we retrieve the data using the dmu.
  */
 typedef enum {
 	WR_INDIRECT,	/* indirect - a large write (dmu_sync() data */
@@ -351,7 +375,7 @@ extern void	zil_free(zilog_t *zilog);
 extern zilog_t	*zil_open(objset_t *os, zil_get_data_t *get_data);
 extern void	zil_close(zilog_t *zilog);
 
-extern void	zil_replay(objset_t *os, void *arg, uint64_t *txgp,
+extern void	zil_replay(objset_t *os, void *arg,
     zil_replay_func_t *replay_func[TX_MAX_TYPE]);
 extern void	zil_destroy(zilog_t *zilog, boolean_t keep_first);
 extern void	zil_rollback_destroy(zilog_t *zilog, dmu_tx_t *tx);
@@ -361,9 +385,9 @@ extern uint64_t zil_itx_assign(zilog_t *zilog, itx_t *itx, dmu_tx_t *tx);
 
 extern void	zil_commit(zilog_t *zilog, uint64_t seq, uint64_t oid);
 
+extern int	zil_vdev_offline(char *osname, void *txarg);
 extern int	zil_claim(char *osname, void *txarg);
 extern int	zil_check_log_chain(char *osname, void *txarg);
-extern int	zil_clear_log_chain(char *osname, void *txarg);
 extern void	zil_sync(zilog_t *zilog, dmu_tx_t *tx);
 extern void	zil_clean(zilog_t *zilog);
 extern int	zil_is_committed(zilog_t *zilog);

@@ -1,5 +1,6 @@
-????-??-?? - Release 0.5.1
+2009-06-15 - Release 0.5.1
 --------------------------------------------------
+	* Updated ZFS code to pool version 16 (OpenGrok repository 2009-06-03)
 Enhancements:
 	* Display more informative error messages when the FUSE module is not loaded or when zdb is used while zfs-fuse is not running.
 Bug fixes:

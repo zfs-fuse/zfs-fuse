@@ -19,11 +19,9 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
-
-
 
 #include <assert.h>
 #include <fcntl.h>
@@ -38,6 +36,7 @@
 #include <sys/zfs_context.h>
 #include <sys/zmod.h>
 #include <sys/utsname.h>
+#include <sys/systeminfo.h>
 
 /*
  * Emulation of kernel services in userland.
@@ -45,7 +44,7 @@
 
 uint64_t physmem;
 vnode_t *rootdir = (vnode_t *)0xabcd1234;
-char hw_serial[11];
+char hw_serial[HW_HOSTID_LEN];
 
 struct utsname utsname = {
 	"userland", "libzpool", "1", "1", "na"
@@ -819,10 +818,12 @@ kernel_init(int mode)
 	    (double)physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 
 	uname(&utsname);
-	snprintf(hw_serial, sizeof (hw_serial), "%ld", gethostid());
+	(void) snprintf(hw_serial, sizeof (hw_serial), "%ld", gethostid());
 
 	VERIFY((random_fd = open("/dev/random", O_RDONLY)) != -1);
 	VERIFY((urandom_fd = open("/dev/urandom", O_RDONLY)) != -1);
+
+	system_taskq_init();
 
 	spa_init(mode);
 }

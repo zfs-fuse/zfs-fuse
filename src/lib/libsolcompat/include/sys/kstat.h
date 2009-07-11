@@ -26,7 +26,7 @@
 #ifndef	_SYS_KSTAT_H
 #define	_SYS_KSTAT_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 /*
  * Definition of general kernel statistics structures and /dev/kstat ioctls

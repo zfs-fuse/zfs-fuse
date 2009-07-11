@@ -9,7 +9,7 @@ objects_user = ['build-user/' + o for o in objects]
 objects_kernel = ['build-kernel/' + o for o in objects]
 
 cpppath_user = Split('./include #lib/libsolcompat/include')
-cpppath_kernel = Split('./include #lib/libsolkerncompat/include #lib/libumem/include')
+cpppath_kernel = Split('./include #lib/libumem/include #lib/libnvpair/include1 #lib/libsolcompat/include')
 
 ccflags_kernel = ['-D_KERNEL']
 

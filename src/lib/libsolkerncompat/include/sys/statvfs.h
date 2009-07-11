@@ -31,7 +31,7 @@
 #ifndef _SYS_STATVFS_H
 #define	_SYS_STATVFS_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI"	 SVr4.0 1.10 */
 
 #include <sys/feature_tests.h>
 #include <sys/types.h>

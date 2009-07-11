@@ -25,6 +25,7 @@
 
 #include <sys/uio.h>
 #include <string.h>
+#include <sys/systm.h>
 
 /*
  * Move "n" bytes at byte address "p"; "rw" indicates the direction
@@ -59,4 +60,61 @@ uiomove(void *p, size_t n, enum uio_rw rw, struct uio *uio)
 		n -= cnt;
 	}
 	return (0);
+}
+
+/*
+ * same as uiomove() but doesn't modify uio structure.
+ * return in cbytes how many bytes were copied.
+ */
+int
+uiocopy(void *p, size_t n, enum uio_rw rw, struct uio *uio, size_t *cbytes)
+{
+	struct iovec *iov;
+	ulong_t cnt;
+	int iovcnt;
+
+	iovcnt = uio->uio_iovcnt;
+	*cbytes = 0;
+
+	for (iov = uio->uio_iov; n && iovcnt; iov++, iovcnt--) {
+		cnt = MIN(iov->iov_len, n);
+		if (cnt == 0)
+			continue;
+
+		if (rw == UIO_READ) {
+			 xcopyout(p, iov->iov_base, cnt);
+		} else {
+			 xcopyin(iov->iov_base, p, cnt);
+		}
+
+		p = (caddr_t)p + cnt;
+		n -= cnt;
+		*cbytes += cnt;
+	}
+	return (0);
+}
+
+/*
+ * Drop the next n chars out of *uiop.
+ */
+void
+uioskip(uio_t *uiop, size_t n)
+{
+	if (n > uiop->uio_resid)
+		return;
+	while (n != 0) {
+		register iovec_t	*iovp = uiop->uio_iov;
+		register size_t		niovb = MIN(iovp->iov_len, n);
+
+		if (niovb == 0) {
+			uiop->uio_iov++;
+			uiop->uio_iovcnt--;
+			continue;
+		}
+		iovp->iov_base += niovb;
+		uiop->uio_loffset += niovb;
+		iovp->iov_len -= niovb;
+		uiop->uio_resid -= niovb;
+		n -= niovb;
+	}
 }

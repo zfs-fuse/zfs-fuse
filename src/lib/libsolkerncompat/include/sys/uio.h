@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -38,8 +38,6 @@
 
 #ifndef _SOL_SYS_UIO_H
 #define _SOL_SYS_UIO_H
-
-
 
 #include <sys/feature_tests.h>
 
@@ -134,6 +132,7 @@ typedef struct uioa_s {
 	 * uioa extended members.
 	 */
 	uint32_t	uioa_state;	/* state of asynch i/o */
+	ssize_t		uioa_mbytes;	/* bytes that have been uioamove()ed */
 	uioa_page_t	*uioa_lcur;	/* pointer into uioa_locked[] */
 	void		**uioa_lppp;	/* pointer into lcur->uioa_ppp[] */
 	void		*uioa_hwst[4];	/* opaque hardware state */
@@ -198,7 +197,8 @@ typedef struct uioasync_s {
 #if	defined(_KERNEL)
 
 int	uiomove(void *, size_t, enum uio_rw, uio_t *);
-
+void	uio_prefaultpages(ssize_t, uio_t *);
+int	uiocopy(void *, size_t, enum uio_rw, uio_t *, size_t *);
 int	ureadc(int, uio_t *);	/* should be errno_t in future */
 int	uwritec(struct uio *);
 void	uioskip(uio_t *, size_t);

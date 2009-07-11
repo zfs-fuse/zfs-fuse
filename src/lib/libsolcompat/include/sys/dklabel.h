@@ -27,7 +27,7 @@
 #ifndef _SYS_DKLABEL_H
 #define	_SYS_DKLABEL_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #include <sys/isa_defs.h>
 #include <sys/types32.h>

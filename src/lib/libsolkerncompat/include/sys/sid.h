@@ -97,6 +97,9 @@ typedef struct credsid {
 	ksidlist_t	*kr_sidlist;		/* List of SIDS */
 } credsid_t;
 
+
+uid_t ksid_getid(ksid_t *ks);
+
 #if 0
 const char *ksid_getdomain(ksid_t *);
 uint_t ksid_getrid(ksid_t *);

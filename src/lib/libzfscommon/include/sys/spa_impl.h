@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef _SYS_SPA_IMPL_H
 #define	_SYS_SPA_IMPL_H
-
-
 
 #include <sys/spa.h>
 #include <sys/vdev.h>
@@ -72,7 +70,7 @@ struct spa_aux_vdev {
 typedef struct spa_config_lock {
 	kmutex_t	scl_lock;
 	kthread_t	*scl_writer;
-	uint16_t	scl_write_wanted;
+	int		scl_write_wanted;
 	kcondvar_t	scl_cv;
 	refcount_t	scl_count;
 } spa_config_lock_t;
@@ -89,24 +87,27 @@ typedef enum spa_log_state {
 	SPA_LOG_GOOD,		/* log(s) are good */
 } spa_log_state_t;
 
+enum zio_taskq_type {
+	ZIO_TASKQ_ISSUE = 0,
+	ZIO_TASKQ_INTERRUPT,
+	ZIO_TASKQ_TYPES
+};
+
 struct spa {
 	/*
 	 * Fields protected by spa_namespace_lock.
 	 */
-	char		*spa_name;		/* pool name */
+	char		spa_name[MAXNAMELEN];	/* pool name */
 	avl_node_t	spa_avl;		/* node in spa_namespace_avl */
 	nvlist_t	*spa_config;		/* last synced config */
 	nvlist_t	*spa_config_syncing;	/* currently syncing config */
 	uint64_t	spa_config_txg;		/* txg of last config change */
-	kmutex_t	spa_config_cache_lock;	/* for spa_config RW_READER */
 	int		spa_sync_pass;		/* iterate-to-convergence */
-	int		spa_state;		/* pool state */
+	pool_state_t	spa_state;		/* pool state */
 	int		spa_inject_ref;		/* injection references */
-	uint8_t		spa_traverse_wanted;	/* traverse lock wanted */
 	uint8_t		spa_sync_on;		/* sync threads are running */
 	spa_load_state_t spa_load_state;	/* current load operation */
-	taskq_t		*spa_zio_issue_taskq[ZIO_TYPES];
-	taskq_t		*spa_zio_intr_taskq[ZIO_TYPES];
+	taskq_t		*spa_zio_taskq[ZIO_TYPES][ZIO_TASKQ_TYPES];
 	dsl_pool_t	*spa_dsl_pool;
 	metaslab_class_t *spa_normal_class;	/* normal data class */
 	metaslab_class_t *spa_log_class;	/* intent log data class */
@@ -117,14 +118,14 @@ struct spa {
 	txg_list_t	spa_vdev_txg_list;	/* per-txg dirty vdev list */
 	vdev_t		*spa_root_vdev;		/* top-level vdev container */
 	uint64_t	spa_load_guid;		/* initial guid for spa_load */
-	list_t		spa_dirty_list;		/* vdevs with dirty labels */
+	list_t		spa_config_dirty_list;	/* vdevs with dirty config */
+	list_t		spa_state_dirty_list;	/* vdevs with dirty state */
 	spa_aux_vdev_t	spa_spares;		/* hot spares */
 	spa_aux_vdev_t	spa_l2cache;		/* L2ARC cache devices */
 	uint64_t	spa_config_object;	/* MOS object for pool config */
 	uint64_t	spa_syncing_txg;	/* txg currently syncing */
 	uint64_t	spa_sync_bplist_obj;	/* object for deferred frees */
 	bplist_t	spa_sync_bplist;	/* deferred-free bplist */
-	krwlock_t	spa_traverse_lock;	/* traverse vs. spa_sync() */
 	uberblock_t	spa_ubsync;		/* last synced uberblock */
 	uberblock_t	spa_uberblock;		/* current uberblock */
 	kmutex_t	spa_scrub_lock;		/* resilver/scrub lock */
@@ -143,7 +144,6 @@ struct spa {
 	kcondvar_t	spa_async_cv;		/* wait for thread_exit() */
 	uint16_t	spa_async_tasks;	/* async task mask */
 	char		*spa_root;		/* alternate root directory */
-	kmutex_t	spa_uberblock_lock;	/* vdev_uberblock_load_done() */
 	uint64_t	spa_ena;		/* spa-wide ereport ENA */
 	boolean_t	spa_last_open_failed;	/* true if last open faled */
 	kmutex_t	spa_errlog_lock;	/* error log lock */
@@ -159,16 +159,18 @@ struct spa {
 	kmutex_t	spa_props_lock;		/* property lock */
 	uint64_t	spa_pool_props_object;	/* object for properties */
 	uint64_t	spa_bootfs;		/* default boot filesystem */
-	boolean_t	spa_delegation;		/* delegation on/off */
-	list_t		spa_config_list;	/* previous cache file(s) */
-	list_t		spa_zio_list;		/* zio error list */
-	kcondvar_t	spa_zio_cv;		/* resume I/O pipeline */
-	kmutex_t	spa_zio_lock;		/* zio error lock */
-	uint8_t		spa_failmode;		/* failure mode for the pool */
+	uint64_t	spa_failmode;		/* failure mode for the pool */
 	struct zio_aio_ctx *spa_aio_ctx;	/* asynchronous I/O context */
-	boolean_t	spa_import_faulted;	/* allow faulted vdevs */
+	uint64_t	spa_delegation;		/* delegation on/off */
+	list_t		spa_config_list;	/* previous cache file(s) */
+	zio_t		*spa_async_zio_root;	/* root of all async I/O */
+	zio_t		*spa_suspend_zio_root;	/* root of all suspended I/O */
+	kmutex_t	spa_suspend_lock;	/* protects suspend_zio_root */
+	kcondvar_t	spa_suspend_cv;		/* notification of resume */
+	uint8_t		spa_suspended;		/* pool is suspended */
 	boolean_t	spa_is_root;		/* pool is root */
 	int		spa_minref;		/* num refs when first opened */
+	int		spa_mode;		/* FREAD | FWRITE */
 	spa_log_state_t spa_log_state;		/* log state */
 	/*
 	 * spa_refcnt & spa_config_lock must be the last elements
@@ -176,7 +178,7 @@ struct spa {
 	 * In order for the MDB module to function correctly, the other
 	 * fields must remain in the same location.
 	 */
-	spa_config_lock_t spa_config_lock;	/* configuration changes */
+	spa_config_lock_t spa_config_lock[SCL_LOCKS]; /* config changes */
 	refcount_t	spa_refcount;		/* number of opens */
 };
 

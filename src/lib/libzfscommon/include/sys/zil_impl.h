@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef	_SYS_ZIL_IMPL_H
 #define	_SYS_ZIL_IMPL_H
-
-
 
 #include <sys/zil.h>
 #include <sys/dmu_objset.h>
@@ -74,13 +72,14 @@ struct zilog {
 	uint64_t	zl_commit_seq;	/* committed upto this number */
 	uint64_t	zl_lr_seq;	/* log record sequence number */
 	uint64_t	zl_destroy_txg;	/* txg of last zil_destroy() */
-	uint64_t	zl_replay_seq[TXG_SIZE]; /* seq of last replayed rec */
+	uint64_t	zl_replayed_seq[TXG_SIZE]; /* last replayed rec seq */
+	uint64_t	zl_replaying_seq; /* current replay seq number */
 	uint32_t	zl_suspend;	/* log suspend count */
 	kcondvar_t	zl_cv_writer;	/* log writer thread completion */
 	kcondvar_t	zl_cv_suspend;	/* log suspend completion */
 	uint8_t		zl_suspending;	/* log is currently suspending */
 	uint8_t		zl_keep_first;	/* keep first log block in destroy */
-	uint8_t		zl_stop_replay;	/* don't replay any further */
+	uint8_t		zl_replay;	/* replaying records while set */
 	uint8_t		zl_stop_sync;	/* for debugging */
 	uint8_t		zl_writer;	/* boolean: write setup in progress */
 	uint8_t		zl_log_error;	/* boolean: log write error */
@@ -101,6 +100,9 @@ typedef struct zil_dva_node {
 	dva_t		zn_dva;
 	avl_node_t	zn_node;
 } zil_dva_node_t;
+
+#define	ZIL_MAX_LOG_DATA (SPA_MAXBLOCKSIZE - sizeof (zil_trailer_t) - \
+    sizeof (lr_write_t))
 
 #ifdef	__cplusplus
 }

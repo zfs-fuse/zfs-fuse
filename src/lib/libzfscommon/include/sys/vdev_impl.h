@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef _SYS_VDEV_IMPL_H
 #define	_SYS_VDEV_IMPL_H
-
-
 
 #include <sys/avl.h>
 #include <sys/dmu.h>
@@ -60,16 +58,14 @@ typedef struct vdev_cache_entry vdev_cache_entry_t;
  */
 typedef int	vdev_open_func_t(vdev_t *vd, uint64_t *size, uint64_t *ashift);
 typedef void	vdev_close_func_t(vdev_t *vd);
-typedef int	vdev_probe_func_t(vdev_t *vd);
 typedef uint64_t vdev_asize_func_t(vdev_t *vd, uint64_t psize);
 typedef int	vdev_io_start_func_t(zio_t *zio);
-typedef int	vdev_io_done_func_t(zio_t *zio);
+typedef void	vdev_io_done_func_t(zio_t *zio);
 typedef void	vdev_state_change_func_t(vdev_t *vd, int, int);
 
 typedef struct vdev_ops {
 	vdev_open_func_t		*vdev_op_open;
 	vdev_close_func_t		*vdev_op_close;
-	vdev_probe_func_t		*vdev_op_probe;
 	vdev_asize_func_t		*vdev_op_asize;
 	vdev_io_start_func_t		*vdev_op_io_start;
 	vdev_io_done_func_t		*vdev_op_io_done;
@@ -127,8 +123,7 @@ struct vdev {
 	vdev_t		*vdev_parent;	/* parent vdev			*/
 	vdev_t		**vdev_child;	/* array of children		*/
 	uint64_t	vdev_children;	/* number of children		*/
-	space_map_t	vdev_dtl_map;	/* dirty time log in-core state	*/
-	space_map_t	vdev_dtl_scrub;	/* DTL for scrub repair writes	*/
+	space_map_t	vdev_dtl[DTL_TYPES]; /* in-core dirty time logs	*/
 	vdev_stat_t	vdev_stat;	/* virtual device statistics	*/
 
 	/*
@@ -143,7 +138,9 @@ struct vdev {
 	txg_list_t	vdev_dtl_list;	/* per-txg dirty DTL lists	*/
 	txg_node_t	vdev_txg_node;	/* per-txg dirty vdev linkage	*/
 	boolean_t	vdev_remove_wanted; /* async remove wanted?	*/
-	list_node_t	vdev_dirty_node; /* config dirty list		*/
+	boolean_t	vdev_probe_wanted; /* async probe wanted?	*/
+	list_node_t	vdev_config_dirty_node; /* config dirty list	*/
+	list_node_t	vdev_state_dirty_node; /* state dirty list	*/
 	uint64_t	vdev_deflate_ratio; /* deflation ratio (x512)	*/
 	uint64_t	vdev_islog;	/* is an intent log device	*/
 
@@ -151,7 +148,7 @@ struct vdev {
 	 * Leaf vdev state.
 	 */
 	uint64_t	vdev_psize;	/* physical device capacity	*/
-	space_map_obj_t	vdev_dtl;	/* dirty time log on-disk state	*/
+	space_map_obj_t	vdev_dtl_smo;	/* dirty time log space map obj	*/
 	txg_node_t	vdev_dtl_node;	/* per-txg dirty DTL linkage	*/
 	uint64_t	vdev_wholedisk;	/* true if this is a whole disk */
 	uint64_t	vdev_offline;	/* persistent offline state	*/
@@ -162,23 +159,23 @@ struct vdev {
 	char		*vdev_path;	/* vdev path (if any)		*/
 	char		*vdev_devid;	/* vdev devid (if any)		*/
 	char		*vdev_physpath;	/* vdev device path (if any)	*/
-	uint64_t	vdev_fault_arg; /* fault injection paramater	*/
-	int		vdev_fault_mask; /* zio types to fault		*/
-	uint8_t		vdev_fault_mode; /* fault injection mode	*/
+	char		*vdev_fru;	/* physical FRU location	*/
+	uint64_t	vdev_not_present; /* not present during import	*/
+	uint64_t	vdev_unspare;	/* unspare when resilvering done */
+	hrtime_t	vdev_last_try;	/* last reopen time		*/
+	boolean_t	vdev_nowritecache; /* true if flushwritecache failed */
+	boolean_t	vdev_checkremove; /* temporary online test	*/
+	boolean_t	vdev_forcefault; /* force online fault		*/
 	uint8_t		vdev_tmpoffline; /* device taken offline temporarily? */
 	uint8_t		vdev_detached;	/* device detached?		*/
+	uint8_t		vdev_cant_read;	/* vdev is failing all reads	*/
+	uint8_t		vdev_cant_write; /* vdev is failing all writes	*/
 	uint64_t	vdev_isspare;	/* was a hot spare		*/
 	uint64_t	vdev_isl2cache;	/* was a l2cache device		*/
 	vdev_queue_t	vdev_queue;	/* I/O deadline schedule queue	*/
 	vdev_cache_t	vdev_cache;	/* physical block cache		*/
-	uint64_t	vdev_not_present; /* not present during import	*/
-	hrtime_t	vdev_last_try;	/* last reopen time		*/
-	boolean_t	vdev_nowritecache; /* true if flushwritecache failed */
-	uint64_t	vdev_unspare;	/* unspare when resilvering done */
-	boolean_t	vdev_checkremove; /* temporary online test	*/
-	boolean_t	vdev_forcefault; /* force online fault		*/
-	boolean_t	vdev_is_failing; /* device errors seen		*/
 	spa_aux_vdev_t	*vdev_aux;	/* for l2cache vdevs		*/
+	zio_t		*vdev_probe_zio; /* root of current probe	*/
 
 	/*
 	 * For DTrace to work in userland (libzpool) context, these fields must
@@ -189,10 +186,12 @@ struct vdev {
 	 */
 	kmutex_t	vdev_dtl_lock;	/* vdev_dtl_{map,resilver}	*/
 	kmutex_t	vdev_stat_lock;	/* vdev_stat			*/
+	kmutex_t	vdev_probe_lock; /* protects vdev_probe_zio	*/
 };
 
-#define	VDEV_SKIP_SIZE		(8 << 10)
-#define	VDEV_BOOT_HEADER_SIZE	(8 << 10)
+#define	VDEV_PAD_SIZE		(8 << 10)
+/* 2 padding areas (vl_pad1 and vl_pad2) to skip */
+#define	VDEV_SKIP_SIZE		VDEV_PAD_SIZE * 2
 #define	VDEV_PHYS_SIZE		(112 << 10)
 #define	VDEV_UBERBLOCK_RING	(128 << 10)
 
@@ -204,26 +203,14 @@ struct vdev {
 	offsetof(vdev_label_t, vl_uberblock[(n) << VDEV_UBERBLOCK_SHIFT(vd)])
 #define	VDEV_UBERBLOCK_SIZE(vd)		(1ULL << VDEV_UBERBLOCK_SHIFT(vd))
 
-/* ZFS boot block */
-#define	VDEV_BOOT_MAGIC		0x2f5b007b10cULL
-#define	VDEV_BOOT_VERSION	1		/* version number	*/
-
-typedef struct vdev_boot_header {
-	uint64_t	vb_magic;		/* VDEV_BOOT_MAGIC	*/
-	uint64_t	vb_version;		/* VDEV_BOOT_VERSION	*/
-	uint64_t	vb_offset;		/* start offset	(bytes) */
-	uint64_t	vb_size;		/* size (bytes)		*/
-	char		vb_pad[VDEV_BOOT_HEADER_SIZE - 4 * sizeof (uint64_t)];
-} vdev_boot_header_t;
-
 typedef struct vdev_phys {
 	char		vp_nvlist[VDEV_PHYS_SIZE - sizeof (zio_block_tail_t)];
 	zio_block_tail_t vp_zbt;
 } vdev_phys_t;
 
 typedef struct vdev_label {
-	char		vl_pad[VDEV_SKIP_SIZE];			/*   8K	*/
-	vdev_boot_header_t vl_boot_header;			/*   8K	*/
+	char		vl_pad1[VDEV_PAD_SIZE];			/*  8K */
+	char		vl_pad2[VDEV_PAD_SIZE];			/*  8K */
 	vdev_phys_t	vl_vdev_phys;				/* 112K	*/
 	char		vl_uberblock[VDEV_UBERBLOCK_RING];	/* 128K	*/
 } vdev_label_t;							/* 256K total */
@@ -272,6 +259,7 @@ extern void vdev_remove_parent(vdev_t *cvd);
 /*
  * vdev sync load and sync
  */
+extern void vdev_load_log_state(vdev_t *vd, nvlist_t *nv);
 extern void vdev_load(vdev_t *vd);
 extern void vdev_sync(vdev_t *vd, uint64_t txg);
 extern void vdev_sync_done(vdev_t *vd, uint64_t txg);

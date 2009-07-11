@@ -19,14 +19,14 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef _SYS_DKIO_H
 #define	_SYS_DKIO_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI"	 SunOS-4.0 5.19 */
 
 #include <sys/dklabel.h>	/* Needed for NDKMAP define */
 
@@ -191,13 +191,7 @@ struct dk_geom {
 struct dk_callback {
 	void (*dkc_callback)(void *dkc_cookie, int error);
 	void *dkc_cookie;
-	int dkc_flag;
 };
-
-/* bit flag definitions for dkc_flag */
-#define	FLUSH_VOLATILE		0x1	/* Bit 0: if set, only flush */
-					/* volatile cache; otherwise, flush */
-					/* volatile and non-volatile cache */
 
 #define	DKIOCGETWCE		(DKIOC|36)	/* Get current write cache */
 						/* enablement status */
@@ -357,9 +351,6 @@ struct dk_minfo {
 #define	DKIOCGETVOLCAP	(DKIOC | 25)	/* Get volume capabilities */
 #define	DKIOCSETVOLCAP	(DKIOC | 26)	/* Set volume capabilities */
 #define	DKIOCDMR	(DKIOC | 27)	/* Issue a directed read */
-
-#define	DKIOCDUMPINIT	(DKIOC | 28)	/* Dumpify a zvol */
-#define	DKIOCDUMPFINI	(DKIOC | 29)	/* Un-Dumpify a zvol */
 
 typedef uint_t volcapinfo_t;
 

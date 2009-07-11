@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef _SYS_SPA_H
 #define	_SYS_SPA_H
-
-
 
 #include <sys/avl.h>
 #include <sys/zfs_context.h>
@@ -46,7 +44,6 @@ typedef struct spa spa_t;
 typedef struct vdev vdev_t;
 typedef struct metaslab metaslab_t;
 typedef struct zilog zilog_t;
-typedef struct traverse_handle traverse_handle_t;
 typedef struct spa_aux_vdev spa_aux_vdev_t;
 struct dsl_pool;
 
@@ -87,6 +84,11 @@ struct dsl_pool;
 #define	SPA_MAXBLOCKSIZE	(1ULL << SPA_MAXBLOCKSHIFT)
 
 #define	SPA_BLOCKSIZES		(SPA_MAXBLOCKSHIFT - SPA_MINBLOCKSHIFT + 1)
+
+/*
+ * Size of block to hold the configuration data (a packed nvlist)
+ */
+#define	SPA_CONFIG_BLOCKSIZE	(1 << 14)
 
 /*
  * The DVA size encodings for LSIZE and PSIZE support blocks up to 32MB.
@@ -259,7 +261,6 @@ typedef struct blkptr {
 	((zc1).zc_word[2] - (zc2).zc_word[2]) | \
 	((zc1).zc_word[3] - (zc2).zc_word[3])))
 
-
 #define	DVA_IS_VALID(dva)	(DVA_GET_ASIZE(dva) != 0)
 
 #define	ZIO_SET_CHECKSUM(zcp, w0, w1, w2, w3)	\
@@ -275,7 +276,7 @@ typedef struct blkptr {
 #define	BP_IS_HOLE(bp)		((bp)->blk_birth == 0)
 #define	BP_IS_OLDER(bp, txg)	(!BP_IS_HOLE(bp) && (bp)->blk_birth < (txg))
 
-#define	BP_ZERO_DVAS(bp)			\
+#define	BP_ZERO(bp)				\
 {						\
 	(bp)->blk_dva[0].dva_word[0] = 0;	\
 	(bp)->blk_dva[0].dva_word[1] = 0;	\
@@ -283,19 +284,16 @@ typedef struct blkptr {
 	(bp)->blk_dva[1].dva_word[1] = 0;	\
 	(bp)->blk_dva[2].dva_word[0] = 0;	\
 	(bp)->blk_dva[2].dva_word[1] = 0;	\
-	(bp)->blk_birth = 0;			\
-}
-
-#define	BP_ZERO(bp)				\
-{						\
-	BP_ZERO_DVAS(bp)			\
 	(bp)->blk_prop = 0;			\
 	(bp)->blk_pad[0] = 0;			\
 	(bp)->blk_pad[1] = 0;			\
 	(bp)->blk_pad[2] = 0;			\
+	(bp)->blk_birth = 0;			\
 	(bp)->blk_fill = 0;			\
 	ZIO_SET_CHECKSUM(&(bp)->blk_cksum, 0, 0, 0, 0);	\
 }
+
+#define	BLK_FILL_ALREADY_FREED	(-1ULL)
 
 /*
  * Note: the byteorder is either 0 or -1, both of which are palindromes.
@@ -331,10 +329,11 @@ extern int spa_check_rootconf(char *devpath, char *devid,
 extern boolean_t spa_rootdev_validate(nvlist_t *nv);
 extern int spa_import_rootpool(char *devpath, char *devid);
 extern int spa_import(const char *pool, nvlist_t *config, nvlist_t *props);
-extern int spa_import_faulted(const char *, nvlist_t *, nvlist_t *);
+extern int spa_import_verbatim(const char *, nvlist_t *, nvlist_t *);
 extern nvlist_t *spa_tryimport(nvlist_t *tryconfig);
 extern int spa_destroy(char *pool);
-extern int spa_export(char *pool, nvlist_t **oldconfig, boolean_t force);
+extern int spa_export(char *pool, nvlist_t **oldconfig, boolean_t force,
+    boolean_t hardforce);
 extern int spa_reset(char *pool);
 extern void spa_async_request(spa_t *spa, int flag);
 extern void spa_async_unrequest(spa_t *spa, int flag);
@@ -343,18 +342,21 @@ extern void spa_async_resume(spa_t *spa);
 extern spa_t *spa_inject_addref(char *pool);
 extern void spa_inject_delref(spa_t *spa);
 
-#define	SPA_ASYNC_REMOVE	0x01
-#define	SPA_ASYNC_RESILVER_DONE	0x02
-#define	SPA_ASYNC_RESILVER	0x08
-#define	SPA_ASYNC_CONFIG_UPDATE	0x10
+#define	SPA_ASYNC_CONFIG_UPDATE	0x01
+#define	SPA_ASYNC_REMOVE	0x02
+#define	SPA_ASYNC_PROBE		0x04
+#define	SPA_ASYNC_RESILVER_DONE	0x08
+#define	SPA_ASYNC_RESILVER	0x10
 
 /* device manipulation */
 extern int spa_vdev_add(spa_t *spa, nvlist_t *nvroot);
 extern int spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot,
     int replacing);
-extern int spa_vdev_detach(spa_t *spa, uint64_t guid, int replace_done);
+extern int spa_vdev_detach(spa_t *spa, uint64_t guid, uint64_t pguid,
+    int replace_done);
 extern int spa_vdev_remove(spa_t *spa, uint64_t guid, boolean_t unspare);
 extern int spa_vdev_setpath(spa_t *spa, uint64_t guid, const char *newpath);
+extern int spa_vdev_setfru(spa_t *spa, uint64_t guid, const char *newfru);
 
 /* spare state (which is global across all pools) */
 extern void spa_spare_add(vdev_t *vd);
@@ -411,18 +413,33 @@ extern void spa_open_ref(spa_t *spa, void *tag);
 extern void spa_close(spa_t *spa, void *tag);
 extern boolean_t spa_refcount_zero(spa_t *spa);
 
-/* Pool configuration lock */
-extern void spa_config_enter(spa_t *spa, krw_t rw, void *tag);
-extern void spa_config_exit(spa_t *spa, void *tag);
-extern boolean_t spa_config_held(spa_t *spa, krw_t rw);
+#define	SCL_CONFIG	0x01
+#define	SCL_STATE	0x02
+#define	SCL_L2ARC	0x04		/* hack until L2ARC 2.0 */
+#define	SCL_ALLOC	0x08
+#define	SCL_ZIO		0x10
+#define	SCL_FREE	0x20
+#define	SCL_VDEV	0x40
+#define	SCL_LOCKS	7
+#define	SCL_ALL		((1 << SCL_LOCKS) - 1)
+#define	SCL_STATE_ALL	(SCL_STATE | SCL_L2ARC | SCL_ZIO)
+
+/* Pool configuration locks */
+extern int spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw);
+extern void spa_config_enter(spa_t *spa, int locks, void *tag, krw_t rw);
+extern void spa_config_exit(spa_t *spa, int locks, void *tag);
+extern int spa_config_held(spa_t *spa, int locks, krw_t rw);
 
 /* Pool vdev add/remove lock */
 extern uint64_t spa_vdev_enter(spa_t *spa);
 extern int spa_vdev_exit(spa_t *spa, vdev_t *vd, uint64_t txg, int error);
 
+/* Pool vdev state change lock */
+extern void spa_vdev_state_enter(spa_t *spa);
+extern int spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error);
+
 /* Accessor functions */
-extern krwlock_t *spa_traverse_rwlock(spa_t *spa);
-extern boolean_t spa_traverse_wanted(spa_t *spa);
+extern boolean_t spa_shutting_down(spa_t *spa);
 extern struct dsl_pool *spa_get_dsl(spa_t *spa);
 extern blkptr_t *spa_get_rootblkptr(spa_t *spa);
 extern void spa_set_rootblkptr(spa_t *spa, const blkptr_t *bp);
@@ -433,7 +450,7 @@ extern uint64_t spa_guid(spa_t *spa);
 extern uint64_t spa_last_synced_txg(spa_t *spa);
 extern uint64_t spa_first_txg(spa_t *spa);
 extern uint64_t spa_version(spa_t *spa);
-extern int spa_state(spa_t *spa);
+extern pool_state_t spa_state(spa_t *spa);
 extern uint64_t spa_freeze_txg(spa_t *spa);
 extern uint64_t spa_get_alloc(spa_t *spa);
 extern uint64_t spa_get_space(spa_t *spa);
@@ -443,6 +460,7 @@ extern uint64_t spa_version(spa_t *spa);
 extern int spa_max_replication(spa_t *spa);
 extern int spa_busy(void);
 extern uint8_t spa_get_failmode(spa_t *spa);
+extern boolean_t spa_suspended(spa_t *spa);
 
 /* Miscellaneous support routines */
 extern int spa_rename(const char *oldname, const char *newname);
@@ -460,6 +478,8 @@ extern boolean_t spa_has_spare(spa_t *, uint64_t guid);
 extern uint64_t bp_get_dasize(spa_t *spa, const blkptr_t *bp);
 extern boolean_t spa_has_slogs(spa_t *spa);
 extern boolean_t spa_is_root(spa_t *spa);
+extern boolean_t spa_writeable(spa_t *spa);
+extern int spa_mode(spa_t *spa);
 
 /* history logging */
 typedef enum history_log_type {
@@ -513,6 +533,7 @@ extern void spa_boot_init();
 extern int spa_prop_set(spa_t *spa, nvlist_t *nvp);
 extern int spa_prop_get(spa_t *spa, nvlist_t **nvp);
 extern void spa_prop_clear_bootfs(spa_t *spa, uint64_t obj, dmu_tx_t *tx);
+extern void spa_configfile_set(spa_t *, nvlist_t *, boolean_t);
 
 /* asynchronous event notification */
 extern void spa_event_notify(spa_t *spa, vdev_t *vdev, const char *name);
@@ -530,7 +551,7 @@ _NOTE(CONSTCOND) } while (0)
 #define	dprintf_bp(bp, fmt, ...)
 #endif
 
-extern int spa_mode;			/* mode, e.g. FREAD | FWRITE */
+extern int spa_mode_global;			/* mode, e.g. FREAD | FWRITE */
 
 #ifdef	__cplusplus
 }

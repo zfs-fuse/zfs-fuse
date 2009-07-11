@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -39,6 +39,7 @@
 #include <sys/zap.h>
 #include <sys/fs/zfs.h>
 #include <sys/arc.h>
+#include <sys/zil.h>
 
 /*
  * Virtual device management.
@@ -135,7 +136,7 @@ vdev_lookup_top(spa_t *spa, uint64_t vdev)
 {
 	vdev_t *rvd = spa->spa_root_vdev;
 
-	ASSERT(spa_config_held(spa, RW_READER));
+	ASSERT(spa_config_held(spa, SCL_ALL, RW_READER) != 0);
 
 	if (vdev < rvd->vdev_children) {
 		ASSERT(rvd->vdev_child[vdev] != NULL);
@@ -169,7 +170,7 @@ vdev_add_child(vdev_t *pvd, vdev_t *cvd)
 	uint64_t id = cvd->vdev_id;
 	vdev_t **newchild;
 
-	ASSERT(spa_config_held(cvd->vdev_spa, RW_WRITER));
+	ASSERT(spa_config_held(cvd->vdev_spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 	ASSERT(cvd->vdev_parent == NULL);
 
 	cvd->vdev_parent = pvd;
@@ -252,7 +253,7 @@ vdev_compact_children(vdev_t *pvd)
 	int oldc = pvd->vdev_children;
 	int newc, c;
 
-	ASSERT(spa_config_held(pvd->vdev_spa, RW_WRITER));
+	ASSERT(spa_config_held(pvd->vdev_spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
 	for (c = newc = 0; c < oldc; c++)
 		if (pvd->vdev_child[c])
@@ -315,8 +316,11 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 
 	mutex_init(&vd->vdev_dtl_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&vd->vdev_stat_lock, NULL, MUTEX_DEFAULT, NULL);
-	space_map_create(&vd->vdev_dtl_map, 0, -1ULL, 0, &vd->vdev_dtl_lock);
-	space_map_create(&vd->vdev_dtl_scrub, 0, -1ULL, 0, &vd->vdev_dtl_lock);
+	mutex_init(&vd->vdev_probe_lock, NULL, MUTEX_DEFAULT, NULL);
+	for (int t = 0; t < DTL_TYPES; t++) {
+		space_map_create(&vd->vdev_dtl[t], 0, -1ULL, 0,
+		    &vd->vdev_dtl_lock);
+	}
 	txg_list_create(&vd->vdev_ms_list,
 	    offsetof(struct metaslab, ms_txg_node));
 	txg_list_create(&vd->vdev_dtl_list,
@@ -342,7 +346,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	uint64_t guid = 0, islog, nparity;
 	vdev_t *vd;
 
-	ASSERT(spa_config_held(spa, RW_WRITER));
+	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
 	if (nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type) != 0)
 		return (EINVAL);
@@ -432,6 +436,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	if (nvlist_lookup_string(nv, ZPOOL_CONFIG_PHYS_PATH,
 	    &vd->vdev_physpath) == 0)
 		vd->vdev_physpath = spa_strdup(vd->vdev_physpath);
+	if (nvlist_lookup_string(nv, ZPOOL_CONFIG_FRU, &vd->vdev_fru) == 0)
+		vd->vdev_fru = spa_strdup(vd->vdev_fru);
 
 	/*
 	 * Set the whole_disk property.  If it's not specified, leave the value
@@ -445,9 +451,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	 * Look for the 'not present' flag.  This will only be set if the device
 	 * was not present at the time of import.
 	 */
-	if (!spa->spa_import_faulted)
-		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NOT_PRESENT,
-		    &vd->vdev_not_present);
+	(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NOT_PRESENT,
+	    &vd->vdev_not_present);
 
 	/*
 	 * Get the alignment requirement.
@@ -473,7 +478,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	    (alloctype == VDEV_ALLOC_LOAD || alloctype == VDEV_ALLOC_L2CACHE)) {
 		if (alloctype == VDEV_ALLOC_LOAD) {
 			(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_DTL,
-			    &vd->vdev_dtl.smo_object);
+			    &vd->vdev_dtl_smo.smo_object);
 			(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_UNSPARE,
 			    &vd->vdev_unspare);
 		}
@@ -517,8 +522,7 @@ vdev_free(vdev_t *vd)
 	 */
 	vdev_close(vd);
 
-
-	ASSERT(!list_link_active(&vd->vdev_dirty_node));
+	ASSERT(!list_link_active(&vd->vdev_config_dirty_node));
 
 	/*
 	 * Free all children.
@@ -558,6 +562,8 @@ vdev_free(vdev_t *vd)
 		spa_strfree(vd->vdev_devid);
 	if (vd->vdev_physpath)
 		spa_strfree(vd->vdev_physpath);
+	if (vd->vdev_fru)
+		spa_strfree(vd->vdev_fru);
 
 	if (vd->vdev_isspare)
 		spa_spare_remove(vd);
@@ -566,14 +572,17 @@ vdev_free(vdev_t *vd)
 
 	txg_list_destroy(&vd->vdev_ms_list);
 	txg_list_destroy(&vd->vdev_dtl_list);
+
 	mutex_enter(&vd->vdev_dtl_lock);
-	space_map_unload(&vd->vdev_dtl_map);
-	space_map_destroy(&vd->vdev_dtl_map);
-	space_map_vacate(&vd->vdev_dtl_scrub, NULL, NULL);
-	space_map_destroy(&vd->vdev_dtl_scrub);
+	for (int t = 0; t < DTL_TYPES; t++) {
+		space_map_unload(&vd->vdev_dtl[t]);
+		space_map_destroy(&vd->vdev_dtl[t]);
+	}
 	mutex_exit(&vd->vdev_dtl_lock);
+
 	mutex_destroy(&vd->vdev_dtl_lock);
 	mutex_destroy(&vd->vdev_stat_lock);
+	mutex_destroy(&vd->vdev_probe_lock);
 
 	if (vd == spa->spa_root_vdev)
 		spa->spa_root_vdev = NULL;
@@ -628,9 +637,14 @@ vdev_top_transfer(vdev_t *svd, vdev_t *tvd)
 			(void) txg_list_add(&spa->spa_vdev_txg_list, tvd, t);
 	}
 
-	if (list_link_active(&svd->vdev_dirty_node)) {
+	if (list_link_active(&svd->vdev_config_dirty_node)) {
 		vdev_config_clean(svd);
 		vdev_config_dirty(tvd);
+	}
+
+	if (list_link_active(&svd->vdev_state_dirty_node)) {
+		vdev_state_clean(svd);
+		vdev_state_dirty(tvd);
 	}
 
 	tvd->vdev_deflate_ratio = svd->vdev_deflate_ratio;
@@ -664,7 +678,7 @@ vdev_add_parent(vdev_t *cvd, vdev_ops_t *ops)
 	vdev_t *pvd = cvd->vdev_parent;
 	vdev_t *mvd;
 
-	ASSERT(spa_config_held(spa, RW_WRITER));
+	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
 	mvd = vdev_alloc_common(spa, cvd->vdev_id, 0, ops);
 
@@ -693,7 +707,7 @@ vdev_remove_parent(vdev_t *cvd)
 	vdev_t *mvd = cvd->vdev_parent;
 	vdev_t *pvd = mvd->vdev_parent;
 
-	ASSERT(spa_config_held(cvd->vdev_spa, RW_WRITER));
+	ASSERT(spa_config_held(cvd->vdev_spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
 	ASSERT(mvd->vdev_children == 1);
 	ASSERT(mvd->vdev_ops == &vdev_mirror_ops ||
@@ -703,22 +717,20 @@ vdev_remove_parent(vdev_t *cvd)
 
 	vdev_remove_child(mvd, cvd);
 	vdev_remove_child(pvd, mvd);
+
+	/*
+	 * If cvd will replace mvd as a top-level vdev, preserve mvd's guid.
+	 * Otherwise, we could have detached an offline device, and when we
+	 * go to import the pool we'll think we have two top-level vdevs,
+	 * instead of a different version of the same top-level vdev.
+	 */
+	if (mvd->vdev_top == mvd) {
+		uint64_t guid_delta = mvd->vdev_guid - cvd->vdev_guid;
+		cvd->vdev_guid += guid_delta;
+		cvd->vdev_guid_sum += guid_delta;
+	}
 	cvd->vdev_id = mvd->vdev_id;
 	vdev_add_child(pvd, cvd);
-	/*
-	 * If we created a new toplevel vdev, then we need to change the child's
-	 * vdev GUID to match the old toplevel vdev.  Otherwise, we could have
-	 * detached an offline device, and when we go to import the pool we'll
-	 * think we have two toplevel vdevs, instead of a different version of
-	 * the same toplevel vdev.
-	 */
-	if (cvd->vdev_top == cvd) {
-		pvd->vdev_guid_sum -= cvd->vdev_guid;
-		cvd->vdev_guid_sum -= cvd->vdev_guid;
-		cvd->vdev_guid = mvd->vdev_guid;
-		cvd->vdev_guid_sum += mvd->vdev_guid;
-		pvd->vdev_guid_sum += cvd->vdev_guid;
-	}
 	vdev_top_update(cvd->vdev_top, cvd->vdev_top);
 
 	if (cvd == cvd->vdev_top)
@@ -743,7 +755,14 @@ vdev_metaslab_init(vdev_t *vd, uint64_t txg)
 	if (vd->vdev_ms_shift == 0)	/* not being allocated from yet */
 		return (0);
 
-	dprintf("%s oldc %llu newc %llu\n", vdev_description(vd), oldc, newc);
+	/*
+	 * Compute the raidz-deflation ratio.  Note, we hard-code
+	 * in 128k (1 << 17) because it is the current "typical" blocksize.
+	 * Even if SPA_MAXBLOCKSIZE changes, this algorithm must never change,
+	 * or we will inconsistently account for existing bp's.
+	 */
+	vd->vdev_deflate_ratio = (1 << 17) /
+	    (vdev_psize_to_asize(vd, 1 << 17) >> SPA_MINBLOCKSHIFT);
 
 	ASSERT(oldc <= newc);
 
@@ -770,7 +789,8 @@ vdev_metaslab_init(vdev_t *vd, uint64_t txg)
 		if (txg == 0) {
 			uint64_t object = 0;
 			error = dmu_read(mos, vd->vdev_ms_array,
-			    m * sizeof (uint64_t), sizeof (uint64_t), &object);
+			    m * sizeof (uint64_t), sizeof (uint64_t), &object,
+			    DMU_READ_PREFETCH);
 			if (error)
 				return (error);
 			if (object != 0) {
@@ -806,19 +826,155 @@ vdev_metaslab_fini(vdev_t *vd)
 	}
 }
 
-int
-vdev_probe(vdev_t *vd)
+typedef struct vdev_probe_stats {
+	boolean_t	vps_readable;
+	boolean_t	vps_writeable;
+	int		vps_flags;
+} vdev_probe_stats_t;
+
+static void
+vdev_probe_done(zio_t *zio)
 {
-	if (vd == NULL)
-		return (EINVAL);
+	spa_t *spa = zio->io_spa;
+	vdev_t *vd = zio->io_vd;
+	vdev_probe_stats_t *vps = zio->io_private;
+
+	ASSERT(vd->vdev_probe_zio != NULL);
+
+	if (zio->io_type == ZIO_TYPE_READ) {
+		if (zio->io_error == 0)
+			vps->vps_readable = 1;
+		if (zio->io_error == 0 && spa_writeable(spa)) {
+			zio_nowait(zio_write_phys(vd->vdev_probe_zio, vd,
+			    zio->io_offset, zio->io_size, zio->io_data,
+			    ZIO_CHECKSUM_OFF, vdev_probe_done, vps,
+			    ZIO_PRIORITY_SYNC_WRITE, vps->vps_flags, B_TRUE));
+		} else {
+			zio_buf_free(zio->io_data, zio->io_size);
+		}
+	} else if (zio->io_type == ZIO_TYPE_WRITE) {
+		if (zio->io_error == 0)
+			vps->vps_writeable = 1;
+		zio_buf_free(zio->io_data, zio->io_size);
+	} else if (zio->io_type == ZIO_TYPE_NULL) {
+		zio_t *pio;
+
+		vd->vdev_cant_read |= !vps->vps_readable;
+		vd->vdev_cant_write |= !vps->vps_writeable;
+
+		if (vdev_readable(vd) &&
+		    (vdev_writeable(vd) || !spa_writeable(spa))) {
+			zio->io_error = 0;
+		} else {
+			ASSERT(zio->io_error != 0);
+			zfs_ereport_post(FM_EREPORT_ZFS_PROBE_FAILURE,
+			    spa, vd, NULL, 0, 0);
+			zio->io_error = ENXIO;
+		}
+
+		mutex_enter(&vd->vdev_probe_lock);
+		ASSERT(vd->vdev_probe_zio == zio);
+		vd->vdev_probe_zio = NULL;
+		mutex_exit(&vd->vdev_probe_lock);
+
+		while ((pio = zio_walk_parents(zio)) != NULL)
+			if (!vdev_accessible(vd, pio))
+				pio->io_error = ENXIO;
+
+		kmem_free(vps, sizeof (*vps));
+	}
+}
+
+/*
+ * Determine whether this device is accessible by reading and writing
+ * to several known locations: the pad regions of each vdev label
+ * but the first (which we leave alone in case it contains a VTOC).
+ */
+zio_t *
+vdev_probe(vdev_t *vd, zio_t *zio)
+{
+	spa_t *spa = vd->vdev_spa;
+	vdev_probe_stats_t *vps = NULL;
+	zio_t *pio;
+
+	ASSERT(vd->vdev_ops->vdev_op_leaf);
 
 	/*
-	 * Right now we only support status checks on the leaf vdevs.
+	 * Don't probe the probe.
 	 */
-	if (vd->vdev_ops->vdev_op_leaf)
-		return (vd->vdev_ops->vdev_op_probe(vd));
+	if (zio && (zio->io_flags & ZIO_FLAG_PROBE))
+		return (NULL);
 
-	return (0);
+	/*
+	 * To prevent 'probe storms' when a device fails, we create
+	 * just one probe i/o at a time.  All zios that want to probe
+	 * this vdev will become parents of the probe io.
+	 */
+	mutex_enter(&vd->vdev_probe_lock);
+
+	if ((pio = vd->vdev_probe_zio) == NULL) {
+		vps = kmem_zalloc(sizeof (*vps), KM_SLEEP);
+
+		vps->vps_flags = ZIO_FLAG_CANFAIL | ZIO_FLAG_PROBE |
+		    ZIO_FLAG_DONT_CACHE | ZIO_FLAG_DONT_AGGREGATE |
+		    ZIO_FLAG_TRYHARD;
+
+		if (spa_config_held(spa, SCL_ZIO, RW_WRITER)) {
+			/*
+			 * vdev_cant_read and vdev_cant_write can only
+			 * transition from TRUE to FALSE when we have the
+			 * SCL_ZIO lock as writer; otherwise they can only
+			 * transition from FALSE to TRUE.  This ensures that
+			 * any zio looking at these values can assume that
+			 * failures persist for the life of the I/O.  That's
+			 * important because when a device has intermittent
+			 * connectivity problems, we want to ensure that
+			 * they're ascribed to the device (ENXIO) and not
+			 * the zio (EIO).
+			 *
+			 * Since we hold SCL_ZIO as writer here, clear both
+			 * values so the probe can reevaluate from first
+			 * principles.
+			 */
+			vps->vps_flags |= ZIO_FLAG_CONFIG_WRITER;
+			vd->vdev_cant_read = B_FALSE;
+			vd->vdev_cant_write = B_FALSE;
+		}
+
+		vd->vdev_probe_zio = pio = zio_null(NULL, spa, vd,
+		    vdev_probe_done, vps,
+		    vps->vps_flags | ZIO_FLAG_DONT_PROPAGATE);
+
+		if (zio != NULL) {
+			vd->vdev_probe_wanted = B_TRUE;
+			spa_async_request(spa, SPA_ASYNC_PROBE);
+		}
+	}
+
+	if (zio != NULL)
+		zio_add_child(zio, pio);
+
+	mutex_exit(&vd->vdev_probe_lock);
+
+	if (vps == NULL) {
+		ASSERT(zio != NULL);
+		return (NULL);
+	}
+
+	for (int l = 1; l < VDEV_LABELS; l++) {
+		zio_nowait(zio_read_phys(pio, vd,
+		    vdev_label_offset(vd->vdev_psize, l,
+		    offsetof(vdev_label_t, vl_pad2)),
+		    VDEV_PAD_SIZE, zio_buf_alloc(VDEV_PAD_SIZE),
+		    ZIO_CHECKSUM_OFF, vdev_probe_done, vps,
+		    ZIO_PRIORITY_SYNC_READ, vps->vps_flags, B_TRUE));
+	}
+
+	if (zio == NULL)
+		return (pio);
+
+	zio_nowait(pio);
+	return (NULL);
 }
 
 /*
@@ -827,22 +983,22 @@ vdev_probe(vdev_t *vd)
 int
 vdev_open(vdev_t *vd)
 {
+	spa_t *spa = vd->vdev_spa;
 	int error;
 	int c;
 	uint64_t osize = 0;
 	uint64_t asize, psize;
 	uint64_t ashift = 0;
 
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+
 	ASSERT(vd->vdev_state == VDEV_STATE_CLOSED ||
 	    vd->vdev_state == VDEV_STATE_CANT_OPEN ||
 	    vd->vdev_state == VDEV_STATE_OFFLINE);
 
-	if (vd->vdev_fault_mode == VDEV_FAULT_COUNT)
-		vd->vdev_fault_arg >>= 1;
-	else
-		vd->vdev_fault_mode = VDEV_FAULT_NONE;
-
 	vd->vdev_stat.vs_aux = VDEV_AUX_NONE;
+	vd->vdev_cant_read = B_FALSE;
+	vd->vdev_cant_write = B_FALSE;
 
 	if (!vd->vdev_removed && vd->vdev_faulted) {
 		ASSERT(vd->vdev_children == 0);
@@ -859,7 +1015,7 @@ vdev_open(vdev_t *vd)
 	error = vd->vdev_ops->vdev_op_open(vd, &osize, &ashift);
 
 	if (zio_injection_enabled && error == 0)
-		error = zio_handle_device_injection(vd, ENXIO);
+		error = zio_handle_device_injection(vd, NULL, ENXIO);
 
 	if (error) {
 		if (vd->vdev_removed &&
@@ -951,37 +1107,21 @@ vdev_open(vdev_t *vd)
 	 * Ensure we can issue some IO before declaring the
 	 * vdev open for business.
 	 */
-	error = vdev_probe(vd);
-	if (error) {
+	if (vd->vdev_ops->vdev_op_leaf &&
+	    (error = zio_wait(vdev_probe(vd, NULL))) != 0) {
 		vdev_set_state(vd, B_TRUE, VDEV_STATE_CANT_OPEN,
-		    VDEV_AUX_OPEN_FAILED);
+		    VDEV_AUX_IO_FAILURE);
 		return (error);
 	}
 
 	/*
-	 * If this is a top-level vdev, compute the raidz-deflation
-	 * ratio.  Note, we hard-code in 128k (1<<17) because it is the
-	 * current "typical" blocksize.  Even if SPA_MAXBLOCKSIZE
-	 * changes, this algorithm must never change, or we will
-	 * inconsistently account for existing bp's.
-	 */
-	if (vd->vdev_top == vd) {
-		vd->vdev_deflate_ratio = (1<<17) /
-		    (vdev_psize_to_asize(vd, 1<<17) >> SPA_MINBLOCKSHIFT);
-	}
-
-	/*
 	 * If a leaf vdev has a DTL, and seems healthy, then kick off a
-	 * resilver.  But don't do this if we are doing a reopen for a
-	 * scrub, since this would just restart the scrub we are already
-	 * doing.
+	 * resilver.  But don't do this if we are doing a reopen for a scrub,
+	 * since this would just restart the scrub we are already doing.
 	 */
-	if (vd->vdev_children == 0 && !vd->vdev_spa->spa_scrub_reopen) {
-		mutex_enter(&vd->vdev_dtl_lock);
-		if (vd->vdev_dtl_map.sm_space != 0 && vdev_writeable(vd))
-			spa_async_request(vd->vdev_spa, SPA_ASYNC_RESILVER);
-		mutex_exit(&vd->vdev_dtl_lock);
-	}
+	if (vd->vdev_ops->vdev_op_leaf && !spa->spa_scrub_reopen &&
+	    vdev_resilver_needed(vd, NULL, NULL))
+		spa_async_request(spa, SPA_ASYNC_RESILVER);
 
 	return (0);
 }
@@ -1002,7 +1142,7 @@ vdev_validate(vdev_t *vd)
 	spa_t *spa = vd->vdev_spa;
 	int c;
 	nvlist_t *label;
-	uint64_t guid;
+	uint64_t guid, top_guid;
 	uint64_t state;
 
 	for (c = 0; c < vd->vdev_children; c++)
@@ -1014,7 +1154,7 @@ vdev_validate(vdev_t *vd)
 	 * any further validation.  Otherwise, label I/O will fail and we will
 	 * overwrite the previous state.
 	 */
-	if (vd->vdev_ops->vdev_op_leaf && !vdev_is_dead(vd)) {
+	if (vd->vdev_ops->vdev_op_leaf && vdev_readable(vd)) {
 
 		if ((label = vdev_label_read_config(vd)) == NULL) {
 			vdev_set_state(vd, B_TRUE, VDEV_STATE_CANT_OPEN,
@@ -1030,8 +1170,20 @@ vdev_validate(vdev_t *vd)
 			return (0);
 		}
 
+		/*
+		 * If this vdev just became a top-level vdev because its
+		 * sibling was detached, it will have adopted the parent's
+		 * vdev guid -- but the label may or may not be on disk yet.
+		 * Fortunately, either version of the label will have the
+		 * same top guid, so if we're a top-level vdev, we can
+		 * safely compare to that instead.
+		 */
 		if (nvlist_lookup_uint64(label, ZPOOL_CONFIG_GUID,
-		    &guid) != 0 || guid != vd->vdev_guid) {
+		    &guid) != 0 ||
+		    nvlist_lookup_uint64(label, ZPOOL_CONFIG_TOP_GUID,
+		    &top_guid) != 0 ||
+		    (vd->vdev_guid != guid &&
+		    (vd->vdev_guid != top_guid || vd != vd->vdev_top))) {
 			vdev_set_state(vd, B_FALSE, VDEV_STATE_CANT_OPEN,
 			    VDEV_AUX_CORRUPT_DATA);
 			nvlist_free(label);
@@ -1070,6 +1222,10 @@ vdev_validate(vdev_t *vd)
 void
 vdev_close(vdev_t *vd)
 {
+	spa_t *spa = vd->vdev_spa;
+
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+
 	vd->vdev_ops->vdev_op_close(vd);
 
 	vdev_cache_purge(vd);
@@ -1093,7 +1249,7 @@ vdev_reopen(vdev_t *vd)
 {
 	spa_t *spa = vd->vdev_spa;
 
-	ASSERT(spa_config_held(spa, RW_WRITER));
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 
 	vdev_close(vd);
 	(void) vdev_open(vd);
@@ -1105,7 +1261,8 @@ vdev_reopen(vdev_t *vd)
 	 */
 	if (vd->vdev_aux) {
 		(void) vdev_validate_aux(vd);
-		if (!vdev_is_dead(vd) &&
+		if (vdev_readable(vd) && vdev_writeable(vd) &&
+		    vd->vdev_aux == &spa->spa_l2cache &&
 		    !l2arc_vdev_present(vd)) {
 			uint64_t size = vdev_get_rsize(vd);
 			l2arc_add_vdev(spa, vd,
@@ -1188,32 +1345,86 @@ vdev_dirty(vdev_t *vd, int flags, void *arg, uint64_t txg)
 	(void) txg_list_add(&vd->vdev_spa->spa_vdev_txg_list, vd, txg);
 }
 
+/*
+ * DTLs.
+ *
+ * A vdev's DTL (dirty time log) is the set of transaction groups for which
+ * the vdev has less than perfect replication.  There are three kinds of DTL:
+ *
+ * DTL_MISSING: txgs for which the vdev has no valid copies of the data
+ *
+ * DTL_PARTIAL: txgs for which data is available, but not fully replicated
+ *
+ * DTL_SCRUB: the txgs that could not be repaired by the last scrub; upon
+ *	scrub completion, DTL_SCRUB replaces DTL_MISSING in the range of
+ *	txgs that was scrubbed.
+ *
+ * DTL_OUTAGE: txgs which cannot currently be read, whether due to
+ *	persistent errors or just some device being offline.
+ *	Unlike the other three, the DTL_OUTAGE map is not generally
+ *	maintained; it's only computed when needed, typically to
+ *	determine whether a device can be detached.
+ *
+ * For leaf vdevs, DTL_MISSING and DTL_PARTIAL are identical: the device
+ * either has the data or it doesn't.
+ *
+ * For interior vdevs such as mirror and RAID-Z the picture is more complex.
+ * A vdev's DTL_PARTIAL is the union of its children's DTL_PARTIALs, because
+ * if any child is less than fully replicated, then so is its parent.
+ * A vdev's DTL_MISSING is a modified union of its children's DTL_MISSINGs,
+ * comprising only those txgs which appear in 'maxfaults' or more children;
+ * those are the txgs we don't have enough replication to read.  For example,
+ * double-parity RAID-Z can tolerate up to two missing devices (maxfaults == 2);
+ * thus, its DTL_MISSING consists of the set of txgs that appear in more than
+ * two child DTL_MISSING maps.
+ *
+ * It should be clear from the above that to compute the DTLs and outage maps
+ * for all vdevs, it suffices to know just the leaf vdevs' DTL_MISSING maps.
+ * Therefore, that is all we keep on disk.  When loading the pool, or after
+ * a configuration change, we generate all other DTLs from first principles.
+ */
 void
-vdev_dtl_dirty(space_map_t *sm, uint64_t txg, uint64_t size)
+vdev_dtl_dirty(vdev_t *vd, vdev_dtl_type_t t, uint64_t txg, uint64_t size)
 {
+	space_map_t *sm = &vd->vdev_dtl[t];
+
+	ASSERT(t < DTL_TYPES);
+	ASSERT(vd != vd->vdev_spa->spa_root_vdev);
+
 	mutex_enter(sm->sm_lock);
 	if (!space_map_contains(sm, txg, size))
 		space_map_add(sm, txg, size);
 	mutex_exit(sm->sm_lock);
 }
 
-int
-vdev_dtl_contains(space_map_t *sm, uint64_t txg, uint64_t size)
+boolean_t
+vdev_dtl_contains(vdev_t *vd, vdev_dtl_type_t t, uint64_t txg, uint64_t size)
 {
-	int dirty;
+	space_map_t *sm = &vd->vdev_dtl[t];
+	boolean_t dirty = B_FALSE;
 
-	/*
-	 * Quick test without the lock -- covers the common case that
-	 * there are no dirty time segments.
-	 */
-	if (sm->sm_space == 0)
-		return (0);
+	ASSERT(t < DTL_TYPES);
+	ASSERT(vd != vd->vdev_spa->spa_root_vdev);
 
 	mutex_enter(sm->sm_lock);
-	dirty = space_map_contains(sm, txg, size);
+	if (sm->sm_space != 0)
+		dirty = space_map_contains(sm, txg, size);
 	mutex_exit(sm->sm_lock);
 
 	return (dirty);
+}
+
+boolean_t
+vdev_dtl_empty(vdev_t *vd, vdev_dtl_type_t t)
+{
+	space_map_t *sm = &vd->vdev_dtl[t];
+	boolean_t empty;
+
+	mutex_enter(sm->sm_lock);
+	empty = (sm->sm_space == 0);
+	mutex_exit(sm->sm_lock);
+
+	return (empty);
 }
 
 /*
@@ -1223,11 +1434,19 @@ void
 vdev_dtl_reassess(vdev_t *vd, uint64_t txg, uint64_t scrub_txg, int scrub_done)
 {
 	spa_t *spa = vd->vdev_spa;
-	int c;
+	avl_tree_t reftree;
+	int minref;
 
-	ASSERT(spa_config_held(spa, RW_READER));
+	ASSERT(spa_config_held(spa, SCL_ALL, RW_READER) != 0);
 
-	if (vd->vdev_children == 0) {
+	for (int c = 0; c < vd->vdev_children; c++)
+		vdev_dtl_reassess(vd->vdev_child[c], txg,
+		    scrub_txg, scrub_done);
+
+	if (vd == spa->spa_root_vdev)
+		return;
+
+	if (vd->vdev_ops->vdev_op_leaf) {
 		mutex_enter(&vd->vdev_dtl_lock);
 		if (scrub_txg != 0 &&
 		    (spa->spa_scrub_started || spa->spa_scrub_errors == 0)) {
@@ -1238,12 +1457,38 @@ vdev_dtl_reassess(vdev_t *vd, uint64_t txg, uint64_t scrub_txg, int scrub_done)
 			 * will be valid, so excise the old region and
 			 * fold in the scrub dtl.  Otherwise, leave the
 			 * dtl as-is if there was an error.
+			 *
+			 * There's little trick here: to excise the beginning
+			 * of the DTL_MISSING map, we put it into a reference
+			 * tree and then add a segment with refcnt -1 that
+			 * covers the range [0, scrub_txg).  This means
+			 * that each txg in that range has refcnt -1 or 0.
+			 * We then add DTL_SCRUB with a refcnt of 2, so that
+			 * entries in the range [0, scrub_txg) will have a
+			 * positive refcnt -- either 1 or 2.  We then convert
+			 * the reference tree into the new DTL_MISSING map.
 			 */
-			space_map_excise(&vd->vdev_dtl_map, 0, scrub_txg);
-			space_map_union(&vd->vdev_dtl_map, &vd->vdev_dtl_scrub);
+			space_map_ref_create(&reftree);
+			space_map_ref_add_map(&reftree,
+			    &vd->vdev_dtl[DTL_MISSING], 1);
+			space_map_ref_add_seg(&reftree, 0, scrub_txg, -1);
+			space_map_ref_add_map(&reftree,
+			    &vd->vdev_dtl[DTL_SCRUB], 2);
+			space_map_ref_generate_map(&reftree,
+			    &vd->vdev_dtl[DTL_MISSING], 1);
+			space_map_ref_destroy(&reftree);
 		}
+		space_map_vacate(&vd->vdev_dtl[DTL_PARTIAL], NULL, NULL);
+		space_map_walk(&vd->vdev_dtl[DTL_MISSING],
+		    space_map_add, &vd->vdev_dtl[DTL_PARTIAL]);
 		if (scrub_done)
-			space_map_vacate(&vd->vdev_dtl_scrub, NULL, NULL);
+			space_map_vacate(&vd->vdev_dtl[DTL_SCRUB], NULL, NULL);
+		space_map_vacate(&vd->vdev_dtl[DTL_OUTAGE], NULL, NULL);
+		if (!vdev_readable(vd))
+			space_map_add(&vd->vdev_dtl[DTL_OUTAGE], 0, -1ULL);
+		else
+			space_map_walk(&vd->vdev_dtl[DTL_MISSING],
+			    space_map_add, &vd->vdev_dtl[DTL_OUTAGE]);
 		mutex_exit(&vd->vdev_dtl_lock);
 
 		if (txg != 0)
@@ -1251,35 +1496,34 @@ vdev_dtl_reassess(vdev_t *vd, uint64_t txg, uint64_t scrub_txg, int scrub_done)
 		return;
 	}
 
-	/*
-	 * Make sure the DTLs are always correct under the scrub lock.
-	 */
-	if (vd == spa->spa_root_vdev)
-		mutex_enter(&spa->spa_scrub_lock);
-
 	mutex_enter(&vd->vdev_dtl_lock);
-	space_map_vacate(&vd->vdev_dtl_map, NULL, NULL);
-	space_map_vacate(&vd->vdev_dtl_scrub, NULL, NULL);
-	mutex_exit(&vd->vdev_dtl_lock);
-
-	for (c = 0; c < vd->vdev_children; c++) {
-		vdev_t *cvd = vd->vdev_child[c];
-		vdev_dtl_reassess(cvd, txg, scrub_txg, scrub_done);
-		mutex_enter(&vd->vdev_dtl_lock);
-		space_map_union(&vd->vdev_dtl_map, &cvd->vdev_dtl_map);
-		space_map_union(&vd->vdev_dtl_scrub, &cvd->vdev_dtl_scrub);
-		mutex_exit(&vd->vdev_dtl_lock);
+	for (int t = 0; t < DTL_TYPES; t++) {
+		if (t == DTL_SCRUB)
+			continue;			/* leaf vdevs only */
+		if (t == DTL_PARTIAL)
+			minref = 1;			/* i.e. non-zero */
+		else if (vd->vdev_nparity != 0)
+			minref = vd->vdev_nparity + 1;	/* RAID-Z */
+		else
+			minref = vd->vdev_children;	/* any kind of mirror */
+		space_map_ref_create(&reftree);
+		for (int c = 0; c < vd->vdev_children; c++) {
+			vdev_t *cvd = vd->vdev_child[c];
+			mutex_enter(&cvd->vdev_dtl_lock);
+			space_map_ref_add_map(&reftree, &cvd->vdev_dtl[t], 1);
+			mutex_exit(&cvd->vdev_dtl_lock);
+		}
+		space_map_ref_generate_map(&reftree, &vd->vdev_dtl[t], minref);
+		space_map_ref_destroy(&reftree);
 	}
-
-	if (vd == spa->spa_root_vdev)
-		mutex_exit(&spa->spa_scrub_lock);
+	mutex_exit(&vd->vdev_dtl_lock);
 }
 
 static int
 vdev_dtl_load(vdev_t *vd)
 {
 	spa_t *spa = vd->vdev_spa;
-	space_map_obj_t *smo = &vd->vdev_dtl;
+	space_map_obj_t *smo = &vd->vdev_dtl_smo;
 	objset_t *mos = spa->spa_meta_objset;
 	dmu_buf_t *db;
 	int error;
@@ -1297,7 +1541,8 @@ vdev_dtl_load(vdev_t *vd)
 	dmu_buf_rele(db, FTAG);
 
 	mutex_enter(&vd->vdev_dtl_lock);
-	error = space_map_load(&vd->vdev_dtl_map, NULL, SM_ALLOC, smo, mos);
+	error = space_map_load(&vd->vdev_dtl[DTL_MISSING],
+	    NULL, SM_ALLOC, smo, mos);
 	mutex_exit(&vd->vdev_dtl_lock);
 
 	return (error);
@@ -1307,16 +1552,13 @@ void
 vdev_dtl_sync(vdev_t *vd, uint64_t txg)
 {
 	spa_t *spa = vd->vdev_spa;
-	space_map_obj_t *smo = &vd->vdev_dtl;
-	space_map_t *sm = &vd->vdev_dtl_map;
+	space_map_obj_t *smo = &vd->vdev_dtl_smo;
+	space_map_t *sm = &vd->vdev_dtl[DTL_MISSING];
 	objset_t *mos = spa->spa_meta_objset;
 	space_map_t smsync;
 	kmutex_t smlock;
 	dmu_buf_t *db;
 	dmu_tx_t *tx;
-
-	dprintf("%s in txg %llu pass %d\n",
-	    vdev_description(vd), (u_longlong_t)txg, spa_sync_pass(spa));
 
 	tx = dmu_tx_create_assigned(spa->spa_dsl_pool, txg);
 
@@ -1327,8 +1569,6 @@ vdev_dtl_sync(vdev_t *vd, uint64_t txg)
 			smo->smo_object = 0;
 		}
 		dmu_tx_commit(tx);
-		dprintf("detach %s committed in txg %llu\n",
-		    vdev_description(vd), txg);
 		return;
 	}
 
@@ -1371,6 +1611,37 @@ vdev_dtl_sync(vdev_t *vd, uint64_t txg)
 }
 
 /*
+ * Determine whether the specified vdev can be offlined/detached/removed
+ * without losing data.
+ */
+boolean_t
+vdev_dtl_required(vdev_t *vd)
+{
+	spa_t *spa = vd->vdev_spa;
+	vdev_t *tvd = vd->vdev_top;
+	uint8_t cant_read = vd->vdev_cant_read;
+	boolean_t required;
+
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+
+	if (vd == spa->spa_root_vdev || vd == tvd)
+		return (B_TRUE);
+
+	/*
+	 * Temporarily mark the device as unreadable, and then determine
+	 * whether this results in any DTL outages in the top-level vdev.
+	 * If not, we can safely offline/detach/remove the device.
+	 */
+	vd->vdev_cant_read = B_TRUE;
+	vdev_dtl_reassess(tvd, 0, 0, B_FALSE);
+	required = !vdev_dtl_empty(tvd, DTL_OUTAGE);
+	vd->vdev_cant_read = cant_read;
+	vdev_dtl_reassess(tvd, 0, 0, B_FALSE);
+
+	return (required);
+}
+
+/*
  * Determine if resilver is needed, and if so the txg range.
  */
 boolean_t
@@ -1382,19 +1653,19 @@ vdev_resilver_needed(vdev_t *vd, uint64_t *minp, uint64_t *maxp)
 
 	if (vd->vdev_children == 0) {
 		mutex_enter(&vd->vdev_dtl_lock);
-		if (vd->vdev_dtl_map.sm_space != 0 && vdev_writeable(vd)) {
+		if (vd->vdev_dtl[DTL_MISSING].sm_space != 0 &&
+		    vdev_writeable(vd)) {
 			space_seg_t *ss;
 
-			ss = avl_first(&vd->vdev_dtl_map.sm_root);
+			ss = avl_first(&vd->vdev_dtl[DTL_MISSING].sm_root);
 			thismin = ss->ss_start - 1;
-			ss = avl_last(&vd->vdev_dtl_map.sm_root);
+			ss = avl_last(&vd->vdev_dtl[DTL_MISSING].sm_root);
 			thismax = ss->ss_end;
 			needed = B_TRUE;
 		}
 		mutex_exit(&vd->vdev_dtl_lock);
 	} else {
-		int c;
-		for (c = 0; c < vd->vdev_children; c++) {
+		for (int c = 0; c < vd->vdev_children; c++) {
 			vdev_t *cvd = vd->vdev_child[c];
 			uint64_t cmin, cmax;
 
@@ -1416,12 +1687,10 @@ vdev_resilver_needed(vdev_t *vd, uint64_t *minp, uint64_t *maxp)
 void
 vdev_load(vdev_t *vd)
 {
-	int c;
-
 	/*
 	 * Recursively load all children.
 	 */
-	for (c = 0; c < vd->vdev_children; c++)
+	for (int c = 0; c < vd->vdev_children; c++)
 		vdev_load(vd->vdev_child[c]);
 
 	/*
@@ -1455,7 +1724,7 @@ vdev_validate_aux(vdev_t *vd)
 	uint64_t guid, version;
 	uint64_t state;
 
-	if (vdev_is_dead(vd))
+	if (!vdev_readable(vd))
 		return (0);
 
 	if ((label = vdev_label_read_config(vd)) == NULL) {
@@ -1488,8 +1757,6 @@ vdev_sync_done(vdev_t *vd, uint64_t txg)
 {
 	metaslab_t *msp;
 
-	dprintf("%s txg %llu\n", vdev_description(vd), txg);
-
 	while (msp = txg_list_remove(&vd->vdev_ms_list, TXG_CLEAN(txg)))
 		metaslab_sync_done(msp, txg);
 }
@@ -1501,9 +1768,6 @@ vdev_sync(vdev_t *vd, uint64_t txg)
 	vdev_t *lvd;
 	metaslab_t *msp;
 	dmu_tx_t *tx;
-
-	dprintf("%s txg %llu pass %d\n",
-	    vdev_description(vd), (u_longlong_t)txg, spa_sync_pass(spa));
 
 	if (vd->vdev_ms_array == 0 && vd->vdev_ms_shift != 0) {
 		ASSERT(vd == vd->vdev_top);
@@ -1532,27 +1796,6 @@ vdev_psize_to_asize(vdev_t *vd, uint64_t psize)
 	return (vd->vdev_ops->vdev_op_asize(vd, psize));
 }
 
-const char *
-vdev_description(vdev_t *vd)
-{
-	if (vd == NULL || vd->vdev_ops == NULL)
-		return ("<unknown>");
-
-	if (vd->vdev_path != NULL)
-		return (vd->vdev_path);
-
-	if (vd->vdev_physpath != NULL)
-		return (vd->vdev_physpath);
-
-	if (vd->vdev_devid != NULL)
-		return (vd->vdev_devid);
-
-	if (vd->vdev_parent == NULL)
-		return (spa_name(vd->vdev_spa));
-
-	return (vd->vdev_ops->vdev_op_type);
-}
-
 /*
  * Mark the given vdev faulted.  A faulted vdev behaves as if the device could
  * not be opened, and no I/O is attempted.
@@ -1561,36 +1804,24 @@ int
 vdev_fault(spa_t *spa, uint64_t guid)
 {
 	vdev_t *vd;
-	uint64_t txg;
 
-	/*
-	 * Disregard a vdev fault request if the pool has
-	 * experienced a complete failure.
-	 *
-	 * XXX - We do this here so that we don't hold the
-	 * spa_namespace_lock in the event that we can't get
-	 * the RW_WRITER spa_config_lock.
-	 */
-	if (spa_state(spa) == POOL_STATE_IO_FAILURE)
-		return (EIO);
-
-	txg = spa_vdev_enter(spa);
+	spa_vdev_state_enter(spa);
 
 	if ((vd = spa_lookup_by_guid(spa, guid, B_TRUE)) == NULL)
-		return (spa_vdev_exit(spa, NULL, txg, ENODEV));
+		return (spa_vdev_state_exit(spa, NULL, ENODEV));
+
 	if (!vd->vdev_ops->vdev_op_leaf)
-		return (spa_vdev_exit(spa, NULL, txg, ENOTSUP));
+		return (spa_vdev_state_exit(spa, NULL, ENOTSUP));
 
 	/*
 	 * Faulted state takes precedence over degraded.
 	 */
 	vd->vdev_faulted = 1ULL;
 	vd->vdev_degraded = 0ULL;
-	vdev_set_state(vd, B_FALSE, VDEV_STATE_FAULTED,
-	    VDEV_AUX_ERR_EXCEEDED);
+	vdev_set_state(vd, B_FALSE, VDEV_STATE_FAULTED, VDEV_AUX_ERR_EXCEEDED);
 
 	/*
-	 * If marking the vdev as faulted cause the toplevel vdev to become
+	 * If marking the vdev as faulted cause the top-level vdev to become
 	 * unavailable, then back off and simply mark the vdev as degraded
 	 * instead.
 	 */
@@ -1610,11 +1841,7 @@ vdev_fault(spa_t *spa, uint64_t guid)
 		}
 	}
 
-	vdev_config_dirty(vd->vdev_top);
-
-	(void) spa_vdev_exit(spa, NULL, txg, 0);
-
-	return (0);
+	return (spa_vdev_state_exit(spa, vd, 0));
 }
 
 /*
@@ -1626,43 +1853,27 @@ int
 vdev_degrade(spa_t *spa, uint64_t guid)
 {
 	vdev_t *vd;
-	uint64_t txg;
 
-	/*
-	 * Disregard a vdev fault request if the pool has
-	 * experienced a complete failure.
-	 *
-	 * XXX - We do this here so that we don't hold the
-	 * spa_namespace_lock in the event that we can't get
-	 * the RW_WRITER spa_config_lock.
-	 */
-	if (spa_state(spa) == POOL_STATE_IO_FAILURE)
-		return (EIO);
-
-	txg = spa_vdev_enter(spa);
+	spa_vdev_state_enter(spa);
 
 	if ((vd = spa_lookup_by_guid(spa, guid, B_TRUE)) == NULL)
-		return (spa_vdev_exit(spa, NULL, txg, ENODEV));
+		return (spa_vdev_state_exit(spa, NULL, ENODEV));
+
 	if (!vd->vdev_ops->vdev_op_leaf)
-		return (spa_vdev_exit(spa, NULL, txg, ENOTSUP));
+		return (spa_vdev_state_exit(spa, NULL, ENOTSUP));
 
 	/*
 	 * If the vdev is already faulted, then don't do anything.
 	 */
-	if (vd->vdev_faulted || vd->vdev_degraded) {
-		(void) spa_vdev_exit(spa, NULL, txg, 0);
-		return (0);
-	}
+	if (vd->vdev_faulted || vd->vdev_degraded)
+		return (spa_vdev_state_exit(spa, NULL, 0));
 
 	vd->vdev_degraded = 1ULL;
 	if (!vdev_is_dead(vd))
 		vdev_set_state(vd, B_FALSE, VDEV_STATE_DEGRADED,
 		    VDEV_AUX_ERR_EXCEEDED);
-	vdev_config_dirty(vd->vdev_top);
 
-	(void) spa_vdev_exit(spa, NULL, txg, 0);
-
-	return (0);
+	return (spa_vdev_state_exit(spa, vd, 0));
 }
 
 /*
@@ -1672,37 +1883,22 @@ vdev_degrade(spa_t *spa, uint64_t guid)
  * so no FMA events are generated if the device fails to open.
  */
 int
-vdev_online(spa_t *spa, uint64_t guid, uint64_t flags,
-    vdev_state_t *newstate)
+vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 {
 	vdev_t *vd;
-	uint64_t txg;
 
-	/*
-	 * Disregard a vdev fault request if the pool has
-	 * experienced a complete failure.
-	 *
-	 * XXX - We do this here so that we don't hold the
-	 * spa_namespace_lock in the event that we can't get
-	 * the RW_WRITER spa_config_lock.
-	 */
-	if (spa_state(spa) == POOL_STATE_IO_FAILURE)
-		return (EIO);
-
-	txg = spa_vdev_enter(spa);
+	spa_vdev_state_enter(spa);
 
 	if ((vd = spa_lookup_by_guid(spa, guid, B_TRUE)) == NULL)
-		return (spa_vdev_exit(spa, NULL, txg, ENODEV));
+		return (spa_vdev_state_exit(spa, NULL, ENODEV));
 
 	if (!vd->vdev_ops->vdev_op_leaf)
-		return (spa_vdev_exit(spa, NULL, txg, ENOTSUP));
+		return (spa_vdev_state_exit(spa, NULL, ENOTSUP));
 
 	vd->vdev_offline = B_FALSE;
 	vd->vdev_tmpoffline = B_FALSE;
-	vd->vdev_checkremove = (flags & ZFS_ONLINE_CHECKREMOVE) ?
-	    B_TRUE : B_FALSE;
-	vd->vdev_forcefault = (flags & ZFS_ONLINE_FORCEFAULT) ?
-	    B_TRUE : B_FALSE;
+	vd->vdev_checkremove = !!(flags & ZFS_ONLINE_CHECKREMOVE);
+	vd->vdev_forcefault = !!(flags & ZFS_ONLINE_FORCEFAULT);
 	vdev_reopen(vd->vdev_top);
 	vd->vdev_checkremove = vd->vdev_forcefault = B_FALSE;
 
@@ -1714,104 +1910,98 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags,
 	    vd->vdev_parent->vdev_child[0] == vd)
 		vd->vdev_unspare = B_TRUE;
 
-	vdev_config_dirty(vd->vdev_top);
-
-	(void) spa_vdev_exit(spa, NULL, txg, 0);
-
-	/*
-	 * Must hold spa_namespace_lock in order to post resilver sysevent
-	 * w/pool name.
-	 */
-	mutex_enter(&spa_namespace_lock);
-	VERIFY3U(spa_scrub(spa, POOL_SCRUB_RESILVER), ==, 0);
-	mutex_exit(&spa_namespace_lock);
-
-	return (0);
+	return (spa_vdev_state_exit(spa, vd, 0));
 }
 
 int
 vdev_offline(spa_t *spa, uint64_t guid, uint64_t flags)
 {
-	vdev_t *vd;
-	uint64_t txg;
+	vdev_t *vd, *tvd;
+	int error;
 
-	/*
-	 * Disregard a vdev fault request if the pool has
-	 * experienced a complete failure.
-	 *
-	 * XXX - We do this here so that we don't hold the
-	 * spa_namespace_lock in the event that we can't get
-	 * the RW_WRITER spa_config_lock.
-	 */
-	if (spa_state(spa) == POOL_STATE_IO_FAILURE)
-		return (EIO);
-
-	txg = spa_vdev_enter(spa);
+	spa_vdev_state_enter(spa);
 
 	if ((vd = spa_lookup_by_guid(spa, guid, B_TRUE)) == NULL)
-		return (spa_vdev_exit(spa, NULL, txg, ENODEV));
+		return (spa_vdev_state_exit(spa, NULL, ENODEV));
 
 	if (!vd->vdev_ops->vdev_op_leaf)
-		return (spa_vdev_exit(spa, NULL, txg, ENOTSUP));
+		return (spa_vdev_state_exit(spa, NULL, ENOTSUP));
+
+	tvd = vd->vdev_top;
 
 	/*
 	 * If the device isn't already offline, try to offline it.
 	 */
 	if (!vd->vdev_offline) {
 		/*
-		 * If this device's top-level vdev has a non-empty DTL,
-		 * don't allow the device to be offlined.
-		 *
-		 * XXX -- make this more precise by allowing the offline
-		 * as long as the remaining devices don't have any DTL holes.
+		 * If this device has the only valid copy of some data,
+		 * don't allow it to be offlined. Log devices are always
+		 * expendable.
 		 */
-		if (vd->vdev_top->vdev_dtl_map.sm_space != 0)
-			return (spa_vdev_exit(spa, NULL, txg, EBUSY));
+		if (!tvd->vdev_islog && vd->vdev_aux == NULL &&
+		    vdev_dtl_required(vd))
+			return (spa_vdev_state_exit(spa, NULL, EBUSY));
 
 		/*
 		 * Offline this device and reopen its top-level vdev.
-		 * If this action results in the top-level vdev becoming
-		 * unusable, undo it and fail the request.
+		 * If the top-level vdev is a log device then just offline
+		 * it. Otherwise, if this action results in the top-level
+		 * vdev becoming unusable, undo it and fail the request.
 		 */
 		vd->vdev_offline = B_TRUE;
-		vdev_reopen(vd->vdev_top);
-		if (vdev_is_dead(vd->vdev_top) && vd->vdev_aux == NULL) {
+		vdev_reopen(tvd);
+
+		if (!tvd->vdev_islog && vd->vdev_aux == NULL &&
+		    vdev_is_dead(tvd)) {
 			vd->vdev_offline = B_FALSE;
-			vdev_reopen(vd->vdev_top);
-			return (spa_vdev_exit(spa, NULL, txg, EBUSY));
+			vdev_reopen(tvd);
+			return (spa_vdev_state_exit(spa, NULL, EBUSY));
 		}
 	}
 
-	vd->vdev_tmpoffline = (flags & ZFS_OFFLINE_TEMPORARY) ?
-	    B_TRUE : B_FALSE;
+	vd->vdev_tmpoffline = !!(flags & ZFS_OFFLINE_TEMPORARY);
 
-	vdev_config_dirty(vd->vdev_top);
+	if (!tvd->vdev_islog || !vdev_is_dead(tvd))
+		return (spa_vdev_state_exit(spa, vd, 0));
 
-	return (spa_vdev_exit(spa, NULL, txg, 0));
+	(void) spa_vdev_state_exit(spa, vd, 0);
+
+	error = dmu_objset_find(spa_name(spa), zil_vdev_offline,
+	    NULL, DS_FIND_CHILDREN);
+	if (error) {
+		(void) vdev_online(spa, guid, 0, NULL);
+		return (error);
+	}
+	/*
+	 * If we successfully offlined the log device then we need to
+	 * sync out the current txg so that the "stubby" block can be
+	 * removed by zil_sync().
+	 */
+	txg_wait_synced(spa->spa_dsl_pool, 0);
+	return (0);
 }
 
 /*
  * Clear the error counts associated with this vdev.  Unlike vdev_online() and
  * vdev_offline(), we assume the spa config is locked.  We also clear all
  * children.  If 'vd' is NULL, then the user wants to clear all vdevs.
- * If reopen is specified then attempt to reopen the vdev if the vdev is
- * faulted or degraded.
  */
 void
-vdev_clear(spa_t *spa, vdev_t *vd, boolean_t reopen_wanted)
+vdev_clear(spa_t *spa, vdev_t *vd)
 {
-	int c;
+	vdev_t *rvd = spa->spa_root_vdev;
+
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 
 	if (vd == NULL)
-		vd = spa->spa_root_vdev;
+		vd = rvd;
 
 	vd->vdev_stat.vs_read_errors = 0;
 	vd->vdev_stat.vs_write_errors = 0;
 	vd->vdev_stat.vs_checksum_errors = 0;
-	vd->vdev_is_failing = B_FALSE;
 
-	for (c = 0; c < vd->vdev_children; c++)
-		vdev_clear(spa, vd->vdev_child[c], reopen_wanted);
+	for (int c = 0; c < vd->vdev_children; c++)
+		vdev_clear(spa, vd->vdev_child[c]);
 
 	/*
 	 * If we're in the FAULTED state or have experienced failed I/O, then
@@ -1819,72 +2009,75 @@ vdev_clear(spa_t *spa, vdev_t *vd, boolean_t reopen_wanted)
 	 * also mark the vdev config dirty, so that the new faulted state is
 	 * written out to disk.
 	 */
-	if (reopen_wanted && (vd->vdev_faulted || vd->vdev_degraded ||
-	    vd->vdev_stat.vs_aux == VDEV_AUX_IO_FAILURE)) {
-		boolean_t resilver = (vd->vdev_faulted || vd->vdev_degraded);
+	if (vd->vdev_faulted || vd->vdev_degraded ||
+	    !vdev_readable(vd) || !vdev_writeable(vd)) {
 
 		vd->vdev_faulted = vd->vdev_degraded = 0;
-		vdev_reopen(vd);
-		vdev_config_dirty(vd->vdev_top);
+		vd->vdev_cant_read = B_FALSE;
+		vd->vdev_cant_write = B_FALSE;
 
-		if (resilver && vd->vdev_aux == NULL && !vdev_is_dead(vd))
+		vdev_reopen(vd);
+
+		if (vd != rvd)
+			vdev_state_dirty(vd->vdev_top);
+
+		if (vd->vdev_aux == NULL && !vdev_is_dead(vd))
 			spa_async_request(spa, SPA_ASYNC_RESILVER);
 
 		spa_event_notify(spa, vd, ESC_ZFS_VDEV_CLEAR);
 	}
 }
 
-int
-vdev_readable(vdev_t *vd)
-{
-	/* XXPOLICY */
-	return (!vdev_is_dead(vd));
-}
-
-int
-vdev_writeable(vdev_t *vd)
-{
-	return (!vdev_is_dead(vd) && !vd->vdev_is_failing);
-}
-
-int
+boolean_t
 vdev_is_dead(vdev_t *vd)
 {
-	/*
-	 * If the vdev experienced I/O failures, then the vdev is marked
-	 * as faulted (VDEV_STATE_FAULTED) for status output and FMA; however,
-	 * we need to allow access to the vdev for resumed I/Os (see
-	 * zio_vdev_resume_io() ).
-	 */
-	return (vd->vdev_state < VDEV_STATE_DEGRADED &&
-	    vd->vdev_stat.vs_aux != VDEV_AUX_IO_FAILURE);
+	return (vd->vdev_state < VDEV_STATE_DEGRADED);
 }
 
-int
-vdev_error_inject(vdev_t *vd, zio_t *zio)
+boolean_t
+vdev_readable(vdev_t *vd)
 {
-	int error = 0;
+	return (!vdev_is_dead(vd) && !vd->vdev_cant_read);
+}
 
-	if (vd->vdev_fault_mode == VDEV_FAULT_NONE)
-		return (0);
+boolean_t
+vdev_writeable(vdev_t *vd)
+{
+	return (!vdev_is_dead(vd) && !vd->vdev_cant_write);
+}
 
-	if (((1ULL << zio->io_type) & vd->vdev_fault_mask) == 0)
-		return (0);
+boolean_t
+vdev_allocatable(vdev_t *vd)
+{
+	uint64_t state = vd->vdev_state;
 
-	switch (vd->vdev_fault_mode) {
-	case VDEV_FAULT_RANDOM:
-		if (spa_get_random(vd->vdev_fault_arg) == 0)
-			error = EIO;
-		break;
+	/*
+	 * We currently allow allocations from vdevs which may be in the
+	 * process of reopening (i.e. VDEV_STATE_CLOSED). If the device
+	 * fails to reopen then we'll catch it later when we're holding
+	 * the proper locks.  Note that we have to get the vdev state
+	 * in a local variable because although it changes atomically,
+	 * we're asking two separate questions about it.
+	 */
+	return (!(state < VDEV_STATE_DEGRADED && state != VDEV_STATE_CLOSED) &&
+	    !vd->vdev_cant_write);
+}
 
-	case VDEV_FAULT_COUNT:
-		if ((int64_t)--vd->vdev_fault_arg <= 0)
-			vd->vdev_fault_mode = VDEV_FAULT_NONE;
-		error = EIO;
-		break;
-	}
+boolean_t
+vdev_accessible(vdev_t *vd, zio_t *zio)
+{
+	ASSERT(zio->io_vd == vd);
 
-	return (error);
+	if (vdev_is_dead(vd) || vd->vdev_remove_wanted)
+		return (B_FALSE);
+
+	if (zio->io_type == ZIO_TYPE_READ)
+		return (!vd->vdev_cant_read);
+
+	if (zio->io_type == ZIO_TYPE_WRITE)
+		return (!vd->vdev_cant_write);
+
+	return (B_TRUE);
 }
 
 /*
@@ -1894,7 +2087,6 @@ void
 vdev_get_stats(vdev_t *vd, vdev_stat_t *vs)
 {
 	vdev_t *rvd = vd->vdev_spa->spa_root_vdev;
-	int c, t;
 
 	mutex_enter(&vd->vdev_stat_lock);
 	bcopy(&vd->vdev_stat, vs, sizeof (*vs));
@@ -1909,18 +2101,15 @@ vdev_get_stats(vdev_t *vd, vdev_stat_t *vs)
 	 * over all top-level vdevs (i.e. the direct children of the root).
 	 */
 	if (vd == rvd) {
-		for (c = 0; c < rvd->vdev_children; c++) {
+		for (int c = 0; c < rvd->vdev_children; c++) {
 			vdev_t *cvd = rvd->vdev_child[c];
 			vdev_stat_t *cvs = &cvd->vdev_stat;
 
 			mutex_enter(&vd->vdev_stat_lock);
-			for (t = 0; t < ZIO_TYPES; t++) {
+			for (int t = 0; t < ZIO_TYPES; t++) {
 				vs->vs_ops[t] += cvs->vs_ops[t];
 				vs->vs_bytes[t] += cvs->vs_bytes[t];
 			}
-			vs->vs_read_errors += cvs->vs_read_errors;
-			vs->vs_write_errors += cvs->vs_write_errors;
-			vs->vs_checksum_errors += cvs->vs_checksum_errors;
 			vs->vs_scrub_examined += cvs->vs_scrub_examined;
 			mutex_exit(&vd->vdev_stat_lock);
 		}
@@ -1938,65 +2127,119 @@ vdev_clear_stats(vdev_t *vd)
 }
 
 void
-vdev_stat_update(zio_t *zio)
+vdev_stat_update(zio_t *zio, uint64_t psize)
 {
-	vdev_t *vd = zio->io_vd;
+	spa_t *spa = zio->io_spa;
+	vdev_t *rvd = spa->spa_root_vdev;
+	vdev_t *vd = zio->io_vd ? zio->io_vd : rvd;
 	vdev_t *pvd;
 	uint64_t txg = zio->io_txg;
 	vdev_stat_t *vs = &vd->vdev_stat;
 	zio_type_t type = zio->io_type;
 	int flags = zio->io_flags;
 
+	/*
+	 * If this i/o is a gang leader, it didn't do any actual work.
+	 */
+	if (zio->io_gang_tree)
+		return;
+
 	if (zio->io_error == 0) {
-		if (!(flags & ZIO_FLAG_IO_BYPASS)) {
-			mutex_enter(&vd->vdev_stat_lock);
-			vs->vs_ops[type]++;
-			vs->vs_bytes[type] += zio->io_size;
-			mutex_exit(&vd->vdev_stat_lock);
-		}
-		if ((flags & ZIO_FLAG_IO_REPAIR) &&
-		    zio->io_delegate_list == NULL) {
-			mutex_enter(&vd->vdev_stat_lock);
+		/*
+		 * If this is a root i/o, don't count it -- we've already
+		 * counted the top-level vdevs, and vdev_get_stats() will
+		 * aggregate them when asked.  This reduces contention on
+		 * the root vdev_stat_lock and implicitly handles blocks
+		 * that compress away to holes, for which there is no i/o.
+		 * (Holes never create vdev children, so all the counters
+		 * remain zero, which is what we want.)
+		 *
+		 * Note: this only applies to successful i/o (io_error == 0)
+		 * because unlike i/o counts, errors are not additive.
+		 * When reading a ditto block, for example, failure of
+		 * one top-level vdev does not imply a root-level error.
+		 */
+		if (vd == rvd)
+			return;
+
+		ASSERT(vd == zio->io_vd);
+
+		if (flags & ZIO_FLAG_IO_BYPASS)
+			return;
+
+		mutex_enter(&vd->vdev_stat_lock);
+
+		if (flags & ZIO_FLAG_IO_REPAIR) {
 			if (flags & ZIO_FLAG_SCRUB_THREAD)
-				vs->vs_scrub_repaired += zio->io_size;
-			else
-				vs->vs_self_healed += zio->io_size;
-			mutex_exit(&vd->vdev_stat_lock);
+				vs->vs_scrub_repaired += psize;
+			if (flags & ZIO_FLAG_SELF_HEAL)
+				vs->vs_self_healed += psize;
 		}
+
+		vs->vs_ops[type]++;
+		vs->vs_bytes[type] += psize;
+
+		mutex_exit(&vd->vdev_stat_lock);
 		return;
 	}
 
 	if (flags & ZIO_FLAG_SPECULATIVE)
 		return;
 
-	if (vdev_readable(vd)) {
-		mutex_enter(&vd->vdev_stat_lock);
-		if (type == ZIO_TYPE_READ) {
-			if (zio->io_error == ECKSUM)
-				vs->vs_checksum_errors++;
-			else
-				vs->vs_read_errors++;
-		}
-		if (type == ZIO_TYPE_WRITE)
-			vs->vs_write_errors++;
-		mutex_exit(&vd->vdev_stat_lock);
-	}
+	/*
+	 * If this is an I/O error that is going to be retried, then ignore the
+	 * error.  Otherwise, the user may interpret B_FAILFAST I/O errors as
+	 * hard errors, when in reality they can happen for any number of
+	 * innocuous reasons (bus resets, MPxIO link failure, etc).
+	 */
+	if (zio->io_error == EIO &&
+	    !(zio->io_flags & ZIO_FLAG_IO_RETRY))
+		return;
 
-	if (type == ZIO_TYPE_WRITE) {
-		if (txg == 0 || vd->vdev_children != 0)
-			return;
-		if (flags & ZIO_FLAG_SCRUB_THREAD) {
-			ASSERT(flags & ZIO_FLAG_IO_REPAIR);
-			for (pvd = vd; pvd != NULL; pvd = pvd->vdev_parent)
-				vdev_dtl_dirty(&pvd->vdev_dtl_scrub, txg, 1);
-		}
-		if (!(flags & ZIO_FLAG_IO_REPAIR)) {
-			if (vdev_dtl_contains(&vd->vdev_dtl_map, txg, 1))
+	mutex_enter(&vd->vdev_stat_lock);
+	if (type == ZIO_TYPE_READ && !vdev_is_dead(vd)) {
+		if (zio->io_error == ECKSUM)
+			vs->vs_checksum_errors++;
+		else
+			vs->vs_read_errors++;
+	}
+	if (type == ZIO_TYPE_WRITE && !vdev_is_dead(vd))
+		vs->vs_write_errors++;
+	mutex_exit(&vd->vdev_stat_lock);
+
+	if (type == ZIO_TYPE_WRITE && txg != 0 &&
+	    (!(flags & ZIO_FLAG_IO_REPAIR) ||
+	    (flags & ZIO_FLAG_SCRUB_THREAD))) {
+		/*
+		 * This is either a normal write (not a repair), or it's a
+		 * repair induced by the scrub thread.  In the normal case,
+		 * we commit the DTL change in the same txg as the block
+		 * was born.  In the scrub-induced repair case, we know that
+		 * scrubs run in first-pass syncing context, so we commit
+		 * the DTL change in spa->spa_syncing_txg.
+		 *
+		 * We currently do not make DTL entries for failed spontaneous
+		 * self-healing writes triggered by normal (non-scrubbing)
+		 * reads, because we have no transactional context in which to
+		 * do so -- and it's not clear that it'd be desirable anyway.
+		 */
+		if (vd->vdev_ops->vdev_op_leaf) {
+			uint64_t commit_txg = txg;
+			if (flags & ZIO_FLAG_SCRUB_THREAD) {
+				ASSERT(flags & ZIO_FLAG_IO_REPAIR);
+				ASSERT(spa_sync_pass(spa) == 1);
+				vdev_dtl_dirty(vd, DTL_SCRUB, txg, 1);
+				commit_txg = spa->spa_syncing_txg;
+			}
+			ASSERT(commit_txg >= spa->spa_syncing_txg);
+			if (vdev_dtl_contains(vd, DTL_MISSING, txg, 1))
 				return;
-			vdev_dirty(vd->vdev_top, VDD_DTL, vd, txg);
-			for (pvd = vd; pvd != NULL; pvd = pvd->vdev_parent)
-				vdev_dtl_dirty(&pvd->vdev_dtl_map, txg, 1);
+			for (pvd = vd; pvd != rvd; pvd = pvd->vdev_parent)
+				vdev_dtl_dirty(pvd, DTL_PARTIAL, txg, 1);
+			vdev_dirty(vd->vdev_top, VDD_DTL, vd, commit_txg);
 		}
+		if (vd != rvd)
+			vdev_dtl_dirty(vd, DTL_MISSING, txg, 1);
 	}
 }
 
@@ -2050,6 +2293,7 @@ vdev_space_update(vdev_t *vd, int64_t space_delta, int64_t alloc_delta,
 	 * childrens', thus not accurate enough for us.
 	 */
 	ASSERT((dspace_delta & (SPA_MINBLOCKSIZE-1)) == 0);
+	ASSERT(vd->vdev_deflate_ratio != 0 || vd->vdev_isl2cache);
 	dspace_delta = (dspace_delta >> SPA_MINBLOCKSHIFT) *
 	    vd->vdev_deflate_ratio;
 
@@ -2091,8 +2335,8 @@ vdev_config_dirty(vdev_t *vd)
 	int c;
 
 	/*
-	 * If this is an aux vdev (as with l2cache devices), then we update the
-	 * vdev config manually and set the sync flag.
+	 * If this is an aux vdev (as with l2cache and spare devices), then we
+	 * update the vdev config manually and set the sync flag.
 	 */
 	if (vd->vdev_aux != NULL) {
 		spa_aux_vdev_t *sav = vd->vdev_aux;
@@ -2104,11 +2348,21 @@ vdev_config_dirty(vdev_t *vd)
 				break;
 		}
 
-		ASSERT(c < sav->sav_count);
+		if (c == sav->sav_count) {
+			/*
+			 * We're being removed.  There's nothing more to do.
+			 */
+			ASSERT(sav->sav_sync == B_TRUE);
+			return;
+		}
+
 		sav->sav_sync = B_TRUE;
 
-		VERIFY(nvlist_lookup_nvlist_array(sav->sav_config,
-		    ZPOOL_CONFIG_L2CACHE, &aux, &naux) == 0);
+		if (nvlist_lookup_nvlist_array(sav->sav_config,
+		    ZPOOL_CONFIG_L2CACHE, &aux, &naux) != 0) {
+			VERIFY(nvlist_lookup_nvlist_array(sav->sav_config,
+			    ZPOOL_CONFIG_SPARES, &aux, &naux) == 0);
+		}
 
 		ASSERT(c < naux);
 
@@ -2123,13 +2377,14 @@ vdev_config_dirty(vdev_t *vd)
 	}
 
 	/*
-	 * The dirty list is protected by the config lock.  The caller must
-	 * either hold the config lock as writer, or must be the sync thread
-	 * (which holds the lock as reader).  There's only one sync thread,
+	 * The dirty list is protected by the SCL_CONFIG lock.  The caller
+	 * must either hold SCL_CONFIG as writer, or must be the sync thread
+	 * (which holds SCL_CONFIG as reader).  There's only one sync thread,
 	 * so this is sufficient to ensure mutual exclusion.
 	 */
-	ASSERT(spa_config_held(spa, RW_WRITER) ||
-	    dsl_pool_sync_context(spa_get_dsl(spa)));
+	ASSERT(spa_config_held(spa, SCL_CONFIG, RW_WRITER) ||
+	    (dsl_pool_sync_context(spa_get_dsl(spa)) &&
+	    spa_config_held(spa, SCL_CONFIG, RW_READER)));
 
 	if (vd == rvd) {
 		for (c = 0; c < rvd->vdev_children; c++)
@@ -2137,8 +2392,8 @@ vdev_config_dirty(vdev_t *vd)
 	} else {
 		ASSERT(vd == vd->vdev_top);
 
-		if (!list_link_active(&vd->vdev_dirty_node))
-			list_insert_head(&spa->spa_dirty_list, vd);
+		if (!list_link_active(&vd->vdev_config_dirty_node))
+			list_insert_head(&spa->spa_config_dirty_list, vd);
 	}
 }
 
@@ -2147,11 +2402,52 @@ vdev_config_clean(vdev_t *vd)
 {
 	spa_t *spa = vd->vdev_spa;
 
-	ASSERT(spa_config_held(spa, RW_WRITER) ||
-	    dsl_pool_sync_context(spa_get_dsl(spa)));
+	ASSERT(spa_config_held(spa, SCL_CONFIG, RW_WRITER) ||
+	    (dsl_pool_sync_context(spa_get_dsl(spa)) &&
+	    spa_config_held(spa, SCL_CONFIG, RW_READER)));
 
-	ASSERT(list_link_active(&vd->vdev_dirty_node));
-	list_remove(&spa->spa_dirty_list, vd);
+	ASSERT(list_link_active(&vd->vdev_config_dirty_node));
+	list_remove(&spa->spa_config_dirty_list, vd);
+}
+
+/*
+ * Mark a top-level vdev's state as dirty, so that the next pass of
+ * spa_sync() can convert this into vdev_config_dirty().  We distinguish
+ * the state changes from larger config changes because they require
+ * much less locking, and are often needed for administrative actions.
+ */
+void
+vdev_state_dirty(vdev_t *vd)
+{
+	spa_t *spa = vd->vdev_spa;
+
+	ASSERT(vd == vd->vdev_top);
+
+	/*
+	 * The state list is protected by the SCL_STATE lock.  The caller
+	 * must either hold SCL_STATE as writer, or must be the sync thread
+	 * (which holds SCL_STATE as reader).  There's only one sync thread,
+	 * so this is sufficient to ensure mutual exclusion.
+	 */
+	ASSERT(spa_config_held(spa, SCL_STATE, RW_WRITER) ||
+	    (dsl_pool_sync_context(spa_get_dsl(spa)) &&
+	    spa_config_held(spa, SCL_STATE, RW_READER)));
+
+	if (!list_link_active(&vd->vdev_state_dirty_node))
+		list_insert_head(&spa->spa_state_dirty_list, vd);
+}
+
+void
+vdev_state_clean(vdev_t *vd)
+{
+	spa_t *spa = vd->vdev_spa;
+
+	ASSERT(spa_config_held(spa, SCL_STATE, RW_WRITER) ||
+	    (dsl_pool_sync_context(spa_get_dsl(spa)) &&
+	    spa_config_held(spa, SCL_STATE, RW_READER)));
+
+	ASSERT(list_link_active(&vd->vdev_state_dirty_node));
+	list_remove(&spa->spa_state_dirty_list, vd);
 }
 
 /*
@@ -2160,7 +2456,8 @@ vdev_config_clean(vdev_t *vd)
 void
 vdev_propagate_state(vdev_t *vd)
 {
-	vdev_t *rvd = vd->vdev_spa->spa_root_vdev;
+	spa_t *spa = vd->vdev_spa;
+	vdev_t *rvd = spa->spa_root_vdev;
 	int degraded = 0, faulted = 0;
 	int corrupted = 0;
 	int c;
@@ -2170,8 +2467,8 @@ vdev_propagate_state(vdev_t *vd)
 		for (c = 0; c < vd->vdev_children; c++) {
 			child = vd->vdev_child[c];
 
-			if ((vdev_is_dead(child) && !vdev_readable(child)) ||
-			    child->vdev_stat.vs_aux == VDEV_AUX_IO_FAILURE) {
+			if (!vdev_readable(child) ||
+			    (!vdev_writeable(child) && spa_writeable(spa))) {
 				/*
 				 * Root special: if there is a top-level log
 				 * device, treat the root vdev as if it were
@@ -2192,7 +2489,7 @@ vdev_propagate_state(vdev_t *vd)
 		vd->vdev_ops->vdev_op_state_change(vd, faulted, degraded);
 
 		/*
-		 * Root special: if there is a toplevel vdev that cannot be
+		 * Root special: if there is a top-level vdev that cannot be
 		 * opened due to corrupted metadata, then propagate the root
 		 * vdev's aux state as 'corrupt' rather than 'insufficient
 		 * replicas'.
@@ -2239,7 +2536,7 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 	 * want here.  This is limited to leaf devices, because otherwise
 	 * closing the device will affect other children.
 	 */
-	if (!vdev_readable(vd) && vd->vdev_ops->vdev_op_leaf)
+	if (vdev_is_dead(vd) && vd->vdev_ops->vdev_op_leaf)
 		vd->vdev_ops->vdev_op_close(vd);
 
 	if (vd->vdev_removed &&
@@ -2271,7 +2568,6 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 		 * an error.
 		 */
 		if (spa->spa_load_state == SPA_LOAD_IMPORT &&
-		    !spa->spa_import_faulted &&
 		    vd->vdev_ops->vdev_op_leaf)
 			vd->vdev_not_present = 1;
 
@@ -2314,6 +2610,9 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 			case VDEV_AUX_BAD_LABEL:
 				class = FM_EREPORT_ZFS_DEVICE_BAD_LABEL;
 				break;
+			case VDEV_AUX_IO_FAILURE:
+				class = FM_EREPORT_ZFS_IO_FAILURE;
+				break;
 			default:
 				class = FM_EREPORT_ZFS_DEVICE_UNKNOWN;
 			}
@@ -2327,8 +2626,8 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 		vd->vdev_removed = B_FALSE;
 	}
 
-	if (!isopen)
-		vdev_propagate_state(vd);
+	if (!isopen && vd->vdev_parent)
+		vdev_propagate_state(vd->vdev_parent);
 }
 
 /*
@@ -2361,4 +2660,33 @@ vdev_is_bootable(vdev_t *vd)
 			return (B_FALSE);
 	}
 	return (B_TRUE);
+}
+
+void
+vdev_load_log_state(vdev_t *vd, nvlist_t *nv)
+{
+	uint_t c, children;
+	nvlist_t **child;
+	uint64_t val;
+	spa_t *spa = vd->vdev_spa;
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++)
+			vdev_load_log_state(vd->vdev_child[c], child[c]);
+	}
+
+	if (vd->vdev_ops->vdev_op_leaf && nvlist_lookup_uint64(nv,
+	    ZPOOL_CONFIG_OFFLINE, &val) == 0 && val) {
+
+		/*
+		 * It would be nice to call vdev_offline()
+		 * directly but the pool isn't fully loaded and
+		 * the txg threads have not been started yet.
+		 */
+		spa_config_enter(spa, SCL_STATE_ALL, FTAG, RW_WRITER);
+		vd->vdev_offline = val;
+		vdev_reopen(vd->vdev_top);
+		spa_config_exit(spa, SCL_STATE_ALL, FTAG);
+	}
 }

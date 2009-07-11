@@ -2,8 +2,9 @@
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
- * Common Development and Distribution License (the "License").
- * You may not use this file except in compliance with the License.
+ * Common Development and Distribution License, Version 1.0 only
+ * (the "License").  You may not use this file except in compliance
+ * with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -18,16 +19,15 @@
  *
  * CDDL HEADER END
  */
-
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef _SYS_ASM_LINKAGE_H
 #define	_SYS_ASM_LINKAGE_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #include <sys/stack.h>
 #include <sys/trap.h>
@@ -126,17 +126,15 @@ extern "C" {
 
 /*
  * Macro to define weak symbol aliases. These are similar to the ANSI-C
- *	#pragma weak _name = name
+ *	#pragma weak name = _name
  * except a compiler can determine type. The assembler must be told. Hence,
  * the second parameter must be the type of the symbol (i.e.: function,...)
  */
 #define	ANSI_PRAGMA_WEAK(sym, stype)	\
+	.weak	sym; \
+	.type sym, #stype; \
 /* CSTYLED */ \
-	.weak	_/**/sym; \
-/* CSTYLED */ \
-	.type	_/**/sym, #stype; \
-/* CSTYLED */ \
-_/**/sym = sym
+sym	= _/**/sym
 
 /*
  * Like ANSI_PRAGMA_WEAK(), but for unrelated names, as in:

@@ -24,7 +24,7 @@
  * All rights reserved.
  */
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 /*
  * NOTE: this file is compiled into the kernel, cprboot, and savecore.

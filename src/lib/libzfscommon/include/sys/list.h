@@ -26,7 +26,7 @@
 #ifndef	_SYS_LIST_H
 #define	_SYS_LIST_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #include <sys/list_impl.h>
 

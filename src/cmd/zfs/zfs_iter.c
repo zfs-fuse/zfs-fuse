@@ -19,11 +19,9 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
-
-
 
 #include <libintl.h>
 #include <libuutil.h>
@@ -55,17 +53,36 @@ typedef struct zfs_node {
 } zfs_node_t;
 
 typedef struct callback_data {
-	uu_avl_t	*cb_avl;
-	int		cb_recurse;
-	zfs_type_t	cb_types;
-	zfs_sort_column_t *cb_sortcol;
-	zprop_list_t	**cb_proplist;
+	uu_avl_t		*cb_avl;
+	int			cb_flags;
+	zfs_type_t		cb_types;
+	zfs_sort_column_t	*cb_sortcol;
+	zprop_list_t		**cb_proplist;
+	int			cb_depth_limit;
+	int			cb_depth;
+	uint8_t			cb_props_table[ZFS_NUM_PROPS];
 } callback_data_t;
 
 uu_avl_pool_t *avl_pool;
 
 /*
- * Called for each dataset.  If the object the object is of an appropriate type,
+ * Include snaps if they were requested or if this a zfs list where types
+ * were not specified and the "listsnapshots" property is set on this pool.
+ */
+static int
+zfs_include_snapshots(zfs_handle_t *zhp, callback_data_t *cb)
+{
+	zpool_handle_t *zph;
+
+	if ((cb->cb_flags & ZFS_ITER_PROP_LISTSNAPS) == 0)
+		return (cb->cb_types & ZFS_TYPE_SNAPSHOT);
+
+	zph = zfs_get_pool_handle(zhp);
+	return (zpool_get_prop_int(zph, ZPOOL_PROP_LISTSNAPS, NULL));
+}
+
+/*
+ * Called for each dataset.  If the object is of an appropriate type,
  * add it to the avl tree and recurse over any children as necessary.
  */
 static int
@@ -73,11 +90,10 @@ zfs_callback(zfs_handle_t *zhp, void *data)
 {
 	callback_data_t *cb = data;
 	int dontclose = 0;
+	int include_snaps = zfs_include_snapshots(zhp, cb);
 
-	/*
-	 * If this object is of the appropriate type, add it to the AVL tree.
-	 */
-	if (zfs_get_type(zhp) & cb->cb_types) {
+	if ((zfs_get_type(zhp) & cb->cb_types) ||
+	    ((zfs_get_type(zhp) == ZFS_TYPE_SNAPSHOT) && include_snaps)) {
 		uu_avl_index_t idx;
 		zfs_node_t *node = safe_malloc(sizeof (zfs_node_t));
 
@@ -85,10 +101,17 @@ zfs_callback(zfs_handle_t *zhp, void *data)
 		uu_avl_node_init(node, &node->zn_avlnode, avl_pool);
 		if (uu_avl_find(cb->cb_avl, node, cb->cb_sortcol,
 		    &idx) == NULL) {
-			if (cb->cb_proplist &&
-			    zfs_expand_proplist(zhp, cb->cb_proplist) != 0) {
-				free(node);
-				return (-1);
+			if (cb->cb_proplist) {
+				if ((*cb->cb_proplist) &&
+				    !(*cb->cb_proplist)->pl_all)
+					zfs_prune_proplist(zhp,
+					    cb->cb_props_table);
+
+				if (zfs_expand_proplist(zhp, cb->cb_proplist)
+				    != 0) {
+					free(node);
+					return (-1);
+				}
 			}
 			uu_avl_insert(cb->cb_avl, node, idx);
 			dontclose = 1;
@@ -100,12 +123,15 @@ zfs_callback(zfs_handle_t *zhp, void *data)
 	/*
 	 * Recurse if necessary.
 	 */
-	if (cb->cb_recurse) {
+	if (cb->cb_flags & ZFS_ITER_RECURSE &&
+	    ((cb->cb_flags & ZFS_ITER_DEPTH_LIMIT) == 0 ||
+	    cb->cb_depth < cb->cb_depth_limit)) {
+		cb->cb_depth++;
 		if (zfs_get_type(zhp) == ZFS_TYPE_FILESYSTEM)
 			(void) zfs_iter_filesystems(zhp, zfs_callback, data);
-		if (zfs_get_type(zhp) != ZFS_TYPE_SNAPSHOT &&
-		    (cb->cb_types & ZFS_TYPE_SNAPSHOT))
+		if ((zfs_get_type(zhp) != ZFS_TYPE_SNAPSHOT) && include_snaps)
 			(void) zfs_iter_snapshots(zhp, zfs_callback, data);
+		cb->cb_depth--;
 	}
 
 	if (!dontclose)
@@ -312,11 +338,11 @@ zfs_sort(const void *larg, const void *rarg, void *data)
 }
 
 int
-zfs_for_each(int argc, char **argv, boolean_t recurse, zfs_type_t types,
-    zfs_sort_column_t *sortcol, zprop_list_t **proplist, zfs_iter_f callback,
-    void *data, boolean_t args_can_be_paths)
+zfs_for_each(int argc, char **argv, int flags, zfs_type_t types,
+    zfs_sort_column_t *sortcol, zprop_list_t **proplist, int limit,
+    zfs_iter_f callback, void *data)
 {
-	callback_data_t cb;
+	callback_data_t cb = {0};
 	int ret = 0;
 	zfs_node_t *node;
 	uu_avl_walk_t *walk;
@@ -331,9 +357,48 @@ zfs_for_each(int argc, char **argv, boolean_t recurse, zfs_type_t types,
 	}
 
 	cb.cb_sortcol = sortcol;
-	cb.cb_recurse = recurse;
+	cb.cb_flags = flags;
 	cb.cb_proplist = proplist;
 	cb.cb_types = types;
+	cb.cb_depth_limit = limit;
+	/*
+	 * If cb_proplist is provided then in the zfs_handles created  we
+	 * retain only those properties listed in cb_proplist and sortcol.
+	 * The rest are pruned. So, the caller should make sure that no other
+	 * properties other than those listed in cb_proplist/sortcol are
+	 * accessed.
+	 *
+	 * If cb_proplist is NULL then we retain all the properties.  We
+	 * always retain the zoned property, which some other properties
+	 * need (userquota & friends), and the createtxg property, which
+	 * we need to sort snapshots.
+	 */
+	if (cb.cb_proplist && *cb.cb_proplist) {
+		zprop_list_t *p = *cb.cb_proplist;
+
+		while (p) {
+			if (p->pl_prop >= ZFS_PROP_TYPE &&
+			    p->pl_prop < ZFS_NUM_PROPS) {
+				cb.cb_props_table[p->pl_prop] = B_TRUE;
+			}
+			p = p->pl_next;
+		}
+
+		while (sortcol) {
+			if (sortcol->sc_prop >= ZFS_PROP_TYPE &&
+			    sortcol->sc_prop < ZFS_NUM_PROPS) {
+				cb.cb_props_table[sortcol->sc_prop] = B_TRUE;
+			}
+			sortcol = sortcol->sc_next;
+		}
+
+		cb.cb_props_table[ZFS_PROP_ZONED] = B_TRUE;
+		cb.cb_props_table[ZFS_PROP_CREATETXG] = B_TRUE;
+	} else {
+		(void) memset(cb.cb_props_table, B_TRUE,
+		    sizeof (cb.cb_props_table));
+	}
+
 	if ((cb.cb_avl = uu_avl_create(avl_pool, NULL, UU_DEFAULT)) == NULL) {
 		(void) fprintf(stderr,
 		    gettext("internal error: out of memory\n"));
@@ -344,7 +409,7 @@ zfs_for_each(int argc, char **argv, boolean_t recurse, zfs_type_t types,
 		/*
 		 * If given no arguments, iterate over all datasets.
 		 */
-		cb.cb_recurse = 1;
+		cb.cb_flags |= ZFS_ITER_RECURSE;
 		ret = zfs_iter_root(g_zfs, zfs_callback, &cb);
 	} else {
 		int i;
@@ -357,14 +422,14 @@ zfs_for_each(int argc, char **argv, boolean_t recurse, zfs_type_t types,
 		 * can take volumes as well.
 		 */
 		argtype = types;
-		if (recurse) {
+		if (flags & ZFS_ITER_RECURSE) {
 			argtype |= ZFS_TYPE_FILESYSTEM;
 			if (types & ZFS_TYPE_SNAPSHOT)
 				argtype |= ZFS_TYPE_VOLUME;
 		}
 
 		for (i = 0; i < argc; i++) {
-			if (args_can_be_paths) {
+			if (flags & ZFS_ITER_ARGS_CAN_BE_PATHS) {
 				zhp = zfs_path_to_zhandle(g_zfs, argv[i],
 				    argtype);
 			} else {

@@ -26,7 +26,7 @@
 #ifndef	_ACL_COMMON_H
 #define	_ACL_COMMON_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 
 #include <sys/types.h>

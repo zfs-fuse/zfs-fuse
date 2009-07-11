@@ -27,7 +27,7 @@
 #ifndef _SYS_REFSTR_H
 #define	_SYS_REFSTR_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #ifdef	__cplusplus
 extern "C" {

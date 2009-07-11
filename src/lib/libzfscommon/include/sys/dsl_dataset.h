@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -195,7 +195,7 @@ void dsl_dataset_sync(dsl_dataset_t *os, zio_t *zio, dmu_tx_t *tx);
 void dsl_dataset_block_born(dsl_dataset_t *ds, blkptr_t *bp, dmu_tx_t *tx);
 int dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, zio_t *pio,
     dmu_tx_t *tx);
-int dsl_dataset_block_freeable(dsl_dataset_t *ds, uint64_t blk_birth);
+boolean_t dsl_dataset_block_freeable(dsl_dataset_t *ds, uint64_t blk_birth);
 uint64_t dsl_dataset_prev_snap_txg(dsl_dataset_t *ds);
 
 void dsl_dataset_dirty(dsl_dataset_t *ds, dmu_tx_t *tx);
@@ -216,6 +216,8 @@ void dsl_dataset_set_quota_sync(void *arg1, void *arg2, cred_t *cr,
     dmu_tx_t *tx);
 int dsl_dataset_set_reservation(const char *dsname, uint64_t reservation);
 void dsl_dataset_set_flags(dsl_dataset_t *ds, uint64_t flags);
+int64_t dsl_dataset_new_refreservation(dsl_dataset_t *ds, uint64_t reservation,
+    dmu_tx_t *tx);
 
 #ifdef ZFS_DEBUG
 #define	dprintf_ds(ds, fmt, ...) do { \

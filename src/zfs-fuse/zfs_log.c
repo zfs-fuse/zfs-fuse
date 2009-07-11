@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -45,13 +45,33 @@
 #include <sys/spa.h>
 #include <sys/zfs_fuid.h>
 #include <sys/ddi.h>
+#include <sys/dsl_dataset.h>
+
+#define	ZFS_HANDLE_REPLAY(zilog, tx) \
+	if (zilog->zl_replay) { \
+		dsl_dataset_dirty(dmu_objset_ds(zilog->zl_os), tx); \
+		zilog->zl_replayed_seq[dmu_tx_get_txg(tx) & TXG_MASK] = \
+		    zilog->zl_replaying_seq; \
+		return; \
+	}
 
 /*
- * All the functions in this file are used to construct the log entries
- * to record transactions. They allocate * an intent log transaction
- * structure (itx_t) and save within it all the information necessary to
- * possibly replay the transaction. The itx is then assigned a sequence
- * number and inserted in the in-memory list anchored in the zilog.
+ * These zfs_log_* functions must be called within a dmu tx, in one
+ * of 2 contexts depending on zilog->z_replay:
+ *
+ * Non replay mode
+ * ---------------
+ * We need to record the transaction so that if it is committed to
+ * the Intent Log then it can be replayed.  An intent log transaction
+ * structure (itx_t) is allocated and all the information necessary to
+ * possibly replay the transaction is saved in it. The itx is then assigned
+ * a sequence number and inserted in the in-memory list anchored in the zilog.
+ *
+ * Replay mode
+ * -----------
+ * We need to mark the intent log record as replayed in the log header.
+ * This is done in the same transaction as the replay so that they
+ * commit atomically.
  */
 
 int
@@ -231,6 +251,8 @@ zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	if (zilog == NULL)
 		return;
 
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
+
 	/*
 	 * If we have FUIDs present then add in space for
 	 * domains and ACE fuid's if any.
@@ -334,6 +356,8 @@ zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	if (zilog == NULL)
 		return;
 
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
+
 	itx = zil_itx_create(txtype, sizeof (*lr) + namesize);
 	lr = (lr_remove_t *)&itx->itx_lr;
 	lr->lr_doid = dzp->z_id;
@@ -357,6 +381,8 @@ zfs_log_link(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 
 	if (zilog == NULL)
 		return;
+
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
 
 	itx = zil_itx_create(txtype, sizeof (*lr) + namesize);
 	lr = (lr_link_t *)&itx->itx_lr;
@@ -384,6 +410,8 @@ zfs_log_symlink(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 
 	if (zilog == NULL)
 		return;
+
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
 
 	itx = zil_itx_create(txtype, sizeof (*lr) + namesize + linksize);
 	lr = (lr_create_t *)&itx->itx_lr;
@@ -419,6 +447,8 @@ zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	if (zilog == NULL)
 		return;
 
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
+
 	itx = zil_itx_create(txtype, sizeof (*lr) + snamesize + dnamesize);
 	lr = (lr_rename_t *)&itx->itx_lr;
 	lr->lr_sdoid = sdzp->z_id;
@@ -437,9 +467,6 @@ zfs_log_rename(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
  */
 ssize_t zfs_immediate_write_sz = 32768;
 
-#define	ZIL_MAX_LOG_DATA (SPA_MAXBLOCKSIZE - sizeof (zil_trailer_t) - \
-    sizeof (lr_write_t))
-
 void
 zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	znode_t *zp, offset_t off, ssize_t resid, int ioflag)
@@ -451,29 +478,8 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	if (zilog == NULL || zp->z_unlinked)
 		return;
 
-	/*
-	 * Writes are handled in three different ways:
-	 *
-	 * WR_INDIRECT:
-	 *    In this mode, if we need to commit the write later, then the block
-	 *    is immediately written into the file system (using dmu_sync),
-	 *    and a pointer to the block is put into the log record.
-	 *    When the txg commits the block is linked in.
-	 *    This saves additionally writing the data into the log record.
-	 *    There are a few requirements for this to occur:
-	 *	- write is greater than zfs_immediate_write_sz
-	 *	- not using slogs (as slogs are assumed to always be faster
-	 *	  than writing into the main pool)
-	 *	- the write occupies only one block
-	 * WR_COPIED:
-	 *    If we know we'll immediately be committing the
-	 *    transaction (FSYNC or FDSYNC), the we allocate a larger
-	 *    log record here for the data and copy the data in.
-	 * WR_NEED_COPY:
-	 *    Otherwise we don't allocate a buffer, and *if* we need to
-	 *    flush the write later then a buffer is allocated and
-	 *    we retrieve the data using the dmu.
-	 */
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
+
 	slogging = spa_has_slogs(zilog->zl_spa);
 	if (resid > zfs_immediate_write_sz && !slogging && resid <= zp->z_blksz)
 		write_state = WR_INDIRECT;
@@ -503,7 +509,7 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 		    (write_state == WR_COPIED ? len : 0));
 		lr = (lr_write_t *)&itx->itx_lr;
 		if (write_state == WR_COPIED && dmu_read(zp->z_zfsvfs->z_os,
-		    zp->z_id, off, len, lr + 1) != 0) {
+		    zp->z_id, off, len, lr + 1, DMU_READ_NO_PREFETCH) != 0) {
 			kmem_free(itx, offsetof(itx_t, itx_lr) +
 			    itx->itx_lr.lrc_reclen);
 			itx = zil_itx_create(txtype, sizeof (*lr));
@@ -549,6 +555,8 @@ zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 	if (zilog == NULL || zp->z_unlinked)
 		return;
 
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
+
 	itx = zil_itx_create(txtype, sizeof (*lr));
 	lr = (lr_truncate_t *)&itx->itx_lr;
 	lr->lr_foid = zp->z_id;
@@ -577,6 +585,8 @@ zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 
 	if (zilog == NULL || zp->z_unlinked)
 		return;
+
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
 
 	/*
 	 * If XVATTR set, then log record size needs to allow
@@ -643,6 +653,8 @@ zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
 
 	if (zilog == NULL || zp->z_unlinked)
 		return;
+
+	ZFS_HANDLE_REPLAY(zilog, tx); /* exits if replay */
 
 	txtype = (zp->z_zfsvfs->z_version < ZPL_VERSION_FUID) ?
 	    TX_ACL_V0 : TX_ACL;

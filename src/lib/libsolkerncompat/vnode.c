@@ -57,6 +57,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/taskq.h>
 
 #include <sys/ioctl.h>
 /* LINUX BLKGETSIZE64 */
@@ -652,6 +653,25 @@ void vn_rele(vnode_t *vp)
 		vp->v_count--;
 		mutex_exit(&vp->v_lock);
 	}
+}
+
+static void vn_rele_inactive(vnode_t *vp)
+{
+        VOP_INACTIVE(vp, CRED(), NULL);
+}
+
+void vn_rele_async(vnode_t *vp, taskq_t *taskq)
+{
+	VERIFY(vp->v_count > 0);
+	mutex_enter(&vp->v_lock);
+	if (vp->v_count == 1) {
+		mutex_exit(&vp->v_lock);
+		VERIFY(taskq_dispatch(taskq, (task_func_t *)vn_rele_inactive,
+		    vp, TQ_SLEEP) != 0);
+		return;
+	}
+	vp->v_count--;
+	mutex_exit(&vp->v_lock);
 }
 
 void vn_close(vnode_t *vp)

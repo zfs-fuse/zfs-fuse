@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -47,6 +47,10 @@ typedef enum {
 
 #define	ZFS_TYPE_DATASET	\
 	(ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME | ZFS_TYPE_SNAPSHOT)
+
+#define	ZAP_MAXNAMELEN 256
+#define	ZAP_MAXVALUELEN (1024 * 8)
+#define	ZAP_OLDMAXVALUELEN 1024
 
 /*
  * Dataset properties are identified by these constants and must be added to
@@ -105,8 +109,20 @@ typedef enum {
 	ZFS_PROP_USEDDS,
 	ZFS_PROP_USEDCHILD,
 	ZFS_PROP_USEDREFRESERV,
+	ZFS_PROP_USERACCOUNTING,	/* not exposed to the user */
+	ZFS_PROP_STMF_SHAREINFO,	/* not exposed to the user */
 	ZFS_NUM_PROPS
 } zfs_prop_t;
+
+typedef enum {
+	ZFS_PROP_USERUSED,
+	ZFS_PROP_USERQUOTA,
+	ZFS_PROP_GROUPUSED,
+	ZFS_PROP_GROUPQUOTA,
+	ZFS_NUM_USERQUOTA_PROPS
+} zfs_userquota_prop_t;
+
+extern const char *zfs_userquota_prop_prefixes[ZFS_NUM_USERQUOTA_PROPS];
 
 /*
  * Pool properties are identified by these constants and must be added to the
@@ -129,6 +145,7 @@ typedef enum {
 	ZPOOL_PROP_AUTOREPLACE,
 	ZPOOL_PROP_CACHEFILE,
 	ZPOOL_PROP_FAILUREMODE,
+	ZPOOL_PROP_LISTSNAPS,
 	ZPOOL_NUM_PROPS
 } zpool_prop_t;
 
@@ -168,6 +185,7 @@ boolean_t zfs_prop_setonce(zfs_prop_t);
 const char *zfs_prop_to_name(zfs_prop_t);
 zfs_prop_t zfs_name_to_prop(const char *);
 boolean_t zfs_prop_user(const char *);
+boolean_t zfs_prop_userquota(const char *name);
 int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
 int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
 boolean_t zfs_prop_valid_for_type(int, zfs_type_t);
@@ -212,6 +230,9 @@ typedef enum {
 #define	ZFS_DELEG_PERM_GID	"gid"
 #define	ZFS_DELEG_PERM_GROUPS	"groups"
 
+#define	ZFS_SMB_ACL_SRC		"src"
+#define	ZFS_SMB_ACL_TARGET	"target"
+
 typedef enum {
 	ZFS_CANMOUNT_OFF = 0,
 	ZFS_CANMOUNT_ON = 1,
@@ -224,6 +245,13 @@ typedef enum zfs_share_op {
 	ZFS_SHARE_SMB = 2,
 	ZFS_UNSHARE_SMB = 3
 } zfs_share_op_t;
+
+typedef enum zfs_smb_acl_op {
+	ZFS_SMB_ACL_ADD,
+	ZFS_SMB_ACL_REMOVE,
+	ZFS_SMB_ACL_RENAME,
+	ZFS_SMB_ACL_PURGE
+} zfs_smb_acl_op_t;
 
 typedef enum zfs_cache_type {
 	ZFS_CACHE_NONE = 0,
@@ -248,13 +276,17 @@ typedef enum zfs_cache_type {
 #define	SPA_VERSION_11			11ULL
 #define	SPA_VERSION_12			12ULL
 #define	SPA_VERSION_13			13ULL
+#define	SPA_VERSION_14			14ULL
+#define	SPA_VERSION_15			15ULL
+#define	SPA_VERSION_16			16ULL
 /*
  * When bumping up SPA_VERSION, make sure GRUB ZFS understands the on-disk
- * format change. Go to usr/src/grub/grub-0.95/stage2/{zfs-include/, fsys_zfs*},
- * and do the appropriate changes.
+ * format change. Go to usr/src/grub/grub-0.97/stage2/{zfs-include/, fsys_zfs*},
+ * and do the appropriate changes.  Also bump the version number in
+ * usr/src/grub/capability.
  */
-#define	SPA_VERSION			SPA_VERSION_13
-#define	SPA_VERSION_STRING		"13"
+#define	SPA_VERSION			SPA_VERSION_16
+#define	SPA_VERSION_STRING		"16"
 
 /*
  * Symbolic names for the changes that caused a SPA_VERSION switch.
@@ -289,6 +321,9 @@ typedef enum zfs_cache_type {
 #define	SPA_VERSION_DSL_SCRUB		SPA_VERSION_11
 #define	SPA_VERSION_SNAP_PROPS		SPA_VERSION_12
 #define	SPA_VERSION_USED_BREAKDOWN	SPA_VERSION_13
+#define	SPA_VERSION_PASSTHROUGH_X	SPA_VERSION_14
+#define	SPA_VERSION_USERSPACE		SPA_VERSION_15
+#define	SPA_VERSION_STMF_PROP		SPA_VERSION_16
 
 /*
  * ZPL version - rev'd whenever an incompatible on-disk format change
@@ -296,19 +331,21 @@ typedef enum zfs_cache_type {
  * also update the version_table[] and help message in zfs_prop.c.
  *
  * When changing, be sure to teach GRUB how to read the new format!
- * See usr/src/grub/grub-0.95/stage2/{zfs-include/,fsys_zfs*}
+ * See usr/src/grub/grub-0.97/stage2/{zfs-include/,fsys_zfs*}
  */
 #define	ZPL_VERSION_1			1ULL
 #define	ZPL_VERSION_2			2ULL
 #define	ZPL_VERSION_3			3ULL
-#define	ZPL_VERSION			ZPL_VERSION_3
-#define	ZPL_VERSION_STRING		"3"
+#define	ZPL_VERSION_4			4ULL
+#define	ZPL_VERSION			ZPL_VERSION_4
+#define	ZPL_VERSION_STRING		"4"
 
 #define	ZPL_VERSION_INITIAL		ZPL_VERSION_1
 #define	ZPL_VERSION_DIRENT_TYPE		ZPL_VERSION_2
 #define	ZPL_VERSION_FUID		ZPL_VERSION_3
 #define	ZPL_VERSION_NORMALIZATION	ZPL_VERSION_3
 #define	ZPL_VERSION_SYSATTR		ZPL_VERSION_3
+#define	ZPL_VERSION_USERSPACE		ZPL_VERSION_4
 
 /*
  * The following are configuration names used in the nvlist describing a pool's
@@ -346,6 +383,7 @@ typedef enum zfs_cache_type {
 #define	ZPOOL_CONFIG_PHYS_PATH		"phys_path"
 #define	ZPOOL_CONFIG_IS_LOG		"is_log"
 #define	ZPOOL_CONFIG_L2CACHE		"l2cache"
+#define	ZPOOL_CONFIG_SUSPENDED		"suspended"	/* not stored on disk */
 #define	ZPOOL_CONFIG_TIMESTAMP		"timestamp"	/* not stored on disk */
 #define	ZPOOL_CONFIG_BOOTFS		"bootfs"	/* not stored on disk */
 /*
@@ -357,6 +395,7 @@ typedef enum zfs_cache_type {
 #define	ZPOOL_CONFIG_FAULTED		"faulted"
 #define	ZPOOL_CONFIG_DEGRADED		"degraded"
 #define	ZPOOL_CONFIG_REMOVED		"removed"
+#define	ZPOOL_CONFIG_FRU		"fru"
 
 #define	VDEV_TYPE_ROOT			"root"
 #define	VDEV_TYPE_MIRROR		"mirror"
@@ -431,7 +470,6 @@ typedef enum pool_state {
 	POOL_STATE_SPARE,		/* Reserved for hot spare use	*/
 	POOL_STATE_L2CACHE,		/* Level 2 ARC device		*/
 	POOL_STATE_UNINITIALIZED,	/* Internal spa_t state		*/
-	POOL_STATE_IO_FAILURE,		/* Internal pool state		*/
 	POOL_STATE_UNAVAIL,		/* Internal libzfs state	*/
 	POOL_STATE_POTENTIALLY_ACTIVE	/* Internal libzfs state	*/
 } pool_state_t;
@@ -534,6 +572,7 @@ typedef enum zfs_ioc {
 	ZFS_IOC_VDEV_ATTACH,
 	ZFS_IOC_VDEV_DETACH,
 	ZFS_IOC_VDEV_SETPATH,
+	ZFS_IOC_VDEV_SETFRU,
 	ZFS_IOC_OBJSET_STATS,
 	ZFS_IOC_OBJSET_ZPLPROPS,
 	ZFS_IOC_DATASET_LIST_NEXT,
@@ -563,7 +602,11 @@ typedef enum zfs_ioc {
 	ZFS_IOC_GET_FSACL,
 	ZFS_IOC_ISCSI_PERM_CHECK,
 	ZFS_IOC_SHARE,
-	ZFS_IOC_INHERIT_PROP
+	ZFS_IOC_INHERIT_PROP,
+	ZFS_IOC_SMB_ACL,
+	ZFS_IOC_USERSPACE_ONE,
+	ZFS_IOC_USERSPACE_MANY,
+	ZFS_IOC_USERSPACE_UPGRADE
 } zfs_ioc_t;
 
 /*

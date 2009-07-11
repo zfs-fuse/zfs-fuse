@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  *
  *	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T
@@ -29,7 +29,7 @@
 #ifndef _SYS_MNTENT_H
 #define	_SYS_MNTENT_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #ifdef	__cplusplus
 extern "C" {
@@ -41,7 +41,6 @@ extern "C" {
 
 #define	MNTTYPE_ZFS	"fuse"		/* ZFS file system */
 #define	MNTTYPE_UFS	"ufs"		/* Unix file system */
-#define	MNTTYPE_SMBFS	"smbfs"		/* SMBFS file system */
 #define	MNTTYPE_NFS	"nfs"		/* NFS file system */
 #define	MNTTYPE_NFS3	"nfs3"		/* NFS Version 3 file system */
 #define	MNTTYPE_NFS4	"nfs4"		/* NFS Version 4 file system */

@@ -67,5 +67,6 @@ extern int secpolicy_vnode_access(const cred_t *cr, vnode_t *vp, uid_t owner, mo
 extern int secpolicy_vnode_create_gid(const cred_t *cred);
 extern int secpolicy_vnode_owner(const cred_t *cr, uid_t owner);
 extern int secpolicy_xvattr(xvattr_t *, uid_t, cred_t *, vtype_t);
+extern int secpolicy_vnode_chown(const cred_t *, boolean_t);
 
 #endif

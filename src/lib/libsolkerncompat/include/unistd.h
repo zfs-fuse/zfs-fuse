@@ -30,4 +30,6 @@
 #include_next <unistd.h>
 #include <unistd_aux.h>
 
+#include <sys/ioctl.h>
+
 #endif

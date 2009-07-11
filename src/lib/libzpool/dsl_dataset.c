@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -103,6 +103,7 @@ dsl_dataset_block_born(dsl_dataset_t *ds, blkptr_t *bp, dmu_tx_t *tx)
 		return;
 	}
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
+	mutex_enter(&ds->ds_dir->dd_lock);
 	mutex_enter(&ds->ds_lock);
 	delta = parent_delta(ds, used);
 	ds->ds_phys->ds_used_bytes += used;
@@ -114,6 +115,7 @@ dsl_dataset_block_born(dsl_dataset_t *ds, blkptr_t *bp, dmu_tx_t *tx)
 	    compressed, uncompressed, tx);
 	dsl_dir_transfer_space(ds->ds_dir, used - delta,
 	    DD_USED_REFRSRV, DD_USED_HEAD, tx);
+	mutex_exit(&ds->ds_dir->dd_lock);
 }
 
 int
@@ -124,6 +126,7 @@ dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, zio_t *pio,
 	int compressed = BP_GET_PSIZE(bp);
 	int uncompressed = BP_GET_UCSIZE(bp);
 
+	ASSERT(pio != NULL);
 	ASSERT(dmu_tx_is_syncing(tx));
 	/* No block pointer => nothing to free */
 	if (BP_IS_HOLE(bp))
@@ -137,7 +140,7 @@ dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, zio_t *pio,
 		 * dataset.
 		 */
 		err = dsl_free(pio, tx->tx_pool,
-		    tx->tx_txg, bp, NULL, NULL, pio ? ARC_NOWAIT: ARC_WAIT);
+		    tx->tx_txg, bp, NULL, NULL, ARC_NOWAIT);
 		ASSERT(err == 0);
 
 		dsl_dir_diduse_space(tx->tx_pool->dp_mos_dir, DD_USED_HEAD,
@@ -156,9 +159,10 @@ dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, zio_t *pio,
 
 		dprintf_bp(bp, "freeing: %s", "");
 		err = dsl_free(pio, tx->tx_pool,
-		    tx->tx_txg, bp, NULL, NULL, pio ? ARC_NOWAIT : ARC_WAIT);
+		    tx->tx_txg, bp, NULL, NULL, ARC_NOWAIT);
 		ASSERT(err == 0);
 
+		mutex_enter(&ds->ds_dir->dd_lock);
 		mutex_enter(&ds->ds_lock);
 		ASSERT(ds->ds_phys->ds_unique_bytes >= used ||
 		    !DS_UNIQUE_IS_ACCURATE(ds));
@@ -169,6 +173,7 @@ dsl_dataset_block_kill(dsl_dataset_t *ds, blkptr_t *bp, zio_t *pio,
 		    delta, -compressed, -uncompressed, tx);
 		dsl_dir_transfer_space(ds->ds_dir, -used - delta,
 		    DD_USED_REFRSRV, DD_USED_HEAD, tx);
+		mutex_exit(&ds->ds_dir->dd_lock);
 	} else {
 		dprintf_bp(bp, "putting on dead list: %s", "");
 		VERIFY(0 == bplist_enqueue(&ds->ds_deadlist, bp, tx));
@@ -224,7 +229,7 @@ dsl_dataset_prev_snap_txg(dsl_dataset_t *ds)
 	return (MAX(ds->ds_phys->ds_prev_snap_txg, trysnap));
 }
 
-int
+boolean_t
 dsl_dataset_block_freeable(dsl_dataset_t *ds, uint64_t blk_birth)
 {
 	return (blk_birth > dsl_dataset_prev_snap_txg(ds));
@@ -543,6 +548,7 @@ dsl_dataset_own_obj(dsl_pool_t *dp, uint64_t dsobj, int flags, void *owner,
 		return (err);
 	if (!dsl_dataset_tryown(*dsp, DS_MODE_IS_INCONSISTENT(flags), owner)) {
 		dsl_dataset_rele(*dsp, owner);
+		*dsp = NULL;
 		return (EBUSY);
 	}
 	return (0);
@@ -969,6 +975,27 @@ dsl_dataset_destroy(dsl_dataset_t *ds, void *tag)
 		(void) dmu_free_object(os, obj);
 	}
 
+	/*
+	 * We need to sync out all in-flight IO before we try to evict
+	 * (the dataset evict func is trying to clear the cached entries
+	 * for this dataset in the ARC).
+	 */
+	txg_wait_synced(dd->dd_pool, 0);
+
+	/*
+	 * If we managed to free all the objects in open
+	 * context, the user space accounting should be zero.
+	 */
+	if (ds->ds_phys->ds_bp.blk_fill == 0 &&
+	    dmu_objset_userused_enabled(os->os)) {
+		uint64_t count;
+
+		ASSERT(zap_count(os, DMU_USERUSED_OBJECT, &count) != 0 ||
+		    count == 0);
+		ASSERT(zap_count(os, DMU_GROUPUSED_OBJECT, &count) != 0 ||
+		    count == 0);
+	}
+
 	dmu_objset_close(os);
 	if (err != ESRCH)
 		goto out;
@@ -1052,7 +1079,6 @@ dsl_dataset_get_user_ptr(dsl_dataset_t *ds)
 {
 	return (ds->ds_user_ptr);
 }
-
 
 blkptr_t *
 dsl_dataset_get_blkptr(dsl_dataset_t *ds)
@@ -1151,15 +1177,26 @@ struct killarg {
 
 /* ARGSUSED */
 static int
-kill_blkptr(traverse_blk_cache_t *bc, spa_t *spa, void *arg)
+kill_blkptr(spa_t *spa, blkptr_t *bp, const zbookmark_t *zb,
+    const dnode_phys_t *dnp, void *arg)
 {
 	struct killarg *ka = arg;
-	blkptr_t *bp = &bc->bc_blkptr;
 
-	ASSERT3U(bc->bc_errno, ==, 0);
+	if (bp == NULL)
+		return (0);
 
-	ASSERT3U(bp->blk_birth, >, ka->ds->ds_phys->ds_prev_snap_txg);
-	(void) dsl_dataset_block_kill(ka->ds, bp, ka->zio, ka->tx);
+	if ((zb->zb_level == -1ULL && zb->zb_blkid != 0) ||
+	    (zb->zb_object != 0 && dnp == NULL)) {
+		/*
+		 * It's a block in the intent log.  It has no
+		 * accounting, so just free it.
+		 */
+		VERIFY3U(0, ==, dsl_free(ka->zio, ka->tx->tx_pool,
+		    ka->tx->tx_txg, bp, NULL, NULL, ARC_NOWAIT));
+	} else {
+		ASSERT3U(bp->blk_birth, >, ka->ds->ds_phys->ds_prev_snap_txg);
+		(void) dsl_dataset_block_kill(ka->ds, bp, ka->zio, ka->tx);
+	}
 
 	return (0);
 }
@@ -1184,7 +1221,7 @@ dsl_dataset_rollback_check(void *arg1, void *arg2, dmu_tx_t *tx)
 		return (EINVAL);
 
 	/*
-	 * If we made changes this txg, traverse_dsl_dataset won't find
+	 * If we made changes this txg, traverse_dataset won't find
 	 * them.  Try again.
 	 */
 	if (ds->ds_phys->ds_bp.blk_birth >= tx->tx_txg)
@@ -1203,13 +1240,7 @@ dsl_dataset_rollback_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
 
-	/*
-	 * Before the roll back destroy the zil.
-	 */
 	if (ds->ds_user_ptr != NULL) {
-		zil_rollback_destroy(
-		    ((objset_impl_t *)ds->ds_user_ptr)->os_zil, tx);
-
 		/*
 		 * We need to make sure that the objset_impl_t is reopened after
 		 * we do the rollback, otherwise it will have the wrong
@@ -1242,7 +1273,10 @@ dsl_dataset_rollback_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	    ds->ds_phys->ds_deadlist_obj));
 
 	{
-		/* Free blkptrs that we gave birth to */
+		/*
+		 * Free blkptrs that we gave birth to - this covers
+		 * claimed but not played log blocks too.
+		 */
 		zio_t *zio;
 		struct killarg ka;
 
@@ -1251,13 +1285,12 @@ dsl_dataset_rollback_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 		ka.ds = ds;
 		ka.zio = zio;
 		ka.tx = tx;
-		(void) traverse_dsl_dataset(ds, ds->ds_phys->ds_prev_snap_txg,
-		    ADVANCE_POST, kill_blkptr, &ka);
+		(void) traverse_dataset(ds, ds->ds_phys->ds_prev_snap_txg,
+		    TRAVERSE_POST, kill_blkptr, &ka);
 		(void) zio_wait(zio);
 	}
 
-	ASSERT(!(ds->ds_phys->ds_flags & DS_FLAG_UNIQUE_ACCURATE) ||
-	    ds->ds_phys->ds_unique_bytes == 0);
+	ASSERT(!DS_UNIQUE_IS_ACCURATE(ds) || ds->ds_phys->ds_unique_bytes == 0);
 
 	if (ds->ds_prev && ds->ds_prev != ds->ds_dir->dd_pool->dp_origin_snap) {
 		/* Change our contents to that of the prev snapshot */
@@ -1475,7 +1508,7 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		dmu_buf_will_dirty(ds_prev->ds_dbuf, tx);
 		if (after_branch_point &&
 		    ds_prev->ds_phys->ds_next_clones_obj != 0) {
-			VERIFY(0 == zap_remove_int(mos,
+			VERIFY3U(0, ==, zap_remove_int(mos,
 			    ds_prev->ds_phys->ds_next_clones_obj, obj, tx));
 			if (ds->ds_phys->ds_next_snap_obj != 0) {
 				VERIFY(0 == zap_add_int(mos,
@@ -1645,10 +1678,10 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		ka.ds = ds;
 		ka.zio = zio;
 		ka.tx = tx;
-		err = traverse_dsl_dataset(ds, ds->ds_phys->ds_prev_snap_txg,
-		    ADVANCE_POST, kill_blkptr, &ka);
+		err = traverse_dataset(ds, ds->ds_phys->ds_prev_snap_txg,
+		    TRAVERSE_POST, kill_blkptr, &ka);
 		ASSERT3U(err, ==, 0);
-		ASSERT(spa_version(dp->dp_spa) < SPA_VERSION_UNIQUE_ACCURATE ||
+		ASSERT(!DS_UNIQUE_IS_ACCURATE(ds) ||
 		    ds->ds_phys->ds_unique_bytes == 0);
 	}
 
@@ -1942,6 +1975,9 @@ dsl_dataset_fast_stat(dsl_dataset_t *ds, dmu_objset_stats_t *stat)
 	if (ds->ds_phys->ds_next_snap_obj) {
 		stat->dds_is_snapshot = B_TRUE;
 		stat->dds_num_clones = ds->ds_phys->ds_num_children - 1;
+	} else {
+		stat->dds_is_snapshot = B_FALSE;
+		stat->dds_num_clones = 0;
 	}
 
 	/* clone origin is really a dsl_dir thing... */
@@ -1953,6 +1989,8 @@ dsl_dataset_fast_stat(dsl_dataset_t *ds, dmu_objset_stats_t *stat)
 		    ds->ds_dir->dd_phys->dd_origin_obj, FTAG, &ods));
 		dsl_dataset_name(ods, stat->dds_origin);
 		dsl_dataset_drop_ref(ods, FTAG);
+	} else {
+		stat->dds_origin[0] = '\0';
 	}
 	rw_exit(&ds->ds_dir->dd_pool->dp_config_rwlock);
 }
@@ -2193,6 +2231,12 @@ dsl_dataset_rename(char *oldname, const char *newname, boolean_t recursive)
 	err = dsl_dir_open(oldname, FTAG, &dd, &tail);
 	if (err)
 		return (err);
+	/*
+	 * If there are more than 2 references there may be holds
+	 * hanging around that haven't been cleared out yet.
+	 */
+	if (dmu_buf_refcount(dd->dd_dbuf) > 2)
+		txg_wait_synced(dd->dd_pool, 0);
 	if (tail == NULL) {
 		int delta = strlen(newname) - strlen(oldname);
 
@@ -2566,7 +2610,7 @@ snaplist_destroy(list_t *l, boolean_t own)
 {
 	struct promotenode *snap;
 
-	if (!list_link_active(&l->list_head))
+	if (!l || !list_link_active(&l->list_head))
 		return;
 
 	while ((snap = list_tail(l)) != NULL) {
@@ -2832,6 +2876,8 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	    csa->cds->ds_phys->ds_deadlist_obj));
 	VERIFY(0 == bplist_open(&csa->ohds->ds_deadlist, dp->dp_meta_objset,
 	    csa->ohds->ds_phys->ds_deadlist_obj));
+
+	dsl_pool_ds_clone_swapped(csa->ohds, csa->cds, tx);
 }
 
 /*
@@ -3011,11 +3057,7 @@ dsl_dataset_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx)
 	dsl_dataset_t *ds = arg1;
 	uint64_t *reservationp = arg2;
 	uint64_t new_reservation = *reservationp;
-	int64_t delta;
 	uint64_t unique;
-
-	if (new_reservation > INT64_MAX)
-		return (EOVERFLOW);
 
 	if (spa_version(ds->ds_dir->dd_pool->dp_spa) <
 	    SPA_VERSION_REFRESERVATION)
@@ -3033,15 +3075,18 @@ dsl_dataset_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx)
 
 	mutex_enter(&ds->ds_lock);
 	unique = dsl_dataset_unique(ds);
-	delta = MAX(unique, new_reservation) - MAX(unique, ds->ds_reserved);
 	mutex_exit(&ds->ds_lock);
 
-	if (delta > 0 &&
-	    delta > dsl_dir_space_available(ds->ds_dir, NULL, 0, TRUE))
-		return (ENOSPC);
-	if (delta > 0 && ds->ds_quota > 0 &&
-	    new_reservation > ds->ds_quota)
-		return (ENOSPC);
+	if (MAX(unique, new_reservation) > MAX(unique, ds->ds_reserved)) {
+		uint64_t delta = MAX(unique, new_reservation) -
+		    MAX(unique, ds->ds_reserved);
+
+		if (delta > dsl_dir_space_available(ds->ds_dir, NULL, 0, TRUE))
+			return (ENOSPC);
+		if (ds->ds_quota > 0 &&
+		    new_reservation > ds->ds_quota)
+			return (ENOSPC);
+	}
 
 	return (0);
 }
@@ -3059,6 +3104,7 @@ dsl_dataset_set_reservation_sync(void *arg1, void *arg2, cred_t *cr,
 
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
 
+	mutex_enter(&ds->ds_dir->dd_lock);
 	mutex_enter(&ds->ds_lock);
 	unique = dsl_dataset_unique(ds);
 	delta = MAX(0, (int64_t)(new_reservation - unique)) -
@@ -3066,15 +3112,14 @@ dsl_dataset_set_reservation_sync(void *arg1, void *arg2, cred_t *cr,
 	ds->ds_reserved = new_reservation;
 	mutex_exit(&ds->ds_lock);
 
+	dsl_dir_diduse_space(ds->ds_dir, DD_USED_REFRSRV, delta, 0, 0, tx);
+	mutex_exit(&ds->ds_dir->dd_lock);
 	dsl_prop_set_uint64_sync(ds->ds_dir, "refreservation",
 	    new_reservation, cr, tx);
 
-	dsl_dir_diduse_space(ds->ds_dir, DD_USED_REFRSRV, delta, 0, 0, tx);
-
 	spa_history_internal_log(LOG_DS_REFRESERV,
 	    ds->ds_dir->dd_pool->dp_spa, tx, cr, "%lld dataset = %llu",
-	    (longlong_t)new_reservation,
-	    ds->ds_dir->dd_phys->dd_head_dataset_obj);
+	    (longlong_t)new_reservation, ds->ds_object);
 }
 
 int

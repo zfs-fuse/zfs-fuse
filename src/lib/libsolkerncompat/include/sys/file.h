@@ -33,6 +33,8 @@
 #include <sys/vnode.h>
 #include <sys/types.h>
 
+#define	FKIOCTL		0x80000000	/* ioctl addresses are from kernel */
+
 typedef struct file {
 	struct vnode *f_vnode;  /* pointer to vnode structure */
 	offset_t      f_offset; /* read/write character pointer */

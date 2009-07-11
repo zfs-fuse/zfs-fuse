@@ -19,14 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef	_SYS_ARC_H
 #define	_SYS_ARC_H
-
-
 
 #include <sys/zfs_context.h>
 
@@ -50,6 +48,7 @@ arc_done_func_t arc_getbuf_func;
 struct arc_buf {
 	arc_buf_hdr_t		*b_hdr;
 	arc_buf_t		*b_next;
+	krwlock_t		b_lock;
 	void			*b_data;
 	arc_evict_func_t	*b_efunc;
 	void			*b_private;
@@ -69,12 +68,25 @@ typedef enum arc_buf_contents {
 #define	ARC_CACHED	(1 << 4)	/* I/O was already in cache */
 #define	ARC_L2CACHE	(1 << 5)	/* cache in L2ARC */
 
-void arc_space_consume(uint64_t space);
-void arc_space_return(uint64_t space);
+/*
+ * The following breakdows of arc_size exist for kstat only.
+ */
+typedef enum arc_space_type {
+	ARC_SPACE_DATA,
+	ARC_SPACE_HDRS,
+	ARC_SPACE_L2HDRS,
+	ARC_SPACE_OTHER,
+	ARC_SPACE_NUMTYPES
+} arc_space_type_t;
+
+void arc_space_consume(uint64_t space, arc_space_type_t type);
+void arc_space_return(uint64_t space, arc_space_type_t type);
 void *arc_data_buf_alloc(uint64_t space);
 void arc_data_buf_free(void *buf, uint64_t space);
 arc_buf_t *arc_buf_alloc(spa_t *spa, int size, void *tag,
     arc_buf_contents_t type);
+arc_buf_t *arc_loan_buf(spa_t *spa, int size);
+void arc_return_buf(arc_buf_t *buf, void *tag);
 void arc_buf_add_ref(arc_buf_t *buf, void *tag);
 int arc_buf_remove_ref(arc_buf_t *buf, void *tag);
 int arc_buf_size(arc_buf_t *buf);
@@ -87,12 +99,13 @@ int arc_referenced(arc_buf_t *buf);
 
 typedef struct writeprops {
 	dmu_object_type_t wp_type;
-	uint8_t wp_copies;
 	uint8_t wp_level;
+	uint8_t wp_copies;
 	uint8_t wp_dncompress, wp_oscompress;
 	uint8_t wp_dnchecksum, wp_oschecksum;
 } writeprops_t;
 
+void write_policy(spa_t *spa, const writeprops_t *wp, zio_prop_t *zp);
 int arc_read(zio_t *pio, spa_t *spa, blkptr_t *bp, arc_buf_t *pbuf,
     arc_done_func_t *done, void *private, int priority, int zio_flags,
     uint32_t *arc_flags, const zbookmark_t *zb);
@@ -126,6 +139,8 @@ void l2arc_remove_vdev(vdev_t *vd);
 boolean_t l2arc_vdev_present(vdev_t *vd);
 void l2arc_init(void);
 void l2arc_fini(void);
+void l2arc_start(void);
+void l2arc_stop(void);
 
 #ifdef	__cplusplus
 }

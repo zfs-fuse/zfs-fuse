@@ -20,12 +20,14 @@
  */
 
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef	_SYS_ISA_DEFS_H
 #define	_SYS_ISA_DEFS_H
+
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 /*
  * This header file serves to group a set of well known defines and to
@@ -204,9 +206,6 @@
  *	This indicates that the implementation uses a dynamically
  *	linked unix + krtld to form the core kernel image at boot
  *	time, or (in the absence of this symbol) a prelinked kernel image.
- *
- * _OBP
- *	This indicates the firmware interface is OBP.
  */
 
 #ifdef	__cplusplus
@@ -403,7 +402,7 @@ extern "C" {
 #define	_DMA_USES_VIRTADDR
 #define	_NO_FDISK_PRESENT
 #define	_HAVE_TEM_FIRMWARE
-#define	_OBP
+#define	_UNIX_KRTLD
 
 /*
  * The following set of definitions characterize the implementation of
@@ -445,7 +444,7 @@ extern "C" {
 #define	_POINTER_ALIGNMENT		8
 #define	_MAX_ALIGNMENT			16
 
-#define	_LONG_LONG_ALIGNMENT_32		_LONG_LONG_ALIGNMENT
+#define	_LONG_LONG_ALIGNMENT_32		_LONG_LONG_ALIGMENT
 
 /*
  * Define the appropriate "implementation choices"

@@ -19,11 +19,9 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
-
-
 
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
@@ -136,10 +134,6 @@ vdev_cache_evict(vdev_cache_t *vc, vdev_cache_entry_t *ve)
 	ASSERT(ve->ve_fill_io == NULL);
 	ASSERT(ve->ve_data != NULL);
 
-	dprintf("evicting %p, off %llx, LRU %llu, age %lu, hits %u, stale %u\n",
-	    vc, ve->ve_offset, ve->ve_lastused, lbolt - ve->ve_lastused,
-	    ve->ve_hits, ve->ve_missed_update);
-
 	avl_remove(&vc->vc_lastused_tree, ve);
 	avl_remove(&vc->vc_offset_tree, ve);
 	zio_buf_free(ve->ve_data, VCBS);
@@ -170,10 +164,8 @@ vdev_cache_allocate(zio_t *zio)
 	if ((avl_numnodes(&vc->vc_lastused_tree) << zfs_vdev_cache_bshift) >
 	    zfs_vdev_cache_size) {
 		ve = avl_first(&vc->vc_lastused_tree);
-		if (ve->ve_fill_io != NULL) {
-			dprintf("can't evict in %p, still filling\n", vc);
+		if (ve->ve_fill_io != NULL)
 			return (NULL);
-		}
 		ASSERT(ve->ve_hits != 0);
 		vdev_cache_evict(vc, ve);
 	}
@@ -211,23 +203,23 @@ vdev_cache_hit(vdev_cache_t *vc, vdev_cache_entry_t *ve, zio_t *zio)
  * Fill a previously allocated cache entry with data.
  */
 static void
-vdev_cache_fill(zio_t *zio)
+vdev_cache_fill(zio_t *fio)
 {
-	vdev_t *vd = zio->io_vd;
+	vdev_t *vd = fio->io_vd;
 	vdev_cache_t *vc = &vd->vdev_cache;
-	vdev_cache_entry_t *ve = zio->io_private;
-	zio_t *dio;
+	vdev_cache_entry_t *ve = fio->io_private;
+	zio_t *pio;
 
-	ASSERT(zio->io_size == VCBS);
+	ASSERT(fio->io_size == VCBS);
 
 	/*
 	 * Add data to the cache.
 	 */
 	mutex_enter(&vc->vc_lock);
 
-	ASSERT(ve->ve_fill_io == zio);
-	ASSERT(ve->ve_offset == zio->io_offset);
-	ASSERT(ve->ve_data == zio->io_data);
+	ASSERT(ve->ve_fill_io == fio);
+	ASSERT(ve->ve_offset == fio->io_offset);
+	ASSERT(ve->ve_data == fio->io_data);
 
 	ve->ve_fill_io = NULL;
 
@@ -236,20 +228,13 @@ vdev_cache_fill(zio_t *zio)
 	 * any reads that were queued up before the missed update are still
 	 * valid, so we can satisfy them from this line before we evict it.
 	 */
-	for (dio = zio->io_delegate_list; dio; dio = dio->io_delegate_next)
-		vdev_cache_hit(vc, ve, dio);
+	while ((pio = zio_walk_parents(fio)) != NULL)
+		vdev_cache_hit(vc, ve, pio);
 
-	if (zio->io_error || ve->ve_missed_update)
+	if (fio->io_error || ve->ve_missed_update)
 		vdev_cache_evict(vc, ve);
 
 	mutex_exit(&vc->vc_lock);
-
-	while ((dio = zio->io_delegate_list) != NULL) {
-		zio->io_delegate_list = dio->io_delegate_next;
-		dio->io_delegate_next = NULL;
-		dio->io_error = zio->io_error;
-		zio_execute(dio);
-	}
 }
 
 /*
@@ -275,7 +260,7 @@ vdev_cache_read(zio_t *zio)
 	/*
 	 * If the I/O straddles two or more cache blocks, don't cache it.
 	 */
-	if (P2CROSS(zio->io_offset, zio->io_offset + zio->io_size - 1, VCBS))
+	if (P2BOUNDARY(zio->io_offset, zio->io_size, VCBS))
 		return (EXDEV);
 
 	ASSERT(cache_phase + zio->io_size <= VCBS);
@@ -292,9 +277,8 @@ vdev_cache_read(zio_t *zio)
 		}
 
 		if ((fio = ve->ve_fill_io) != NULL) {
-			zio->io_delegate_next = fio->io_delegate_list;
-			fio->io_delegate_list = zio;
 			zio_vdev_io_bypass(zio);
+			zio_add_child(zio, fio);
 			mutex_exit(&vc->vc_lock);
 			VDCSTAT_BUMP(vdc_stat_delegations);
 			return (0);
@@ -304,7 +288,6 @@ vdev_cache_read(zio_t *zio)
 		zio_vdev_io_bypass(zio);
 
 		mutex_exit(&vc->vc_lock);
-		zio_execute(zio);
 		VDCSTAT_BUMP(vdc_stat_hits);
 		return (0);
 	}
@@ -316,15 +299,13 @@ vdev_cache_read(zio_t *zio)
 		return (ENOMEM);
 	}
 
-	fio = zio_vdev_child_io(zio, NULL, zio->io_vd, cache_offset,
+	fio = zio_vdev_delegated_io(zio->io_vd, cache_offset,
 	    ve->ve_data, VCBS, ZIO_TYPE_READ, ZIO_PRIORITY_CACHE_FILL,
-	    ZIO_FLAG_DONT_CACHE | ZIO_FLAG_DONT_PROPAGATE |
-	    ZIO_FLAG_DONT_RETRY | ZIO_FLAG_NOBOOKMARK,
-	    vdev_cache_fill, ve);
+	    ZIO_FLAG_DONT_CACHE, vdev_cache_fill, ve);
 
 	ve->ve_fill_io = fio;
-	fio->io_delegate_list = zio;
 	zio_vdev_io_bypass(zio);
+	zio_add_child(zio, fio);
 
 	mutex_exit(&vc->vc_lock);
 	zio_nowait(fio);

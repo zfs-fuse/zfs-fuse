@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -227,24 +227,11 @@ dsl_dir_namelen(dsl_dir_t *dd)
 	return (result);
 }
 
-int
-dsl_dir_is_private(dsl_dir_t *dd)
-{
-	int rv = FALSE;
-
-	if (dd->dd_parent && dsl_dir_is_private(dd->dd_parent))
-		rv = TRUE;
-	if (dataset_name_hidden(dd->dd_myname))
-		rv = TRUE;
-	return (rv);
-}
-
-
 static int
 getcomponent(const char *path, char *component, const char **nextp)
 {
 	char *p;
-	if (path == NULL)
+	if ((path == NULL) || (path[0] == '\0'))
 		return (ENOENT);
 	/* This would be a good place to reserve some namespace... */
 	p = strpbrk(path, "/@");
@@ -929,13 +916,15 @@ dsl_dir_diduse_space(dsl_dir_t *dd, dd_used_t type,
     int64_t used, int64_t compressed, int64_t uncompressed, dmu_tx_t *tx)
 {
 	int64_t accounted_delta;
+	boolean_t needlock = !MUTEX_HELD(&dd->dd_lock);
 
 	ASSERT(dmu_tx_is_syncing(tx));
 	ASSERT(type < DD_USED_NUM);
 
 	dsl_dir_dirty(dd, tx);
 
-	mutex_enter(&dd->dd_lock);
+	if (needlock)
+		mutex_enter(&dd->dd_lock);
 	accounted_delta = parent_delta(dd, dd->dd_phys->dd_used_bytes, used);
 	ASSERT(used >= 0 || dd->dd_phys->dd_used_bytes >= -used);
 	ASSERT(compressed >= 0 ||
@@ -958,7 +947,8 @@ dsl_dir_diduse_space(dsl_dir_t *dd, dd_used_t type,
 		ASSERT3U(u, ==, dd->dd_phys->dd_used_bytes);
 #endif
 	}
-	mutex_exit(&dd->dd_lock);
+	if (needlock)
+		mutex_exit(&dd->dd_lock);
 
 	if (dd->dd_parent != NULL) {
 		dsl_dir_diduse_space(dd->dd_parent, DD_USED_CHILD,
@@ -973,6 +963,8 @@ void
 dsl_dir_transfer_space(dsl_dir_t *dd, int64_t delta,
     dd_used_t oldtype, dd_used_t newtype, dmu_tx_t *tx)
 {
+	boolean_t needlock = !MUTEX_HELD(&dd->dd_lock);
+
 	ASSERT(dmu_tx_is_syncing(tx));
 	ASSERT(oldtype < DD_USED_NUM);
 	ASSERT(newtype < DD_USED_NUM);
@@ -981,16 +973,17 @@ dsl_dir_transfer_space(dsl_dir_t *dd, int64_t delta,
 		return;
 
 	dsl_dir_dirty(dd, tx);
-	mutex_enter(&dd->dd_lock);
+	if (needlock)
+		mutex_enter(&dd->dd_lock);
 	ASSERT(delta > 0 ?
 	    dd->dd_phys->dd_used_breakdown[oldtype] >= delta :
 	    dd->dd_phys->dd_used_breakdown[newtype] >= -delta);
 	ASSERT(dd->dd_phys->dd_used_bytes >= ABS(delta));
 	dd->dd_phys->dd_used_breakdown[oldtype] -= delta;
 	dd->dd_phys->dd_used_breakdown[newtype] += delta;
-	mutex_exit(&dd->dd_lock);
+	if (needlock)
+		mutex_exit(&dd->dd_lock);
 }
-
 
 static int
 dsl_dir_set_quota_check(void *arg1, void *arg2, dmu_tx_t *tx)
@@ -1071,10 +1064,6 @@ dsl_dir_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx)
 	uint64_t *reservationp = arg2;
 	uint64_t new_reservation = *reservationp;
 	uint64_t used, avail;
-	int64_t delta;
-
-	if (new_reservation > INT64_MAX)
-		return (EOVERFLOW);
 
 	/*
 	 * If we are doing the preliminary check in open context, the
@@ -1085,8 +1074,6 @@ dsl_dir_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx)
 
 	mutex_enter(&dd->dd_lock);
 	used = dd->dd_phys->dd_used_bytes;
-	delta = MAX(used, new_reservation) -
-	    MAX(used, dd->dd_phys->dd_reserved);
 	mutex_exit(&dd->dd_lock);
 
 	if (dd->dd_parent) {
@@ -1096,11 +1083,17 @@ dsl_dir_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx)
 		avail = dsl_pool_adjustedsize(dd->dd_pool, B_FALSE) - used;
 	}
 
-	if (delta > 0 && delta > avail)
-		return (ENOSPC);
-	if (delta > 0 && dd->dd_phys->dd_quota > 0 &&
-	    new_reservation > dd->dd_phys->dd_quota)
-		return (ENOSPC);
+	if (MAX(used, new_reservation) > MAX(used, dd->dd_phys->dd_reserved)) {
+		uint64_t delta = MAX(used, new_reservation) -
+		    MAX(used, dd->dd_phys->dd_reserved);
+
+		if (delta > avail)
+			return (ENOSPC);
+		if (dd->dd_phys->dd_quota > 0 &&
+		    new_reservation > dd->dd_phys->dd_quota)
+			return (ENOSPC);
+	}
+
 	return (0);
 }
 
@@ -1121,13 +1114,13 @@ dsl_dir_set_reservation_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	delta = MAX(used, new_reservation) -
 	    MAX(used, dd->dd_phys->dd_reserved);
 	dd->dd_phys->dd_reserved = new_reservation;
-	mutex_exit(&dd->dd_lock);
 
 	if (dd->dd_parent != NULL) {
 		/* Roll up this additional usage into our ancestors */
 		dsl_dir_diduse_space(dd->dd_parent, DD_USED_CHILD_RSRV,
 		    delta, 0, 0, tx);
 	}
+	mutex_exit(&dd->dd_lock);
 
 	spa_history_internal_log(LOG_DS_RESERVATION, dd->dd_pool->dp_spa,
 	    tx, cr, "%lld dataset = %llu",

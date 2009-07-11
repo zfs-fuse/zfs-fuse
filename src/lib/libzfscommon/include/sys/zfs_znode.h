@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -93,12 +93,15 @@ extern "C" {
 
 /*
  * Special attributes for master node.
+ * "userquota@" and "groupquota@" are also valid (from
+ * zfs_userquota_prop_prefixes[]).
  */
 #define	ZFS_FSID		"FSID"
 #define	ZFS_UNLINKED_SET	"DELETE_QUEUE"
 #define	ZFS_ROOT_OBJ		"ROOT"
 #define	ZPL_VERSION_STR		"VERSION"
 #define	ZFS_FUID_TABLES		"FUID"
+#define	ZFS_SHARES_DIR		"SHARES"
 
 #define	ZFS_MAX_BLOCKSIZE	(SPA_MAXBLOCKSIZE)
 
@@ -184,7 +187,6 @@ typedef struct znode {
 	vnode_t		*z_vnode;
 	uint64_t	z_id;		/* object ID for this znode */
 	kmutex_t	z_lock;		/* znode modification lock */
-	krwlock_t	z_map_lock;	/* page map lock */
 	krwlock_t	z_parent_lock;	/* parent lock for directories */
 	krwlock_t	z_name_lock;	/* "master" lock for dirent locks */
 	zfs_dirlock_t	*z_dirlocks;	/* directory entry lock list */
@@ -261,6 +263,8 @@ typedef struct znode {
 	(&(zfsvfs)->z_hold_mtx[ZFS_OBJ_HASH(obj_num)])
 #define	ZFS_OBJ_HOLD_ENTER(zfsvfs, obj_num) \
 	mutex_enter(ZFS_OBJ_MUTEX((zfsvfs), (obj_num)))
+#define	ZFS_OBJ_HOLD_TRYENTER(zfsvfs, obj_num) \
+	mutex_tryenter(ZFS_OBJ_MUTEX((zfsvfs), (obj_num)))
 #define	ZFS_OBJ_HOLD_EXIT(zfsvfs, obj_num) \
 	mutex_exit(ZFS_OBJ_MUTEX((zfsvfs), (obj_num)))
 
@@ -310,7 +314,6 @@ extern int	zfs_create_op_tables();
 extern int	zfs_sync(vfs_t *vfsp, short flag, cred_t *cr);
 extern dev_t	zfs_cmpldev(uint64_t);
 extern int	zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value);
-extern int	zfs_set_version(const char *name, uint64_t newvers);
 extern int	zfs_get_stats(objset_t *os, nvlist_t *nv);
 extern void	zfs_znode_dmu_fini(znode_t *);
 
@@ -337,6 +340,7 @@ extern void zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
     vsecattr_t *vsecp, zfs_fuid_info_t *fuidp);
 extern void zfs_xvattr_set(znode_t *zp, xvattr_t *xvap);
 extern void zfs_upgrade(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
+extern int zfs_create_share_dir(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 
 /* ZFSFUSE: not needed */
 #if 0

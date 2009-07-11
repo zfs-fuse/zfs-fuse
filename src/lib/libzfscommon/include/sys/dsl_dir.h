@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -107,7 +107,6 @@ int dsl_dir_open_obj(dsl_pool_t *dp, uint64_t ddobj,
     const char *tail, void *tag, dsl_dir_t **);
 void dsl_dir_name(dsl_dir_t *dd, char *buf);
 int dsl_dir_namelen(dsl_dir_t *dd);
-int dsl_dir_is_private(dsl_dir_t *dd);
 uint64_t dsl_dir_create_sync(dsl_pool_t *dp, dsl_dir_t *pds,
     const char *name, dmu_tx_t *tx);
 dsl_checkfunc_t dsl_dir_destroy_check;
@@ -132,6 +131,8 @@ int dsl_dir_rename(dsl_dir_t *dd, const char *newname);
 int dsl_dir_transfer_possible(dsl_dir_t *sdd, dsl_dir_t *tdd, uint64_t space);
 int dsl_dir_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx);
 boolean_t dsl_dir_is_clone(dsl_dir_t *dd);
+void dsl_dir_new_refreservation(dsl_dir_t *dd, struct dsl_dataset *ds,
+    uint64_t reservation, cred_t *cr, dmu_tx_t *tx);
 
 /* internal reserved dir name */
 #define	MOS_DIR_NAME "$MOS"

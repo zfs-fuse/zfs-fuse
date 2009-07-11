@@ -27,7 +27,7 @@
 #ifndef	_SYS_ATOMIC_H
 #define	_SYS_ATOMIC_H
 
-
+/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #include <sys/types.h>
 #include <sys/inttypes.h>

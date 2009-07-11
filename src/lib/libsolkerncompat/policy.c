@@ -558,3 +558,23 @@ secpolicy_vnode_owner(const cred_t *cr, uid_t owner)
 	return (PRIV_POLICY(cr, PRIV_FILE_OWNER, allzone, EPERM, NULL));
 }
 
+/*
+ * Name:	secpolicy_vnode_chown
+ *
+ * Normal:	Determine if subject can chown owner of a file.
+ *
+ * Output:	EPERM - if access denied
+ */
+
+int
+secpolicy_vnode_chown(const cred_t *cred, boolean_t check_self)
+{
+	if (HAS_PRIVILEGE(cred, PRIV_FILE_CHOWN))
+		return (PRIV_POLICY(cred, PRIV_FILE_CHOWN, B_FALSE, EPERM,
+		    NULL));
+	else if (check_self)
+		return (PRIV_POLICY(cred, PRIV_FILE_CHOWN_SELF, B_FALSE, EPERM,
+		    NULL));
+	else
+		return (EPERM);
+}
