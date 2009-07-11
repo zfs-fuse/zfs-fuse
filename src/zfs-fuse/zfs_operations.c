@@ -222,13 +222,14 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 			/* Cache negative entries */
 			error = 0;
 			e.ino = 0;
-			e.entry_timeout = 3600;
+			e.attr_timeout = 86400.0;
+			e.entry_timeout = 86400.0;
 		}
 		goto out;
 	}
 
-	e.attr_timeout = 3600.0;
-	e.entry_timeout = 3600.0;
+	e.attr_timeout = 86400.0;
+	e.entry_timeout = 86400.0;
 
 	if(vp == NULL)
 		goto out;
