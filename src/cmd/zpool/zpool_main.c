@@ -199,7 +199,7 @@ get_usage(zpool_help_t idx) {
 	case HELP_IMPORT:
 		return (gettext("\timport [-d dir] [-D]\n"
 		    "\timport [-o mntopts] [-o property=value] ... \n"
-		    "\t    [-d dir | -c cachefile] [-D] [-f] [-R root] -a\n"
+		    "\t    [-d dir | -c cachefile] [-D] [-f] [-R root] -a [-v]\n"
 		    "\timport [-o mntopts] [-o property=value] ... \n"
 		    "\t    [-d dir | -c cachefile] [-D] [-f] [-R root] "
 		    "<pool | id> [newpool]\n"));
@@ -1573,6 +1573,8 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
  *
  *       -o	Set property=value and/or temporary mount options (without '=').
  *
+ *	 -v	verbose : show the devices names on stdout while doing import -a
+ *
  * The import command scans for pools to import, and import pools based on pool
  * name and GUID.  The pool can also be renamed as part of the import process.
  */
@@ -1599,9 +1601,10 @@ zpool_do_import(int argc, char **argv)
 	boolean_t allow_faulted = B_FALSE;
 	uint64_t pool_state;
 	char *cachefile = NULL;
+	boolean_t verbose = B_FALSE;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":ac:d:DfFo:p:R:")) != -1) {
+	while ((c = getopt(argc, argv, ":ac:d:DfFo:p:R:v")) != -1) {
 		switch (c) {
 		case 'a':
 			do_all = B_TRUE;
@@ -1653,6 +1656,9 @@ zpool_do_import(int argc, char **argv)
 			if (add_prop_list(zpool_prop_to_name(
 			    ZPOOL_PROP_CACHEFILE), "none", &props, B_TRUE))
 				goto error;
+			break;
+		case 'v':
+			verbose = B_TRUE;
 			break;
 		case ':':
 			(void) fprintf(stderr, gettext("missing argument for "
@@ -1739,7 +1745,7 @@ zpool_do_import(int argc, char **argv)
 		 * It's OK to search by guid even if searchguid is 0.
 		 */
 		pools = zpool_find_import_byguid(g_zfs, nsearch, searchdirs,
-		    searchguid);
+		    searchguid, verbose);
 	}
 
 	if (pools == NULL) {

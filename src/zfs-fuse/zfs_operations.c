@@ -213,15 +213,22 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
+	struct fuse_entry_param e = { 0 };
 
 	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
 	if(error)
+	{
+		if (error == ENOENT) {
+			/* Cache negative entries */
+			error = 0;
+			e.ino = 0;
+			e.entry_timeout = 3600;
+		}
 		goto out;
+	}
 
-	struct fuse_entry_param e = { 0 };
-
-	e.attr_timeout = 0.0;
-	e.entry_timeout = 0.0;
+	e.attr_timeout = 3600.0;
+	e.entry_timeout = 3600.0;
 
 	if(vp == NULL)
 		goto out;

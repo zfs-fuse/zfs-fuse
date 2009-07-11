@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <syslog.h>
 
 #include "libsolkerncompat.h"
 #include "zfs_ioctl.h"
@@ -127,7 +128,8 @@ void do_exit()
 	libsolkerncompat_exit();
 }
 
-#define FUSE_OPTIONS "fsname=%s,allow_other,suid,dev"
+/* big_writes added if fuse 2.8 is detected at runtime */
+#define FUSE_OPTIONS "fsname=%s,allow_other,suid,dev" // ,big_writes"
 
 #ifdef DEBUG
 uint32_t mounted = 0;
@@ -160,9 +162,17 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 #endif
 
 	char *fuse_opts;
+	if (fuse_version() <= 27) {
 	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec) == -1) {
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return ENOMEM;
+	}
+	} else {
+	  syslog(LOG_WARNING,"enabling fuse big_writes");
+	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec) == -1) {
+	    VERIFY(do_umount(vfs, B_FALSE) == 0);
+	    return ENOMEM;
+	  }
 	}
 
 	struct fuse_args args = FUSE_ARGS_INIT(0, NULL);

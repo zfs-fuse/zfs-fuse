@@ -786,7 +786,7 @@ zpool_read_label(int fd, nvlist_t **config)
  */
 static nvlist_t *
 zpool_find_import_impl(libzfs_handle_t *hdl, int argc, char **argv,
-    boolean_t active_ok, char *poolname, uint64_t guid)
+    boolean_t active_ok, char *poolname, uint64_t guid, boolean_t verbose)
 {
 	int i;
 	DIR *dirp = NULL;
@@ -860,6 +860,11 @@ zpool_find_import_impl(libzfs_handle_t *hdl, int argc, char **argv,
 			    !S_ISBLK(statbuf.st_mode)))
 				continue;
 
+			if (verbose) {
+			  printf("%s... ",path2);
+			  fflush(stdout);
+			}
+
 			if ((fd = open64(path2, O_RDONLY)) < 0)
 				continue;
 
@@ -873,6 +878,10 @@ zpool_find_import_impl(libzfs_handle_t *hdl, int argc, char **argv,
 
 			if (config != NULL) {
 				boolean_t matched = B_TRUE;
+				if (verbose) {
+				  printf("found\n");
+				  fflush(stdout);
+				}
 
 				if (poolname != NULL) {
 					char *pname;
@@ -896,6 +905,9 @@ zpool_find_import_impl(libzfs_handle_t *hdl, int argc, char **argv,
 				}
 				if (add_config(hdl, &pools, path2, config) != 0)
 					goto error;
+			} else if (verbose) {
+			  printf("nothing\n");
+			  fflush(stdout);
 			}
 		}
 
@@ -937,27 +949,27 @@ error:
 nvlist_t *
 zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv)
 {
-	return (zpool_find_import_impl(hdl, argc, argv, B_FALSE, NULL, 0));
+	return (zpool_find_import_impl(hdl, argc, argv, B_FALSE, NULL, 0, B_FALSE));
 }
 
 nvlist_t *
 zpool_find_import_byname(libzfs_handle_t *hdl, int argc, char **argv,
     char *pool)
 {
-	return (zpool_find_import_impl(hdl, argc, argv, B_FALSE, pool, 0));
+	return (zpool_find_import_impl(hdl, argc, argv, B_FALSE, pool, 0,B_FALSE));
 }
 
 nvlist_t *
 zpool_find_import_byguid(libzfs_handle_t *hdl, int argc, char **argv,
-    uint64_t guid)
+    uint64_t guid, boolean_t verbose)
 {
-	return (zpool_find_import_impl(hdl, argc, argv, B_FALSE, NULL, guid));
+	return (zpool_find_import_impl(hdl, argc, argv, B_FALSE, NULL, guid, verbose));
 }
 
 nvlist_t *
 zpool_find_import_activeok(libzfs_handle_t *hdl, int argc, char **argv)
 {
-	return (zpool_find_import_impl(hdl, argc, argv, B_TRUE, NULL, 0));
+	return (zpool_find_import_impl(hdl, argc, argv, B_TRUE, NULL, 0, B_FALSE));
 }
 
 /*

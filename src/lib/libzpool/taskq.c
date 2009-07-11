@@ -25,6 +25,7 @@
 
 #include <sys/zfs_context.h>
 #include <pthread.h>
+#include <syslog.h>
 
 int taskq_now;
 taskq_t *system_taskq;
@@ -39,6 +40,7 @@ typedef struct task {
 #define	TASKQ_ACTIVE	0x00010000
 
 struct taskq {
+	const char	*name;
 	kmutex_t	tq_lock;
 	krwlock_t	tq_threadlock;
 	kcondvar_t	tq_dispatch_cv;
@@ -66,6 +68,9 @@ task_alloc(taskq_t *tq, int tqflags)
 		if (tq->tq_nalloc >= tq->tq_maxalloc) {
 			if (!(tqflags & KM_SLEEP)) {
 				mutex_enter(&tq->tq_lock);
+				syslog(LOG_WARNING,
+				    "task_alloc failure name %s nalloc %d maxalloc %d",
+				    tq->name,tq->tq_nalloc,tq->tq_maxalloc);
 				return (NULL);
 			}
 			/*
@@ -192,6 +197,7 @@ taskq_create(const char *name, int nthreads, pri_t pri,
 	mutex_init(&tq->tq_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&tq->tq_dispatch_cv, NULL, CV_DEFAULT, NULL);
 	cv_init(&tq->tq_wait_cv, NULL, CV_DEFAULT, NULL);
+	tq->name = name;
 	tq->tq_flags = flags | TASKQ_ACTIVE;
 	tq->tq_active = nthreads;
 	tq->tq_nthreads = nthreads;

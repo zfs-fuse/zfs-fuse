@@ -403,6 +403,9 @@ zfs_secpolicy_send(zfs_cmd_t *zc, cred_t *cr)
 	    ZFS_DELEG_PERM_SEND, cr));
 }
 
+#if 0
+/* Optimized out, lookupname is not defined anywhere so
+ * compliation fails if we don't comment this one out */
 static int
 zfs_secpolicy_deleg_share(zfs_cmd_t *zc, cred_t *cr)
 {
@@ -426,6 +429,7 @@ zfs_secpolicy_deleg_share(zfs_cmd_t *zc, cred_t *cr)
 	return (dsl_deleg_access(zc->zc_name,
 	    ZFS_DELEG_PERM_SHARE, cr));
 }
+#endif
 
 int
 zfs_secpolicy_share(zfs_cmd_t *zc, cred_t *cr)

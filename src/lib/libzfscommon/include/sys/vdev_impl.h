@@ -286,7 +286,7 @@ extern uint64_t vdev_get_rsize(vdev_t *vd);
 /*
  * zdb uses this tunable, so it must be declared here to make lint happy.
  */
-extern int zfs_vdev_cache_size;
+/* extern int zfs_vdev_cache_size; */
 
 #ifdef	__cplusplus
 }

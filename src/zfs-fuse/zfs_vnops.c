@@ -75,6 +75,7 @@
 #include <sys/kidmap.h>
 #include <sys/cred_impl.h>
 #include <sys/attr.h>
+#include "zfsfuse_socket.h"
 
 /*
  * Programming rules.
@@ -715,7 +716,7 @@ again:
 		if (abuf == NULL && n >= max_blksz &&
 		    woff >= zp->z_phys->zp_size &&
 		    P2PHASE(woff, max_blksz) == 0 &&
-		    zp->z_blksz == max_blksz) {
+		    zp->z_blksz == max_blksz && cur_fd >= 0) {
 			size_t cbytes;
 
 			abuf = dmu_request_arcbuf(zp->z_dbuf, max_blksz);

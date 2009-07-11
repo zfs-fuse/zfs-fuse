@@ -43,6 +43,7 @@ uint64_t physmem;
 unsigned long _pagesize;
 unsigned int _pageshift;
 kmem_cache_t *vnode_cache;
+extern void system_taskq_init();
 
 void libsolkerncompat_init()
 {
@@ -71,6 +72,7 @@ void libsolkerncompat_init()
 	vnode_cache = kmem_cache_create("vnode_t", sizeof(vnode_t), 0, NULL, NULL, NULL, NULL, NULL, 0);
 	VERIFY(vnode_cache != NULL);
 
+	system_taskq_init();
 	vfs_init();
 }
 

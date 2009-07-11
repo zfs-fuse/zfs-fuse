@@ -28,6 +28,7 @@
 #include <sys/vdev_impl.h>
 #include <sys/zio.h>
 #include <sys/kstat.h>
+#include <syslog.h>
 
 /*
  * Virtual device read-ahead caching.
@@ -72,9 +73,10 @@
  * track buffer).  At most zfs_vdev_cache_size bytes will be kept in each
  * vdev's vdev_cache.
  */
-int zfs_vdev_cache_max = 1<<14;			/* 16KB */
-int zfs_vdev_cache_size = 10ULL << 20;		/* 10MB */
-int zfs_vdev_cache_bshift = 16;
+/* Cache settings for big_writes, even with fuse 2.7 it can't harm... */
+static int zfs_vdev_cache_max = 1<<16;                        /* 64KB */
+static int zfs_vdev_cache_size = 30ULL << 20;         /* 30MB */
+static int zfs_vdev_cache_bshift = 17;
 
 #define	VCBS (1 << zfs_vdev_cache_bshift)	/* 64KB */
 

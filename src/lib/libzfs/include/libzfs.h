@@ -320,7 +320,7 @@ extern nvlist_t *zpool_find_import_cached(libzfs_handle_t *, const char *,
 extern nvlist_t *zpool_find_import_byname(libzfs_handle_t *, int, char **,
     char *);
 extern nvlist_t *zpool_find_import_byguid(libzfs_handle_t *, int, char **,
-    uint64_t);
+    uint64_t, boolean_t);
 extern nvlist_t *zpool_find_import_activeok(libzfs_handle_t *, int, char **);
 
 /*
