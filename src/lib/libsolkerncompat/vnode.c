@@ -667,7 +667,7 @@ void vn_rele_async(vnode_t *vp, taskq_t *taskq)
 	if (vp->v_count == 1) {
 		mutex_exit(&vp->v_lock);
 		VERIFY(taskq_dispatch(taskq, (task_func_t *)vn_rele_inactive,
-		    vp, TQ_SLEEP) != 0);
+		    vp, UMEM_NOFAIL) != 0);
 		return;
 	}
 	vp->v_count--;

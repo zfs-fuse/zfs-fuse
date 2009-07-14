@@ -41,7 +41,7 @@
 
 boolean_t exit_listener = B_FALSE;
 
-int cmd_ioctl_req(int sock, zfsfuse_cmd_t *cmd)
+static int cmd_ioctl_req(int sock, zfsfuse_cmd_t *cmd)
 {
 	dev_t dev = {0};
 
