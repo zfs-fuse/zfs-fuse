@@ -2509,7 +2509,7 @@ zfs_ioc_snapshot(zfs_cmd_t *zc)
 	if (snapshot_namecheck(zc->zc_value, NULL, NULL) != 0)
 		return (EINVAL);
 
-	if (zc->zc_nvlist_src != (uint64_t)NULL &&
+	if (zc->zc_nvlist_src != 0 &&
 	    (error = get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
 	    zc->zc_iflags, &nvprops)) != 0)
 		return (error);
@@ -2749,7 +2749,7 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 	*tosnap = '\0';
 	tosnap++;
 
-	if (zc->zc_nvlist_src != (uint64_t)NULL &&
+	if (zc->zc_nvlist_src != 0 &&
 	    (error = get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
 	    zc->zc_iflags, &props)) != 0)
 		return (error);
