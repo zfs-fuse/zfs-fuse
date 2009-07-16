@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/errno.h>
+#include <syslog.h>
 #include <sys/uio.h>
 #include <sys/buf.h>
 #include <sys/modctl.h>
@@ -830,6 +831,8 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 	}
 
 	zc->zc_nvlist_dst_size = size;
+	if (error != 0)
+	  syslog(LOG_WARNING,"put_nvlist: error %s",strerror(error));
 	return (error);
 }
 

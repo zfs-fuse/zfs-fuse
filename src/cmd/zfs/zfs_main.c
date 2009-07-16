@@ -2739,7 +2739,11 @@ get_all_datasets(uint_t types, zfs_handle_t ***dslist, size_t *count,
 		(void) fflush(stdout);
 	}
 
-	(void) zfs_iter_root(g_zfs, get_one_dataset, &cb);
+	int ret = zfs_iter_root(g_zfs, get_one_dataset, &cb);
+	if (ret < 0) {
+	  printf("WARNING: get_all_datasets got an error in zfs_iter_root : %s\n",
+	      strerror(ret));
+	}
 
 	*dslist = cb.cb_handles;
 	*count = cb.cb_used;

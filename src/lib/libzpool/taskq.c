@@ -80,6 +80,9 @@ task_alloc(taskq_t *tq, int tqflags)
 			 * the caller.  So, we just delay for one second
 			 * to throttle the allocation rate.
 			 */
+			syslog(LOG_WARNING,
+			    "task_alloc: allocation out of limits, name %s nalloc %d maxalloc %d",
+			    tq->name,tq->tq_nalloc,tq->tq_maxalloc);
 			delay(hz);
 		}
 		t = kmem_alloc(sizeof (task_t), tqflags);
