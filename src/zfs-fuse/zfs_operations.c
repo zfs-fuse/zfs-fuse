@@ -215,6 +215,14 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	zfsfuse_getcred(req, &cred);
 	struct fuse_entry_param e = { 0 };
 
+	e.attr_timeout = 0.0;
+	e.entry_timeout = 0.0;
+	/* Emmanuel: For some reason if entry_timeout is > 0 then fuse seems to
+         * cache the directory and to forget completely about permissions, so if
+	 * you fill the cache with a user which can browse the directory, everyone
+	 * will be able to browse into it after that! Only solution for now :
+	 * set entry_timeout to 0.0 */
+
 	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
 	if(error)
 	{
@@ -222,13 +230,16 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 			/* Cache negative entries */
 			error = 0;
 			e.ino = 0;
-			e.entry_timeout = 86400.0;
+			/* backing out for testing */
+			/* e.attr_timeout = 86400.0;
+			e.entry_timeout = 86400.0; */
 		}
 		goto out;
 	}
 
-	e.attr_timeout = 86400.0;
-	e.entry_timeout = 86400.0;
+	/* backing out for testing */
+	/* e.attr_timeout = 86400.0;
+	e.entry_timeout = 0.0; */
 
 	if(vp == NULL)
 		goto out;
