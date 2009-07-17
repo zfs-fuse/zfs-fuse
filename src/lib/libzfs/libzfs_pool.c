@@ -1170,6 +1170,7 @@ zpool_export_common(zpool_handle_t *zhp, boolean_t force, boolean_t hardforce)
 	zc.zc_cookie = force;
 	zc.zc_guid = hardforce;
 
+	sync();
 	if (zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_POOL_EXPORT, &zc) != 0) {
 		switch (errno) {
 		case EXDEV:

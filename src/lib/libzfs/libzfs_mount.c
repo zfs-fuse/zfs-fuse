@@ -336,6 +336,7 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 
 	/* perform the mount */
 	/* ZFSFUSE */
+	sync();
 	if (zfsfuse_mount(hdl, zfs_get_name(zhp), mountpoint, MS_OPTIONSTR | flags,
 	    MNTTYPE_ZFS, NULL, 0, mntopts, strlen (mntopts)) != 0) {
 		/*

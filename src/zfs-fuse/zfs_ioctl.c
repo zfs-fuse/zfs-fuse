@@ -822,17 +822,23 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 
 	if (size > zc->zc_nvlist_dst_size) {
 		error = ENOMEM;
+		syslog(LOG_WARNING,"put_nvlist: out of memory %d > %d",(unsigned int)size,
+			 (unsigned int)zc->zc_nvlist_dst_size);
 	} else {
 		packed = kmem_alloc(size, KM_SLEEP);
 		VERIFY(nvlist_pack(nvl, &packed, &size, NV_ENCODE_NATIVE,
 		    KM_SLEEP) == 0);
 		error = xcopyout(packed, (void *)(uintptr_t)zc->zc_nvlist_dst, size);
 		kmem_free(packed, size);
+		if (error)
+		  syslog(LOG_WARNING,"put_nvlist: error %s on xcopyout",strerror(error));
 	}
 
-	zc->zc_nvlist_dst_size = size;
-	if (error != 0)
-	  syslog(LOG_WARNING,"put_nvlist: error %s",strerror(error));
+	/* zc->zc_nvlist_dst_size = size; */
+	/* This commented allocation was probably some kind of optimization
+	since this zc is sent to the socket. Except that put_nvlist is sometimes
+	called recursively and in this case we get very fast an out of memory error
+	in this function. Simply commenting out the allocation fixes the problem */
 	return (error);
 }
 
