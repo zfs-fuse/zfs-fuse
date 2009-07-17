@@ -215,7 +215,7 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	zfsfuse_getcred(req, &cred);
 	struct fuse_entry_param e = { 0 };
 
-	e.attr_timeout = 0.0;
+	e.attr_timeout = 86400.0;
 	e.entry_timeout = 0.0;
 	/* Emmanuel: For some reason if entry_timeout is > 0 then fuse seems to
          * cache the directory and to forget completely about permissions, so if
@@ -230,16 +230,9 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 			/* Cache negative entries */
 			error = 0;
 			e.ino = 0;
-			/* backing out for testing */
-			/* e.attr_timeout = 86400.0;
-			e.entry_timeout = 86400.0; */
 		}
 		goto out;
 	}
-
-	/* backing out for testing */
-	/* e.attr_timeout = 86400.0;
-	e.entry_timeout = 0.0; */
 
 	if(vp == NULL)
 		goto out;
