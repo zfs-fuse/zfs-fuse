@@ -215,8 +215,8 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	zfsfuse_getcred(req, &cred);
 	struct fuse_entry_param e = { 0 };
 
-	e.attr_timeout = 86400.0;
-	e.entry_timeout = 86400.0;
+	e.attr_timeout = 86400.0; /* this gives a 40% performance boost in bonnie 0-byte file tests */
+	e.entry_timeout = 86400.0; /* this gives a 10000% performance boost in stat() calls */
 	/* Emmanuel's assessment was wrong.  This stays */
 
 	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
