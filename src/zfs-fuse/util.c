@@ -187,9 +187,9 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	}
 	free(fuse_opts);
 
-	int fd = fuse_mount(dir, &args);
+	struct fuse_chan *ch = fuse_mount(dir, &args);
 
-	if(fd == -1) {
+	if(ch == NULL) {
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return EIO;
 	}
@@ -199,16 +199,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	if(se == NULL) {
 		VERIFY(do_umount(vfs, B_FALSE) == 0); /* ZFSFUSE: FIXME?? */
-		close(fd);
-		fuse_unmount(dir);
-		return EIO;
-	}
-
-	struct fuse_chan *ch = fuse_kern_chan_new(fd);
-	if(ch == NULL) {
-		fuse_session_destroy(se);
-		close(fd);
-		fuse_unmount(dir);
+		fuse_unmount(dir,ch);
 		return EIO;
 	}
 
@@ -216,8 +207,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	if(zfsfuse_newfs(dir, ch) != 0) {
 		fuse_session_destroy(se);
-		close(fd);
-		fuse_unmount(dir);
+		fuse_unmount(dir,ch);
 		return EIO;
 	}
 

@@ -77,7 +77,7 @@ static void zfsfuse_destroy(void *userdata)
 #endif
 }
 
-static void zfsfuse_statfs(fuse_req_t req)
+static void zfsfuse_statfs(fuse_req_t req, fuse_ino_t ino)
 {
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 
@@ -94,6 +94,7 @@ static void zfsfuse_statfs(fuse_req_t req)
 	/* There's a bug somewhere in FUSE, in the kernel or in df(1) where
 	   f_bsize is being used to calculate filesystem size instead of
 	   f_frsize, so we must use that instead */
+	/* Still there with fuse 2.7.4 apparently (you get a size in To so it shows a lot !) */
 	stat.f_bsize = zfs_stat.f_frsize;
 	stat.f_frsize = zfs_stat.f_frsize;
 	stat.f_blocks = zfs_stat.f_blocks;
@@ -435,14 +436,16 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 		fstat.st_ino = entry.dirent.d_ino;
 		fstat.st_mode = 0;
 
-		int dsize = fuse_dirent_size(strlen(entry.dirent.d_name));
+		int dsize = fuse_add_direntry(req, NULL, 0, entry.dirent.d_name, NULL, 0);
 		if(dsize > outbuf_resid)
 			break;
 
-		fuse_add_dirent(outbuf + outbuf_off, entry.dirent.d_name, &fstat, entry.dirent.d_off);
+		outbuf_resid -= dsize;
+		fuse_add_direntry(req, outbuf + outbuf_off, 
+		    dsize, entry.dirent.d_name, &fstat,
+		    entry.dirent.d_off);
 
 		outbuf_off += dsize;
-		outbuf_resid -= dsize;
 		next = entry.dirent.d_off;
 	}
 

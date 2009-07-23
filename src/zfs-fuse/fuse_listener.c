@@ -165,7 +165,7 @@ static void new_fs()
 
 	if(nfds == MAX_FDS) {
 		fprintf(stderr, "Warning: filesystem limit (%i) reached, unmounting..\n", MAX_FILESYSTEMS);
-		fuse_unmount(mntpoint);
+		fuse_unmount(mntpoint,fs.ch);
 		free(mntpoint);
 		return;
 	}
@@ -246,7 +246,7 @@ static void *zfsfuse_listener_loop(void *arg)
 					bufsize = fsinfo[i].bufsize;
 				}
 
-				int res = fuse_chan_receive(fsinfo[i].ch, buf, fsinfo[i].bufsize);
+				int res = fuse_chan_recv(&fsinfo[i].ch, buf, fsinfo[i].bufsize);
 				if(res == -1 || fuse_session_exited(fsinfo[i].se)) {
 					destroy_fs(i);
 					continue;
@@ -318,7 +318,7 @@ int zfsfuse_listener_start()
 
 		fuse_session_exit(fsinfo[i].se);
 		fuse_session_reset(fsinfo[i].se);
-		fuse_unmount(mountpoints[i]);
+		fuse_unmount(mountpoints[i],fsinfo[i].ch);
 		fuse_session_destroy(fsinfo[i].se);
 
 		free(mountpoints[i]);

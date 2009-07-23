@@ -26,7 +26,7 @@
 #ifndef ZFSFUSE_FUSE_H
 #define ZFSFUSE_FUSE_H
 
-#define FUSE_USE_VERSION 25
+#define FUSE_USE_VERSION 26
 
 #include <fuse/fuse_lowlevel.h>
 
