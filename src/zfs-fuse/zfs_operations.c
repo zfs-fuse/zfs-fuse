@@ -216,9 +216,8 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	struct fuse_entry_param e = { 0 };
 
 	e.attr_timeout = 86400.0; /* this gives a 40% performance boost in bonnie 0-byte file tests */
-	e.entry_timeout = 0.0;    /* if you put 86400.0 here, you get a 10000% performance boost 
-	                             in stat() calls, but unfortunately you get a security issue. */
-	/* Emmanuel's assessment was right.  This stays */
+	e.entry_timeout = 86400.0; /* if you put 86400.0 here, you get a 10000% performance boost
+				      in stat() calls, but unfortunately you get a security issue. */
 
 	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
 	if(error)

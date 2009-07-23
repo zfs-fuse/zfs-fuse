@@ -129,7 +129,7 @@ void do_exit()
 }
 
 /* big_writes added if fuse 2.8 is detected at runtime */
-#define FUSE_OPTIONS "fsname=%s,allow_other,suid,dev" // ,big_writes"
+#define FUSE_OPTIONS "fsname=%s,default_permissions,allow_other,suid,dev" // ,big_writes"
 
 #ifdef DEBUG
 uint32_t mounted = 0;
