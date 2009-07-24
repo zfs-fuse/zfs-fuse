@@ -27,9 +27,11 @@
 #include <string.h>
 #include <signal.h>
 #include <getopt.h>
+#include <syslog.h>
 
 #include "util.h"
 #include "fuse_listener.h"
+#include "zfs_operations.h"
 
 static const char *cf_pidfile = NULL;
 static int cf_daemonize = 1;
@@ -66,6 +68,16 @@ static struct option longopts[] = {
 	  &cf_daemonize, /* flag */
 	  0 /* val */
 	},
+	{ "disable-block-cache",
+	  0,
+	  &disable_block_cache,
+	  1
+	},
+	{ "disable-page-cache",
+	  0,
+	  &disable_page_cache,
+	  1
+	},
 	{ "pidfile",
 	  1,
 	  NULL,
@@ -83,23 +95,48 @@ void print_usage(int argc, char *argv[]) {
 	const char *progname = "zfs-fuse";
 	if (argc > 0)
 		progname = argv[0];
-	fprintf(stderr, "Usage: %s [--no-daemon] [-p | --pidfile filename] [-h | --help]\n", progname);
+	fprintf(stderr,
+		"Usage: %s [OPTION]...\n"
+		"Start the ZFS daemon.\n"
+		"\n"
+		"Options:\n"
+		"  -p FILE, --pidfile FILE\n"
+		"			Store the process ID of ZFS in the specified file.\n"
+		"  --no-daemon\n"
+		"			Do not daemonize ZFS.\n"
+		"  --disable-block-cache\n"
+		"			Enable direct I/O for disk operations. Completely\n"
+		"			disables caching reads and writes in the kernel\n"
+		"			block cache.  Breaks mmap() in ZFS datasets too.\n"
+		"  --disable-page-cache\n"
+		"			Disable the page cache for files residing within\n"
+		"			ZFS filesystems.  Not recommended as it slows down\n"
+		"			I/O operations considerably.\n"
+		"  -h, --help\n"
+		"			Show this usage summary.\n"
+		, progname);
 }
 
 static void parse_args(int argc, char *argv[])
 {
 	int retval;
+
+	const char *progname = "zfs-fuse";
+	if (argc > 0)
+		progname = argv[0];
+
 	while ((retval = getopt_long(argc, argv, "-hp:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
 			case '?':
 				print_usage(argc, argv);
-				exit(1);
+				exit(64);
 			case 'p':
 				if (cf_pidfile != NULL) {
+					fprintf(stderr, "%s: you need to specify a file name\n\n", progname);
 					print_usage(argc, argv);
-					exit(1);
+					exit(64);
 				}
 				cf_pidfile = optarg;
 				break;
@@ -107,12 +144,22 @@ static void parse_args(int argc, char *argv[])
 				break; /* flag is not NULL */
 			default:
 				// This should never happen
-				fprintf(stderr, "Internal error: Unrecognized getopt_long return 0x%02x\n", retval);
+				fprintf(stderr, "%s: option not recognized (Unrecognized getopt_long return 0x%02x)\n\n", progname, retval);
 				print_usage(argc, argv);
-				exit(1);
+				exit(64); /* 64 is standard UNIX EX_USAGE */
 				break;
 		}
 	}
+
+	/* we invert the options positively, since they both default to enabled */
+	block_cache = disable_block_cache ? 0 : 1;
+	page_cache = disable_page_cache ? 0 : 1;
+	syslog(LOG_NOTICE,
+		"zfs-fuse caching mechanisms: ARC 1, block cache %d page cache %d", block_cache,page_cache);
+	if (disable_block_cache) /* direct IO enabled */
+		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
+	if (disable_page_cache) /* page cache defeated */
+		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
 }
 
 int main(int argc, char *argv[])
