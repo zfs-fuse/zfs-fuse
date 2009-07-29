@@ -36,6 +36,9 @@
 #include <sys/feature_tests.h>
 #include <sys/types.h>
 
+/* Get the system-specific definition of `struct statfs'.  */
+#include <bits/statvfs.h>
+
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -51,25 +54,24 @@ extern "C" {
 #endif
 #endif /* !defined(_XPG4_2) || defined(__EXTENSIONS__) */
 
-typedef struct statvfs {
-	unsigned long	f_bsize;	/* fundamental file system block size */
-	unsigned long	f_frsize;	/* fragment size */
-	fsblkcnt_t	f_blocks;	/* total blocks of f_frsize on fs */
-	fsblkcnt_t	f_bfree;	/* total free blocks of f_frsize */
-	fsblkcnt_t	f_bavail;	/* free blocks avail to non-superuser */
-	fsfilcnt_t	f_files;	/* total file nodes (inodes) */
-	fsfilcnt_t	f_ffree;	/* total free file nodes */
-	fsfilcnt_t	f_favail;	/* free nodes avail to non-superuser */
-	unsigned long	f_fsid;		/* file system id (dev for now) */
-	char		f_basetype[_FSTYPSZ];	/* target fs type name, */
+#if 1
+typedef struct statvfs64_32 {
+	uint32_t	f_bsize;	/* preferred file system block size */
+	uint32_t	f_frsize;	/* fundamental file system block size */
+	fsblkcnt64_t	f_blocks;	/* total blocks of f_frsize */
+	fsblkcnt64_t	f_bfree;	/* total free blocks of f_frsize */
+	fsblkcnt64_t	f_bavail;	/* free blocks avail to non-superuser */
+	fsfilcnt64_t	f_files;	/* total # of file nodes (inodes) */
+	fsfilcnt64_t	f_ffree;	/* total # of free file nodes */
+	fsfilcnt64_t	f_favail;	/* free nodes avail to non-superuser */
+	uint32_t	f_fsid;		/* file system id (dev for now) */
+	char		f_basetype[FSTYPSZ];	/* target fs type name, */
 						/* null-terminated */
-	unsigned long	f_flag;		/* bit-mask of flags */
-	unsigned long	f_namemax;	/* maximum file name length */
+	uint32_t	f_flag;		/* bit-mask of flags */
+	uint32_t	f_namemax;	/* maximum file name length */
 	char		f_fstr[32];	/* filesystem-specific string */
-#if !defined(_LP64)
-	unsigned long 	f_filler[16];	/* reserved for future expansion */
-#endif
-} statvfs_t;
+	uint32_t	f_filler[16];	/* reserved for future expansion */
+} statvfs64_32_t;
 
 #if defined(_SYSCALL32)
 
@@ -94,6 +96,29 @@ typedef struct statvfs32 {
 } statvfs32_t;
 
 #endif	/* _SYSCALL32 */
+
+typedef struct statvfs64 statvfs64_t;
+
+#else
+typedef struct statvfs {
+	unsigned long	f_bsize;	/* fundamental file system block size */
+	unsigned long	f_frsize;	/* fragment size */
+	fsblkcnt_t	f_blocks;	/* total blocks of f_frsize on fs */
+	fsblkcnt_t	f_bfree;	/* total free blocks of f_frsize */
+	fsblkcnt_t	f_bavail;	/* free blocks avail to non-superuser */
+	fsfilcnt_t	f_files;	/* total file nodes (inodes) */
+	fsfilcnt_t	f_ffree;	/* total free file nodes */
+	fsfilcnt_t	f_favail;	/* free nodes avail to non-superuser */
+	unsigned long	f_fsid;		/* file system id (dev for now) */
+	char		f_basetype[_FSTYPSZ];	/* target fs type name, */
+						/* null-terminated */
+	unsigned long	f_flag;		/* bit-mask of flags */
+	unsigned long	f_namemax;	/* maximum file name length */
+	char		f_fstr[32];	/* filesystem-specific string */
+#if !defined(_LP64)
+	unsigned long 	f_filler[16];	/* reserved for future expansion */
+#endif
+} statvfs_t;
 
 /* transitional large file interface version */
 #if defined(_LARGEFILE64_SOURCE)
@@ -125,24 +150,6 @@ typedef struct statvfs64 {
 #if _LONG_LONG_ALIGNMENT == 8 && _LONG_LONG_ALIGNMENT_32 == 4
 #pragma pack(4)
 #endif
-
-typedef struct statvfs64_32 {
-	uint32_t	f_bsize;	/* preferred file system block size */
-	uint32_t	f_frsize;	/* fundamental file system block size */
-	fsblkcnt64_t	f_blocks;	/* total blocks of f_frsize */
-	fsblkcnt64_t	f_bfree;	/* total free blocks of f_frsize */
-	fsblkcnt64_t	f_bavail;	/* free blocks avail to non-superuser */
-	fsfilcnt64_t	f_files;	/* total # of file nodes (inodes) */
-	fsfilcnt64_t	f_ffree;	/* total # of free file nodes */
-	fsfilcnt64_t	f_favail;	/* free nodes avail to non-superuser */
-	uint32_t	f_fsid;		/* file system id (dev for now) */
-	char		f_basetype[FSTYPSZ];	/* target fs type name, */
-						/* null-terminated */
-	uint32_t	f_flag;		/* bit-mask of flags */
-	uint32_t	f_namemax;	/* maximum file name length */
-	char		f_fstr[32];	/* filesystem-specific string */
-	uint32_t	f_filler[16];	/* reserved for future expansion */
-} statvfs64_32_t;
 
 #if _LONG_LONG_ALIGNMENT == 8 && _LONG_LONG_ALIGNMENT_32 == 4
 #pragma	pack()
@@ -200,6 +207,8 @@ int fstatvfs64(int, statvfs64_t *);
 #endif	/* _LARGEFILE64_SOURCE... */
 #endif	/* defined(__STDC__) */
 #endif	/* !defined(_KERNEL) */
+
+#endif
 
 #ifdef	__cplusplus
 }

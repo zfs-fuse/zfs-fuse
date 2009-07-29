@@ -1557,7 +1557,8 @@ zfs_statvfs(vfs_t *vfsp, struct statvfs64 *statp)
 	 * We have all of 32 characters to stuff a string here.
 	 * Is there anything useful we could/should provide?
 	 */
-	bzero(statp->f_fstr, sizeof (statp->f_fstr));
+	/* f_fstr does not exist at all in linux anyway */
+	/* bzero(statp->f_fstr, sizeof (statp->f_fstr)); */
 
 	ZFS_EXIT(zfsvfs);
 	return (0);
