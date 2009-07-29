@@ -50,6 +50,8 @@
 int disable_block_cache, disable_page_cache;
 /* the logical opposites -- we set them in parse_args() */
 int block_cache, page_cache;
+/* the converted values -- we set them in parse_args() */
+float fuse_attr_timeout, fuse_entry_timeout;
 
 static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
 {
@@ -221,9 +223,10 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	zfsfuse_getcred(req, &cred);
 	struct fuse_entry_param e = { 0 };
 
-	e.attr_timeout = 86400.0; /* this gives a 40% performance boost in bonnie 0-byte file tests */
-	e.entry_timeout = 86400.0; /* if you put 86400.0 here, you get a 10000% performance boost
-				      in stat() calls, but unfortunately you get a security issue. */
+	 /* > 0.0 gives a 40% performance boost in bonnie 0-byte file tests */
+	e.attr_timeout = fuse_attr_timeout;
+	 /* > 0.0 gives you a 10000% performance boost in stat() calls, but unfortunately you get a security issue. */
+	 e.entry_timeout = fuse_entry_timeout;
 
 	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
 	if(error)

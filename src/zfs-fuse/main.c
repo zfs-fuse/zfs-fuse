@@ -28,12 +28,15 @@
 #include <signal.h>
 #include <getopt.h>
 #include <syslog.h>
+#include <stdlib.h>
 
 #include "util.h"
 #include "fuse_listener.h"
 #include "zfs_operations.h"
 
 static const char *cf_pidfile = NULL;
+static const char *cf_fuse_attr_timeout = NULL;
+static const char *cf_fuse_entry_timeout = NULL;
 static int cf_daemonize = 1;
 
 static void exit_handler(int sig)
@@ -83,6 +86,16 @@ static struct option longopts[] = {
 	  NULL,
 	  'p'
 	},
+	{ "attr-timeout",
+	  1,
+	  NULL,
+	  'a'
+	},
+	{ "entry-timeout",
+	  1,
+	  NULL,
+	  'e'
+	},
 	{ "help",
 	  0,
 	  NULL,
@@ -112,6 +125,15 @@ void print_usage(int argc, char *argv[]) {
 		"			Disable the page cache for files residing within\n"
 		"			ZFS filesystems.  Not recommended as it slows down\n"
 		"			I/O operations considerably.\n"
+		"  -a FLOAT, --fuse-attr-timeout FLOAT\n"
+		"			Sets timeout for caching FUSE attributes in kernel.\n"
+		"			Defaults to 0.0.\n"
+		"			Higher values give a 40%% performance boost.\n"
+		"  -e FLOAT, --fuse-entry-timeout FLOAT\n"
+		"			Sets timeout for caching FUSE entries in kernel.\n"
+		"			Defaults to 0.0.\n"
+		"			Higher values give a 10000%% performance boost\n"
+		"			but cause file permission checking security issues.\n"
 		"  -h, --help\n"
 		"			Show this usage summary.\n"
 		, progname);
@@ -120,10 +142,15 @@ void print_usage(int argc, char *argv[]) {
 static void parse_args(int argc, char *argv[])
 {
 	int retval;
+	char * detecterror;
 
 	const char *progname = "zfs-fuse";
 	if (argc > 0)
 		progname = argv[0];
+	
+	/* one sane default a day keeps GDB away - Rudd-O */
+	fuse_attr_timeout = 0.0;
+	fuse_entry_timeout = 0.0;
 
 	while ((retval = getopt_long(argc, argv, "-hp:", longopts, NULL)) != -1) {
 		switch (retval) {
@@ -140,6 +167,34 @@ static void parse_args(int argc, char *argv[])
 				}
 				cf_pidfile = optarg;
 				break;
+			case 'a':
+				if (cf_fuse_attr_timeout != NULL) {
+					fprintf(stderr, "%s: you need to specify an attribute timeout\n\n", progname);
+					print_usage(argc, argv);
+					exit(64);
+				}
+				cf_fuse_attr_timeout = optarg;
+				fuse_attr_timeout = strtof(cf_fuse_attr_timeout,&detecterror);
+				if ((fuse_attr_timeout == 0.0 && detecterror == cf_fuse_attr_timeout) || (fuse_attr_timeout < 0.0)) {
+					fprintf(stderr, "%s: you need to specify a valid, non-zero attribute timeout\n\n", progname);
+					print_usage(argc, argv);
+					exit(64);
+				}
+				break;
+			case 'e':
+				if (cf_fuse_entry_timeout != NULL) {
+					fprintf(stderr, "%s: you need to specify an entry timeout\n\n", progname);
+					print_usage(argc, argv);
+					exit(64);
+				}
+				cf_fuse_entry_timeout = optarg;
+				fuse_entry_timeout = strtof(cf_fuse_entry_timeout,&detecterror);
+				if ((fuse_entry_timeout == 0.0 && detecterror == cf_fuse_entry_timeout) || (fuse_entry_timeout < 0.0)) {
+					fprintf(stderr, "%s: you need to specify a valid, non-zero attribute timeout\n\n", progname);
+					print_usage(argc, argv);
+					exit(64);
+				}
+				break;
 			case 0:
 				break; /* flag is not NULL */
 			default:
@@ -155,11 +210,13 @@ static void parse_args(int argc, char *argv[])
 	block_cache = disable_block_cache ? 0 : 1;
 	page_cache = disable_page_cache ? 0 : 1;
 	syslog(LOG_NOTICE,
-		"zfs-fuse caching mechanisms: ARC 1, block cache %d page cache %d", block_cache,page_cache);
+		"zfs-fuse caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
 	if (disable_block_cache) /* direct IO enabled */
 		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
 	if (disable_page_cache) /* page cache defeated */
 		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
+	syslog(LOG_NOTICE,
+		"zfs-fuse FUSE attribute timeout %f, entry timeout %f", fuse_attr_timeout, fuse_entry_timeout);
 }
 
 int main(int argc, char *argv[])
