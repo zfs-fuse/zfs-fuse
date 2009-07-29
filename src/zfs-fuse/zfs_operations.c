@@ -993,10 +993,18 @@ static int zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, in
 	if(to_set & FUSE_SET_ATTR_UID) {
 		vattr.va_mask |= AT_UID;
 		vattr.va_uid = attr->st_uid;
+		if (vattr.va_uid > MAXUID) {
+			error = EINVAL;
+			goto out;
+		}
 	}
 	if(to_set & FUSE_SET_ATTR_GID) {
 		vattr.va_mask |= AT_GID;
 		vattr.va_gid = attr->st_gid;
+		if (vattr.va_gid > MAXUID) {
+			error = EINVAL;
+			goto out;
+		}
 	}
 	if(to_set & FUSE_SET_ATTR_SIZE) {
 		vattr.va_mask |= AT_SIZE;

@@ -590,12 +590,18 @@ zfs_fuid_create(zfsvfs_t *zfsvfs, uint64_t id, cred_t *cr,
 		};
 		domain = fuidp->z_domain_table[idx -1];
 	} else {
+		/* kidmap_getsidby* functions link to abort, which
+		 * is an extremely bad idea for a daemon which is supposed
+		 * to never die. So we'll just avoid these calls for now */
+		status = EINVAL;
+		/*
 		if (type == ZFS_OWNER || type == ZFS_ACE_USER)
 			status = kidmap_getsidbyuid(crgetzone(cr), id,
 			    &domain, &rid);
 		else
 			status = kidmap_getsidbygid(crgetzone(cr), id,
 			    &domain, &rid);
+				*/
 
 		if (status != 0) {
 			/*
