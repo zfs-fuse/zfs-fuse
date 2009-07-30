@@ -37,6 +37,7 @@
 static const char *cf_pidfile = NULL;
 static const char *cf_fuse_attr_timeout = NULL;
 static const char *cf_fuse_entry_timeout = NULL;
+static const char *cf_fuse_mount_options = NULL;
 static int cf_daemonize = 1;
 
 static void exit_handler(int sig)
@@ -86,15 +87,20 @@ static struct option longopts[] = {
 	  NULL,
 	  'p'
 	},
-	{ "attr-timeout",
+	{ "fuse-attr-timeout",
 	  1,
 	  NULL,
 	  'a'
 	},
-	{ "entry-timeout",
+	{ "fuse-entry-timeout",
 	  1,
 	  NULL,
 	  'e'
+	},
+	{ "fuse-mount-options",
+	  1,
+	  NULL,
+	  'o'
 	},
 	{ "help",
 	  0,
@@ -134,6 +140,9 @@ void print_usage(int argc, char *argv[]) {
 		"			Defaults to 0.0.\n"
 		"			Higher values give a 10000%% performance boost\n"
 		"			but cause file permission checking security issues.\n"
+		"  -o OPT..., --fuse-mount-options OPT,OPT,OPT...\n"
+		"			Sets FUSE mount options for all filesystems.\n"
+		"			Format: comma-separated string of characters.\n"
 		"  -h, --help\n"
 		"			Show this usage summary.\n"
 		, progname);
@@ -151,8 +160,9 @@ static void parse_args(int argc, char *argv[])
 	/* one sane default a day keeps GDB away - Rudd-O */
 	fuse_attr_timeout = 0.0;
 	fuse_entry_timeout = 0.0;
+	fuse_mount_options = "";
 
-	while ((retval = getopt_long(argc, argv, "-hp:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hpae:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -166,6 +176,16 @@ static void parse_args(int argc, char *argv[])
 					exit(64);
 				}
 				cf_pidfile = optarg;
+				break;
+			case 'o':
+				if (cf_fuse_mount_options != NULL) {
+					fprintf(stderr, "%s: you need to specify mount options\n\n", progname);
+					print_usage(argc, argv);
+					exit(64);
+				}
+				cf_fuse_mount_options = optarg;
+				 /* bug here, asprintf result not checked, dunno what action to take if it fails */
+				asprintf(&fuse_mount_options,",%s",optarg);
 				break;
 			case 'a':
 				if (cf_fuse_attr_timeout != NULL) {
@@ -210,13 +230,17 @@ static void parse_args(int argc, char *argv[])
 	block_cache = disable_block_cache ? 0 : 1;
 	page_cache = disable_page_cache ? 0 : 1;
 	syslog(LOG_NOTICE,
-		"zfs-fuse caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
+		"caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
+	syslog(LOG_NOTICE,
+		"FUSE mount options (appended to compiled-in options): %s", fuse_mount_options);
 	if (disable_block_cache) /* direct IO enabled */
 		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
 	if (disable_page_cache) /* page cache defeated */
 		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
 	syslog(LOG_NOTICE,
-		"zfs-fuse FUSE attribute timeout %f, entry timeout %f", fuse_attr_timeout, fuse_entry_timeout);
+		"FUSE caching: attribute timeout %f, entry timeout %f", fuse_attr_timeout, fuse_entry_timeout);
+	if (fuse_entry_timeout > 0.0) /* security bug! */
+		syslog(LOG_WARNING,"FUSE entry timeout > 0 -- expect insecure directory traversal");
 }
 
 int main(int argc, char *argv[])

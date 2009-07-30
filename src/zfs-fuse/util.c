@@ -52,6 +52,8 @@ pthread_t listener_thread;
 
 int num_filesystems;
 
+extern char * fuse_mount_options; /* run-time mount options */
+
 
 extern vfsops_t *zfs_vfsops;
 extern int zfs_vfsinit(int fstype, char *name);
@@ -129,7 +131,8 @@ void do_exit()
 }
 
 /* big_writes added if fuse 2.8 is detected at runtime */
-#define FUSE_OPTIONS "fsname=%s,default_permissions,allow_other,suid,dev" // ,big_writes"
+/* other mount options are added if specified in the command line */
+#define FUSE_OPTIONS "fsname=%s,allow_other,suid,dev%s" // ,big_writes"
 
 #ifdef DEBUG
 uint32_t mounted = 0;
@@ -163,13 +166,13 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	char *fuse_opts;
 	if (fuse_version() <= 27) {
-	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec) == -1) {
+	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec, fuse_mount_options) == -1) {
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return ENOMEM;
 	}
 	} else {
-	  syslog(LOG_WARNING,"enabling fuse big_writes");
-	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec) == -1) {
+	  syslog(LOG_NOTICE,"enabling fuse big_writes");
+	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec, fuse_mount_options) == -1) {
 	    VERIFY(do_umount(vfs, B_FALSE) == 0);
 	    return ENOMEM;
 	  }
