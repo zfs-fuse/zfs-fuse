@@ -52,8 +52,6 @@ pthread_t listener_thread;
 
 int num_filesystems;
 
-extern char * fuse_mount_options; /* run-time mount options */
-
 
 extern vfsops_t *zfs_vfsops;
 extern int zfs_vfsinit(int fstype, char *name);
