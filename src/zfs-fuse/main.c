@@ -162,7 +162,7 @@ static void parse_args(int argc, char *argv[])
 	fuse_entry_timeout = 0.0;
 	fuse_mount_options = "";
 
-	while ((retval = getopt_long(argc, argv, "-hpae:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hpaeo:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -194,6 +194,11 @@ static void parse_args(int argc, char *argv[])
 					exit(64);
 				}
 				cf_fuse_attr_timeout = optarg;
+				if (strcmp(cf_fuse_mount_options,"") == 0) {
+					fprintf(stderr, "%s: empty mount options are not valid\n\n", progname);
+					print_usage(argc, argv);
+					exit(64);
+				}
 				fuse_attr_timeout = strtof(cf_fuse_attr_timeout,&detecterror);
 				if ((fuse_attr_timeout == 0.0 && detecterror == cf_fuse_attr_timeout) || (fuse_attr_timeout < 0.0)) {
 					fprintf(stderr, "%s: you need to specify a valid, non-zero attribute timeout\n\n", progname);
@@ -231,8 +236,8 @@ static void parse_args(int argc, char *argv[])
 	page_cache = disable_page_cache ? 0 : 1;
 	syslog(LOG_NOTICE,
 		"caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
-	syslog(LOG_NOTICE,
-		"FUSE mount options (appended to compiled-in options): %s", fuse_mount_options);
+	if (strcmp(fuse_mount_options,"") != 0) /* extra FUSE mount options */
+		syslog(LOG_NOTICE,"FUSE mount options (appended to compiled-in options): %s", fuse_mount_options);
 	if (disable_block_cache) /* direct IO enabled */
 		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
 	if (disable_page_cache) /* page cache defeated */

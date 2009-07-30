@@ -52,6 +52,7 @@ pthread_t listener_thread;
 
 int num_filesystems;
 
+char * fuse_mount_options;
 
 extern vfsops_t *zfs_vfsops;
 extern int zfs_vfsinit(int fstype, char *name);
@@ -175,7 +176,12 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	    return ENOMEM;
 	  }
 	}
-
+	
+	char *syslogbuf;
+	asprintf(&syslogbuf,"mount options: %s",fuse_opts);
+	syslog(LOG_NOTICE,syslogbuf);
+	free(syslogbuf);
+	
 	struct fuse_args args = FUSE_ARGS_INIT(0, NULL);
 
 	if(fuse_opt_add_arg(&args, "") == -1 ||
