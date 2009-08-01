@@ -683,6 +683,8 @@ dmu_read_uio(objset_t *os, uint64_t object, uio_t *uio, uint64_t size)
 		int tocpy;
 		int bufoff;
 		dmu_buf_t *db = dbp[i];
+		dmu_buf_impl_t *rdb = (dmu_buf_impl_t *)db;
+		rdb->keep_cache = uio->keep_cache;
 
 		ASSERT(size > 0);
 

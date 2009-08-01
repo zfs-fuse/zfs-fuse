@@ -47,10 +47,7 @@
 #define ZFS_MAGIC 0x2f52f5
 
 /* the command-line options */
-int disable_block_cache, disable_page_cache;
-/* the logical opposites -- we set them in parse_args() */
-int block_cache, page_cache;
-/* the converted values -- we set them in parse_args() */
+int block_cache, page_cache, arc_cache;
 float fuse_attr_timeout, fuse_entry_timeout;
 
 static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
@@ -417,6 +414,7 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_fmode = 0;
 	uio.uio_llimit = RLIM64_INFINITY;
+	uio.keep_cache = arc_cache;
 
 	int eofp = 0;
 
@@ -629,7 +627,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	/* by setting these as int directly, we save one CMP operation per file open. */
 	/* but, honestly, we mostly get readability of the code */
 	fi->keep_cache = page_cache;
-	fi->direct_io = disable_block_cache;
+	fi->direct_io = block_cache ? 0 : 1;
 
 	if(flags & FCREAT) {
 		e.attr_timeout = 0.0;
@@ -709,6 +707,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 	iovec.iov_len = sizeof(buffer) - 1;
 	uio.uio_resid = iovec.iov_len;
 	uio.uio_loffset = 0;
+	uio.keep_cache = arc_cache;
 
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
@@ -766,6 +765,7 @@ static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, 
 	iovec.iov_len = size;
 	uio.uio_resid = iovec.iov_len;
 	uio.uio_loffset = off;
+	uio.keep_cache = arc_cache;
 
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
@@ -1117,6 +1117,7 @@ static int zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_fmode = 0;
 	uio.uio_llimit = RLIM64_INFINITY;
+	uio.keep_cache = arc_cache;
 
 	iovec.iov_base = (void *) buf;
 	iovec.iov_len = size;
