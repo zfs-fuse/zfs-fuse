@@ -184,7 +184,12 @@ static void parse_args(int argc, char *argv[])
 					exit(64);
 				}
 				cf_fuse_mount_options = optarg;
-				 /* bug here, asprintf result not checked, dunno what action to take if it fails */
+				if (strcmp(cf_fuse_mount_options,"") == 0) {
+					fprintf(stderr, "%s: empty mount options are not valid\n\n", progname);
+					print_usage(argc, argv);
+					exit(64);
+				}
+				 /* bug here, asprintf result not checked for malloc success, dunno what action to take if it fails */
 				asprintf(&fuse_mount_options,",%s",optarg);
 				break;
 			case 'a':
@@ -194,11 +199,6 @@ static void parse_args(int argc, char *argv[])
 					exit(64);
 				}
 				cf_fuse_attr_timeout = optarg;
-				if (strcmp(cf_fuse_mount_options,"") == 0) {
-					fprintf(stderr, "%s: empty mount options are not valid\n\n", progname);
-					print_usage(argc, argv);
-					exit(64);
-				}
 				fuse_attr_timeout = strtof(cf_fuse_attr_timeout,&detecterror);
 				if ((fuse_attr_timeout == 0.0 && detecterror == cf_fuse_attr_timeout) || (fuse_attr_timeout < 0.0)) {
 					fprintf(stderr, "%s: you need to specify a valid, non-zero attribute timeout\n\n", progname);
