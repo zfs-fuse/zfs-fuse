@@ -1,0 +1,32 @@
+# ZFS FUSE daemon - (c) Chris Samuel 2007
+#
+# This service maintains a ZFS FUSE daemon from the point the system is
+# started until it is shut down again.
+
+# Currently don't start on boot, just use on demand..
+
+#start on runlevel 2
+#start on runlevel 3
+stop on runlevel 0
+stop on runlevel 1
+stop on runlevel 6
+
+stop on shutdown
+
+# Before we shutdown ZFS..
+pre-stop script
+	# Unmount ZFS filesystems (if possible)
+	/usr/local/zfs/zfs umount -a
+	sleep 5
+end script
+
+# After we start ZFS..
+post-start script
+	# Mount ZFS filesystems
+	sleep 2
+	/usr/local/zfs/zfs mount -a
+	sleep 2
+end script
+
+respawn
+exec /usr/local/sbin/zfs-fuse --no-daemon
