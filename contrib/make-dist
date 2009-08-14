@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/bin/bash -x
+
+set -e
 
 version="$1"
 [ -z "$version" ] && {
@@ -13,11 +15,13 @@ version="$1"
 BASE=`basename "$PWD"`
 cd ..
 cp -R "$BASE" "zfs-fuse-$version"
-rm -rf "zfs-fuse-$version/.hg"
-cd "zfs-fuse-$version/src"
+cd "zfs-fuse-$version"
+rm -rf .hg .hgignore .hgtags zfs-fuse*tar.bz2
+cd src
 scons -c
+rm .sconsign.dblite
 cd ../..
 tar cvjf "zfs-fuse-$version.tar.bz2" "zfs-fuse-$version"
 rm -rf "zfs-fuse-$version"
-mv "zfs-$version.tar.bz2" "$BASE"
+mv "zfs-fuse-$version.tar.bz2" "$BASE"
 cd "$BASE"
