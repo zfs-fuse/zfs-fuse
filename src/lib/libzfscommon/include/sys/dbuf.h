@@ -226,7 +226,6 @@ typedef struct dmu_buf_impl {
 	uint8_t db_freed_in_flight;
 
 	uint8_t db_dirtycnt;
-	int keep_cache; // inherited from uio_t when needed
 } dmu_buf_impl_t;
 
 /* Note: the dbuf hash table is exposed only for the mdb module */

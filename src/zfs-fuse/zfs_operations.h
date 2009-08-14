@@ -31,7 +31,8 @@
 extern struct fuse_lowlevel_ops zfs_operations;
 
 /* variables documented in zfs_operations.c */
-extern int block_cache, page_cache, arc_cache;
+extern int disable_block_cache, disable_page_cache;
+extern int block_cache, page_cache;
 extern float fuse_attr_timeout, fuse_entry_timeout;
 
 #endif

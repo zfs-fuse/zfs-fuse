@@ -1511,7 +1511,6 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 	db->db_evict_func = NULL;
 	db->db_immediate_evict = 0;
 	db->db_freed_in_flight = 0;
-	db->keep_cache = 1; // default : normal caching
 
 	if (blkid == DB_BONUS_BLKID) {
 		ASSERT3P(parent, ==, dn->dn_dbuf);
@@ -1843,7 +1842,7 @@ dbuf_rele(dmu_buf_impl_t *db, const void *tag)
 			dbuf_evict(db);
 		} else {
 			VERIFY(arc_buf_remove_ref(db->db_buf, db) == 0);
-			if (!db->keep_cache || !DBUF_IS_CACHEABLE(db))
+			if (!DBUF_IS_CACHEABLE(db))
 				dbuf_clear(db);
 			else
 				mutex_exit(&db->db_mtx);

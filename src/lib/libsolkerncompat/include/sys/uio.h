@@ -102,7 +102,6 @@ typedef struct uio {
 	uint16_t	uio_extflg;	/* extended flags */
 	lloff_t		_uio_limit;	/* u-limit (maximum byte offset) */
 	ssize_t		uio_resid;	/* residual count */
-	int			keep_cache; /* Keep cached data or pass it to fuse */
 } uio_t;
 
 /*

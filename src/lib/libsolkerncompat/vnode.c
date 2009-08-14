@@ -617,7 +617,6 @@ vn_rdwr(
 	uio.uio_segflg = (short)seg;
 	uio.uio_resid = len;
 	uio.uio_llimit = ulimit;
-	uio.keep_cache = 1; 
 
 	(void) VOP_RWLOCK(vp,
 		rw == UIO_WRITE ? V_WRITELOCK_TRUE : V_WRITELOCK_FALSE, NULL);
