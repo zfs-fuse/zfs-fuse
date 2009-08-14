@@ -223,7 +223,7 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	 /* > 0.0 gives a 40% performance boost in bonnie 0-byte file tests */
 	e.attr_timeout = fuse_attr_timeout;
 	 /* > 0.0 gives you a 10000% performance boost in stat() calls, but unfortunately you get a security issue. */
-	 e.entry_timeout = fuse_entry_timeout;
+	e.entry_timeout = fuse_entry_timeout;
 
 	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);
 	if(error)
@@ -629,8 +629,8 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	fi->direct_io = block_cache ? 0 : 1;
 
 	if(flags & FCREAT) {
-		e.attr_timeout = 0.0;
-		e.entry_timeout = 0.0;
+		e.attr_timeout = fuse_attr_timeout;
+		e.entry_timeout = fuse_entry_timeout;
 		e.ino = VTOZ(vp)->z_id;
 		if(e.ino == 3)
 			e.ino = 1;
@@ -830,8 +830,8 @@ static int zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 
 	struct fuse_entry_param e = { 0 };
 
-	e.attr_timeout = 0.0;
-	e.entry_timeout = 0.0;
+	e.attr_timeout = fuse_attr_timeout;
+	e.entry_timeout = fuse_entry_timeout;
 
 	e.ino = VTOZ(vp)->z_id;
 	if(e.ino == 3)
@@ -1196,8 +1196,8 @@ static int zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 
 	struct fuse_entry_param e = { 0 };
 
-	e.attr_timeout = 0.0;
-	e.entry_timeout = 0.0;
+	e.attr_timeout = fuse_attr_timeout;
+	e.entry_timeout = fuse_entry_timeout;
 
 	e.ino = VTOZ(vp)->z_id;
 	if(e.ino == 3)
@@ -1274,8 +1274,8 @@ static int zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent, 
 
 	struct fuse_entry_param e = { 0 };
 
-	e.attr_timeout = 0.0;
-	e.entry_timeout = 0.0;
+	e.attr_timeout = fuse_attr_timeout;
+	e.entry_timeout = fuse_entry_timeout;
 
 	e.ino = VTOZ(vp)->z_id;
 	if(e.ino == 3)
@@ -1459,8 +1459,8 @@ static int zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, co
 
 	struct fuse_entry_param e = { 0 };
 
-	e.attr_timeout = 0.0;
-	e.entry_timeout = 0.0;
+	e.attr_timeout = fuse_attr_timeout;
+	e.entry_timeout = fuse_entry_timeout;
 
 	e.ino = VTOZ(vp)->z_id;
 	if(e.ino == 3)
