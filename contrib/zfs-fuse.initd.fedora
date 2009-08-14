@@ -15,7 +15,6 @@ unset LANG
 ulimit -v unlimited
 ulimit -c unlimited
 ulimit -l unlimited
-ulimit -s unlimited
 
 do_start() {
 	test -x /sbin/zfs-fuse || exit 0

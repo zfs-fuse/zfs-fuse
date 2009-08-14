@@ -1,6 +1,8 @@
+# Release tag is supposed to be 0. for prerelease, X. for serial number in this version and alphatag XXXsvn.
+
 Name:          zfs-fuse
-Version:       0.5.1r414
-Release:       0
+Version:       0.5.1
+Release:       0.0.414svn
 Summary:       A port of ZFS to the FUSE framework for the Linux operating system
 License:       GPL
 Group:         System Environment/Daemons
@@ -57,7 +59,7 @@ scons
 [ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] && rm -rf $RPM_BUILD_ROOT;
 mkdir -p $RPM_BUILD_ROOT%_sbindir
 mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/init.d/
-install -m755 contrib/%{name}.initd $RPM_BUILD_ROOT%{_sysconfdir}/init.d/%{name}
+install -m755 contrib/%{name}.initd.fedora $RPM_BUILD_ROOT%{_sysconfdir}/init.d/%{name}
 ln -s %{_sysconfdir}/init.d/%{name} $RPM_BUILD_ROOT%_sbindir/rc%{name}
 cd src
 scons install install_dir=$RPM_BUILD_ROOT%_sbindir
@@ -77,6 +79,10 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %{_sbindir}/zfs-fuse
 
 %changelog
+* Fri Aug 14 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.5.1-0.0.414svn
+- Renamed version / release to Fedora versioning policy (compatible with all RPM distros)
+- Used Fedora init script (more reliable, performs more checks)
+
 * Fri Aug 14 2009 Lenz Grimmer <lenz@grimmer.com>
 - Updated to version 0.5.1r414 (hg snapshot taken from http://git.rudd-o.com/zfs/)
 * Mon Dec 15 2008 Lenz Grimmer <lenz@grimmer.com>
