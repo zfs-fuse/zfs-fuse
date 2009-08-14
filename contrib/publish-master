@@ -1,0 +1,4 @@
+#!/bin/bash
+
+rsync -avz --delete --delete-excluded --exclude=*~ --exclude=*.o --exclude=*.a . rudd-o.com:/var/www/vhosts/git.rudd-o.com/zfs/
+

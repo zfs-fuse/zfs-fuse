@@ -1,0 +1,19 @@
+#!/bin/bash
+
+version="$1"
+[ -z "$version" ] && {
+	version=`grep Version zfs-fuse.spec | awk ' { print $2 } '`
+	echo $version deduced from specfile
+}
+[ -z "$version" ] && {
+	echo "Could not determine version from specfile"
+	exit 1
+}
+
+BASE=`basename "$PWD"`
+cd ..
+cp -R "$BASE" "zfs-fuse-$version"
+tar cvjf "zfs-fuse-$version.tar.bz2" "zfs-fuse-$version"
+rm -rf "zfs-fuse-$version"
+mv "zfs-$version.tar.bz2" "$BASE"
+cd "$BASE"
