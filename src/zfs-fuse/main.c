@@ -34,6 +34,7 @@
 #include "fuse_listener.h"
 #include "zfs_operations.h"
 
+extern uint64_t max_arc_size; // defined in arc.c
 static const char *cf_pidfile = NULL;
 static const char *cf_fuse_attr_timeout = NULL;
 static const char *cf_fuse_entry_timeout = NULL;
@@ -89,6 +90,11 @@ static struct option longopts[] = {
 	  NULL,
 	  'p'
 	},
+	{ "max-arc-size",
+		1,
+		NULL,
+		'm'
+	},
 	{ "fuse-attr-timeout",
 	  1,
 	  NULL,
@@ -142,6 +148,9 @@ void print_usage(int argc, char *argv[]) {
 		"			Defaults to 0.0.\n"
 		"			Higher values give a 10000%% performance boost\n"
 		"			but cause file permission checking security issues.\n"
+		"  -m MB, --max-arc-size MB\n"
+		"			Forces the maximum ARC size (in megabytes).\n"
+		"			Range: 16 to 16384.\n"
 		"  -o OPT..., --fuse-mount-options OPT,OPT,OPT...\n"
 		"			Sets FUSE mount options for all filesystems.\n"
 		"			Format: comma-separated string of characters.\n"
@@ -164,7 +173,7 @@ static void parse_args(int argc, char *argv[])
 	fuse_entry_timeout = 0.0;
 	fuse_mount_options = "";
 
-	while ((retval = getopt_long(argc, argv, "-hp:a:e:o:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:o:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -217,10 +226,23 @@ static void parse_args(int argc, char *argv[])
 				cf_fuse_entry_timeout = optarg;
 				fuse_entry_timeout = strtof(cf_fuse_entry_timeout,&detecterror);
 				if ((fuse_entry_timeout == 0.0 && detecterror == cf_fuse_entry_timeout) || (fuse_entry_timeout < 0.0)) {
-					fprintf(stderr, "%s: you need to specify a valid, non-zero attribute timeout\n\n", progname);
+					fprintf(stderr, "%s: you need to specify a valid, non-zero entry timeout\n\n", progname);
 					print_usage(argc, argv);
 					exit(64);
 				}
+				break;
+			case 'm':
+				if (!optarg) {
+					fprintf(stderr,"%s: you need to specify a maximum ARC size\n\n",progname);
+					exit(64);
+				}
+				max_arc_size = strtol(optarg,&detecterror,10);
+				if ((max_arc_size == 0 && detecterror == optarg) || (max_arc_size < 16) || (max_arc_size > 16384)) {
+					fprintf(stderr, "%s: you need to specify a valid, in-range integer for the maximum ARC size\n\n", progname);
+					print_usage(argc, argv);
+					exit(64);
+				}
+				max_arc_size = max_arc_size<<20;
 				break;
 			case 0:
 				break; /* flag is not NULL */
@@ -236,18 +258,28 @@ static void parse_args(int argc, char *argv[])
 	/* we invert the options positively, since they both default to enabled */
 	block_cache = cf_disable_block_cache ? 0 : 1;
 	page_cache = cf_disable_page_cache ? 0 : 1;
-	syslog(LOG_NOTICE,
-		"caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
-	if (strcmp(fuse_mount_options,"") != 0) /* extra FUSE mount options */
+
+	/* notice about caching mechanisms */
+	syslog(LOG_NOTICE,"caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
+
+	/* notice about ARC size */
+	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: %ld MiB", max_arc_size>>20);
+	else 			syslog(LOG_NOTICE,"ARC caching: maximum ARC size: compiled-in default");
+
+	/* notice about FUSE caching tunables */
+	syslog(LOG_NOTICE, "FUSE caching: attribute timeout %f, entry timeout %f", fuse_attr_timeout, fuse_entry_timeout);
+
+	 /* notice about extra FUSE mount options */
+	if (strcmp(fuse_mount_options,"") != 0)
 		syslog(LOG_NOTICE,"FUSE mount options (appended to compiled-in options): %s", fuse_mount_options);
+	
 	if (!block_cache) /* direct IO enabled */
 		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
 	if (!page_cache) /* page cache defeated */
 		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
-	syslog(LOG_NOTICE,
-		"FUSE caching: attribute timeout %f, entry timeout %f", fuse_attr_timeout, fuse_entry_timeout);
 	if (fuse_entry_timeout > 0.0) /* security bug! */
 		syslog(LOG_WARNING,"FUSE entry timeout > 0 -- expect insecure directory traversal");
+	
 }
 
 int main(int argc, char *argv[])

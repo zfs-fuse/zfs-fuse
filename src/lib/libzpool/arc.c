@@ -133,6 +133,7 @@
 #endif
 #include <sys/callb.h>
 #include <sys/kstat.h>
+#include <syslog.h>
 
 static kmutex_t		arc_reclaim_thr_lock;
 static kcondvar_t	arc_reclaim_thr_cv;	/* used to signal reclaim thr */
@@ -567,6 +568,7 @@ uint64_t l2arc_feed_min_ms = L2ARC_FEED_MIN_MS;	/* min interval milliseconds */
 boolean_t l2arc_noprefetch = B_TRUE;		/* don't cache prefetch bufs */
 boolean_t l2arc_feed_again = B_TRUE;		/* turbo warmup */
 boolean_t l2arc_norw = B_TRUE;			/* no reads during writes */
+uint64_t max_arc_size = 0;
 
 /*
  * L2ARC Internals
@@ -1890,6 +1892,11 @@ arc_shrink(void)
 static int
 arc_reclaim_needed(void)
 {
+	static int counter;
+	if (counter++ > 500) {
+		counter = 0;
+		return 1;
+	}
 #if 0
 	uint64_t extra;
 
@@ -3492,12 +3499,23 @@ arc_init(void)
 
 	/* set min cache to 16 MB */
 	arc_c_min = 16<<20;
+	if (max_arc_size) {
+		if (max_arc_size < arc_c_min) {
+			syslog(LOG_WARNING,"max_arc_size too small (%ld bytes), using arc_c_min (%ld bytes)",max_arc_size,arc_c_min);
+			arc_c_max = arc_c_min;
+		} else {
+			arc_c_max = max_arc_size;
+		}
+	} else {
 #ifdef _KERNEL
 	/* set max cache to ZFSFUSE_MAX_ARCSIZE */
 	arc_c_max = ZFSFUSE_MAX_ARCSIZE;
 #else
 	arc_c_max = 64<<20;
 #endif
+	}
+	syslog(LOG_NOTICE,"ARC setup: min ARC size set to %ld bytes",arc_c_min);
+	syslog(LOG_NOTICE,"ARC setup: max ARC size set to %ld bytes",arc_c_max);
 
 	/*
 	 * Allow the tunables to override our calculations if they are
