@@ -51,6 +51,7 @@ Among others (variable sector sizes, adaptive endianness, ...)
 
 %build
 cd src
+scons -c
 scons
 
 %install
