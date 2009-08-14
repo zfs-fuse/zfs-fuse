@@ -2,7 +2,7 @@
 
 Name:          zfs-fuse
 Version:       0.5.1
-Release:       0.0.418svn
+Release:       0.0.425svn
 Summary:       A port of ZFS to the FUSE framework for the Linux operating system
 License:       GPL
 Group:         System Environment/Daemons
