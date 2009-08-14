@@ -2,14 +2,13 @@
 
 Name:          zfs-fuse
 Version:       0.5.1
-Release:       0.0.414svn
+Release:       0.0.418svn
 Summary:       A port of ZFS to the FUSE framework for the Linux operating system
 License:       GPL
 Group:         System Environment/Daemons
 Packager:      Lenz Grimmer <lenz@grimmer.com>
 URL:           http://www.wizy.org/wiki/ZFS_on_FUSE
 Source0:       %{name}-%{version}.tar.bz2
-Patch:        %{name}.patch
 BuildRoot:     %{_tmppath}/%{name}-%{version}-root
 BuildRequires: fuse-devel libaio-devel zlib-devel scons
 
@@ -49,7 +48,6 @@ Among others (variable sector sizes, adaptive endianness, ...)
 
 %prep
 %setup -q 
-%patch -p1
 
 %build
 cd src
