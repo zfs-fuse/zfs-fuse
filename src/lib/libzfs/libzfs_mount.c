@@ -76,6 +76,8 @@
 #include <sys/mntent.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include <libzfs.h>
 
@@ -376,23 +378,33 @@ unmount_one(libzfs_handle_t *hdl, const char *mountpoint, int flags)
 {
 	ASSERT((flags & ~MS_FORCE) == 0);
 
-	char *cmd;
-	int res_print;
+	int ret = 0;
+	
+	pid_t umountpid = fork();
+	
+	if (umountpid == -1) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "umount failed: fork() failed"));
+		goto error;
+	}
+	
+	if (umountpid) {
+		/* parent, we wait */
+		umountpid = waitpid(umountpid,&ret,0);
+	}
+	else{
+		/* child, we umount */
+		if (flags & MS_FORCE) execlp("umount","umount","-l",mountpoint,NULL);
+		else execlp("umount","umount",mountpoint,NULL);
+		/* we do not reach this line */
+	}
 
-	if(flags & MS_FORCE)
-		res_print = asprintf(&cmd, "umount -l %s", mountpoint);
-	else
-		res_print = asprintf(&cmd, "umount %s", mountpoint);
-
-	if(res_print == -1) {
-		zfs_error_aux(hdl, strerror(ENOMEM));
+	if (umountpid == -1) {
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "umount failed: waitpid() failed"));
 		goto error;
 	}
 
-	int ret = system(cmd);
-	free(cmd);
 	if (ret != 0) {
-		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "umount failed"));
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "umount failed: umount child process failed"));
 		goto error;
 	}
 
