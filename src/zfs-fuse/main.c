@@ -38,6 +38,8 @@ static const char *cf_pidfile = NULL;
 static const char *cf_fuse_attr_timeout = NULL;
 static const char *cf_fuse_entry_timeout = NULL;
 static const char *cf_fuse_mount_options = NULL;
+static int cf_disable_block_cache = 0;
+static int cf_disable_page_cache = 0;
 static int cf_daemonize = 1;
 
 static void exit_handler(int sig)
@@ -74,12 +76,12 @@ static struct option longopts[] = {
 	},
 	{ "disable-block-cache",
 	  0,
-	  &disable_block_cache,
+	  &cf_disable_block_cache,
 	  1
 	},
 	{ "disable-page-cache",
 	  0,
-	  &disable_page_cache,
+	  &cf_disable_page_cache,
 	  1
 	},
 	{ "pidfile",
@@ -162,7 +164,7 @@ static void parse_args(int argc, char *argv[])
 	fuse_entry_timeout = 0.0;
 	fuse_mount_options = "";
 
-	while ((retval = getopt_long(argc, argv, "-hpaeo:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hp:a:e:o:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -232,15 +234,15 @@ static void parse_args(int argc, char *argv[])
 	}
 
 	/* we invert the options positively, since they both default to enabled */
-	block_cache = disable_block_cache ? 0 : 1;
-	page_cache = disable_page_cache ? 0 : 1;
+	block_cache = cf_disable_block_cache ? 0 : 1;
+	page_cache = cf_disable_page_cache ? 0 : 1;
 	syslog(LOG_NOTICE,
 		"caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
 	if (strcmp(fuse_mount_options,"") != 0) /* extra FUSE mount options */
 		syslog(LOG_NOTICE,"FUSE mount options (appended to compiled-in options): %s", fuse_mount_options);
-	if (disable_block_cache) /* direct IO enabled */
+	if (!block_cache) /* direct IO enabled */
 		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
-	if (disable_page_cache) /* page cache defeated */
+	if (!page_cache) /* page cache defeated */
 		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
 	syslog(LOG_NOTICE,
 		"FUSE caching: attribute timeout %f, entry timeout %f", fuse_attr_timeout, fuse_entry_timeout);

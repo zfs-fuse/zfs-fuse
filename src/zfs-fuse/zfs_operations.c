@@ -46,11 +46,8 @@
 
 #define ZFS_MAGIC 0x2f52f5
 
-/* the command-line options */
-int disable_block_cache, disable_page_cache;
-/* the logical opposites -- we set them in parse_args() */
+ /* the command-line options */
 int block_cache, page_cache;
-/* the converted values -- we set them in parse_args() */
 float fuse_attr_timeout, fuse_entry_timeout;
 
 static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
@@ -629,7 +626,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	/* by setting these as int directly, we save one CMP operation per file open. */
 	/* but, honestly, we mostly get readability of the code */
 	fi->keep_cache = page_cache;
-	fi->direct_io = disable_block_cache;
+	fi->direct_io = block_cache ? 0 : 1;
 
 	if(flags & FCREAT) {
 		e.attr_timeout = 0.0;
