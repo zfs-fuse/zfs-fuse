@@ -26,16 +26,5 @@
 #ifndef _SYS_CRED_IMPL_H
 #define _SYS_CRED_IMPL_H
 
-#include <sys/types.h>
-#include <sys/cred.h>
-#define FUSE_USE_VERSION 26
-
-#include <fuse/fuse_lowlevel.h>
-
-struct cred {
-	uid_t cr_uid; /* effective user id */
-	gid_t cr_gid; /* effective group id */
-	fuse_req_t req; // fuse request linked to these uid/gid
-};
 
 #endif

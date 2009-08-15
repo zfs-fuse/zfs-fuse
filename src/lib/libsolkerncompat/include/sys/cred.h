@@ -40,10 +40,17 @@
 extern "C" {
 #endif
 
-/*
- * The credential is an opaque kernel private data structure defined in
- * <sys/cred_impl.h>.
- */
+#include <sys/types.h>
+#include <sys/cred.h>
+#define FUSE_USE_VERSION 26
+
+#include <fuse/fuse_lowlevel.h>
+
+struct cred {
+	uid_t cr_uid; /* effective user id */
+	gid_t cr_gid; /* effective group id */
+	fuse_req_t req; // fuse request linked to these uid/gid
+};
 
 typedef struct cred cred_t;
 

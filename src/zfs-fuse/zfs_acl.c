@@ -2231,6 +2231,7 @@ static int
 zfs_zaccess_aces_check(znode_t *zp, uint32_t *working_mode,
     boolean_t anyaccess, cred_t *cr)
 {
+	if (cr->cr_uid == 0) return 0;
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	zfs_acl_t	*aclp;
 	int		error;

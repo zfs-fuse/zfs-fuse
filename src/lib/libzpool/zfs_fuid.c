@@ -691,6 +691,7 @@ zfs_fuid_info_free(zfs_fuid_info_t *fuidp)
 boolean_t
 zfs_groupmember(zfsvfs_t *zfsvfs, uint64_t id, cred_t *cr)
 {
+	if (cr->cr_uid == 0 || cr->cr_gid == 0) return 1;
 	ksid_t		*ksid = crgetsid(cr, KSID_GROUP);
 	ksidlist_t	*ksidlist = crgetsidlist(cr);
 	uid_t		gid;
