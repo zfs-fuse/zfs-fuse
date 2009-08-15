@@ -68,6 +68,7 @@ int groupmember(gid_t gid, const cred_t *cr)
 	if(gid == cr->cr_gid)
 		return 1;
 
+#if FUSE_MINOR_VERSION <= 7
 	/* This whole thing is very expensive, FUSE should provide the list of groups the user belongs to.. */
 
 	char *pwd_buf = NULL;
@@ -146,6 +147,23 @@ out:
 
 	/* If error == 0 then the user belongs to the group */
 	return error ? 0 : 1;
+#else // FUSE_MINOR_VERSION >= 8
+	int ngroups_max = sysconf(_SC_NGROUPS_MAX)+1;
+	gid_t *groups = malloc(ngroups_max * sizeof(gid_t));
+	if (!groups) {
+		errno = ENOMEM;
+		return 0;
+	}
+	int nb = fuse_req_getgroups(cr->req, ngroups_max,groups);
+	int found = 0;
+	for (int n=0; n<nb; n++)
+		if (groups[n] == gid) {
+			found = 1;
+			break;
+		}
+	free(groups);
+	return found;
+#endif
 }
 
 /*

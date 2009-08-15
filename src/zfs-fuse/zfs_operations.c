@@ -56,6 +56,7 @@ static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
 
 	cred->cr_uid = ctx->uid;
 	cred->cr_gid = ctx->gid;
+	cred->req = req;
 }
 
 static void zfsfuse_destroy(void *userdata)
