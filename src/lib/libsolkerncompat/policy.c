@@ -240,8 +240,11 @@ secpolicy_setid_setsticky_clear(vnode_t *vp, vattr_t *vap, const vattr_t *ovap,
  */
 int secpolicy_vnode_setid_retain(const cred_t *cred, boolean_t issuidroot)
 {
+#ifndef __linux__
+// In linux we always clear these bits when changing id
 	if(crgetuid(cred) != 0)
-		return EPERM;
+#endif
+		return EPERM; 
 	return 0;
 }
 
