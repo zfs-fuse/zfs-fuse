@@ -2,7 +2,7 @@
 
 Name:          zfs-fuse
 Version:       0.5.1
-Release:       0.0.428snapshot
+Release:       0.0.431snapshot
 Summary:       A port of ZFS to the FUSE framework for the Linux operating system
 License:       GPL
 Group:         System Environment/Daemons
@@ -77,6 +77,9 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %{_sbindir}/zfs-fuse
 
 %changelog
+* Fri Aug 14 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.5.1-0.0.431snapshot
+- Thanks to Emmanuel Anne, we now conform to POSIX according to the NTFS-3G suite
+
 * Fri Aug 14 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.5.1-0.0.414svn
 - Renamed version / release to Fedora versioning policy (compatible with all RPM distros)
 - Used Fedora init script (more reliable, performs more checks)
