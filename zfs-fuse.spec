@@ -1,8 +1,8 @@
 # Release tag is supposed to be 0. for prerelease, X. for serial number in this version and alphatag XXXsvn.
 
 Name:          zfs-fuse
-Version:       0.5.1
-Release:       0.0.432snapshot
+Version:       0.6.0
+Release:       0.0.433snapshot
 Summary:       The most reliable filesystem
 License:       GPL
 Group:         System Environment/Daemons
@@ -89,6 +89,9 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %{_sbindir}/zfs-fuse
 
 %changelog
+* Sat Aug 15 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.6.0-0.0.433snapshot
+- Bumped to 0.6.0
+
 * Fri Aug 14 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.5.1-0.0.432snapshot
 - Included /etc/sysconfig/zfs-fuse to provide command-line options for ZFS in a config file
 

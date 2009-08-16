@@ -12,8 +12,13 @@ version="$1"
 	exit 1
 }
 
+if grep Release zfs-fuse.spec | grep -q snapshot ; then
+	snapshot=`grep ^Release zfs-fuse.spec | head -1 | awk ' { print $2 } ' | cut -d . -f 3 | sed 's/snapshot//'`
+fi	
+
 BASE=`basename "$PWD"`
 cd ..
+rm -rf "zfs-fuse-$version"
 cp -R "$BASE" "zfs-fuse-$version"
 cd "zfs-fuse-$version"
 rm -rf .hg .hgignore .hgtags zfs-fuse*tar.bz2
@@ -25,3 +30,6 @@ tar cvjf "zfs-fuse-$version.tar.bz2" "zfs-fuse-$version"
 rm -rf "zfs-fuse-$version"
 mv "zfs-fuse-$version.tar.bz2" "$BASE"
 cd "$BASE"
+if [ -n "$snapshot" ] ; then
+	mv "zfs-fuse-$version.tar.bz2" "zfs-fuse-$version-${snapshot}snapshot.tar.bz2"
+fi	
