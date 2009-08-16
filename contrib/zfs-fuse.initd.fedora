@@ -4,20 +4,23 @@
 # description: Starts and stops the ZFS file systems
 # author: Manuel Amador (Rudd-O)
 
-PIDFILE=/.zfs-fuse.pid
+PIDFILE=/var/run/zfs-fuse.pid
 LOCKFILE=/var/lock/zfs/zfs_lock
 
 # Source function library.
 . /etc/init.d/functions
 
-export PATH=/sbin:/bin
+# Source cmdline opts
+OPTIONS=
+[ -f /etc/sysconfig/zfs-fuse ] && . /etc/sysconfig/zfs-fuse
+
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
 unset LANG
 ulimit -v unlimited
 ulimit -c unlimited
 ulimit -l unlimited
 
 do_start() {
-	test -x /sbin/zfs-fuse || exit 0
 	PID=`cat "$PIDFILE" 2> /dev/null`
 	if [ "$PID" != "" ]
 	then
@@ -33,7 +36,7 @@ do_start() {
 	fi
 
 	export DAEMON_COREFILE_LIMIT=unlimited
-	action "Starting ZFS-FUSE process" daemon --pidfile $PIDFILE zfs-fuse -p "$PIDFILE"
+	action "Starting ZFS-FUSE process" daemon --pidfile $PIDFILE zfs-fuse -p "$PIDFILE" $OPTIONS
 	ES_TO_REPORT=$?
 	if [ 0 != $ES_TO_REPORT ] ; then
 		exit $ES_TO_REPORT
@@ -70,7 +73,6 @@ do_start() {
 }
 
 do_stop () {
-	test -x /sbin/zfs-fuse || exit 0
 	PID=`cat "$PIDFILE" 2> /dev/null`
 	if [ "$PID" = "" ] ; then
 		# no pid file, we exit

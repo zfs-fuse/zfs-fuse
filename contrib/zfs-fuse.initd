@@ -13,10 +13,15 @@
 # Description: Start the zfs-fuse daemon
 ### END INIT INFO
 
-ZFS_FUSE_BIN=/usr/local/sbin/zfs-fuse
-test -x $ZFS_FUSE_BIN || exit 5
+
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+ZFS_FUSE_BIN=zfs-fuse
 
 . /etc/rc.status
+
+OPTIONS=
+[ -f /etc/default/zfs-fuse ] && . /etc/default/zfs-fuse
+
 
 # Shell functions sourced from /etc/rc.status:
 #      rc_check         check and set local and overall rc status
@@ -35,7 +40,7 @@ case "$1" in
 		## Start daemon with startproc(8). If this fails
 		## the echo return value is set appropriate.
 
-		$0 status > /dev/null && echo -n "Service zfs-fuse already running " || ( echo -n "Starting zfs-fuse daemon "; startproc -f $ZFS_FUSE_BIN )
+		$0 status > /dev/null && echo -n "Service zfs-fuse already running " || ( echo -n "Starting zfs-fuse daemon "; startproc -f $ZFS_FUSE_BIN $OPTIONS )
 
 		# Remember status and be verbose
 		rc_status -v

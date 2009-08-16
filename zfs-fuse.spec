@@ -2,49 +2,59 @@
 
 Name:          zfs-fuse
 Version:       0.5.1
-Release:       0.0.431snapshot
-Summary:       A port of ZFS to the FUSE framework for the Linux operating system
+Release:       0.0.432snapshot
+Summary:       The most reliable filesystem
 License:       GPL
 Group:         System Environment/Daemons
-Packager:      Lenz Grimmer <lenz@grimmer.com>
-URL:           http://www.wizy.org/wiki/ZFS_on_FUSE
+URL:           http://rudd-o.com/new-projects/zfs
 Source0:       %{name}-%{version}.tar.bz2
 BuildRoot:     %{_tmppath}/%{name}-%{version}-root
 BuildRequires: fuse-devel libaio-devel zlib-devel scons
 
 %description
-This project is a port of the ZFS filesystem to FUSE/Linux, done as part of the
-Google Summer of Code 2006 initiative.
+ZFS (formerly the Zettabyte File System), is a filesystem invented by
+Jeff Bonwick, Bill Moore and others at Sun Microsystems.  It is the most
+reliable and tested filesystem ever invented, and it has a feature set
+that sets it apart from anything that came before:
 
-ZFS has many features which can benefit all kinds of users - from the simple
-end-user to the biggest enterprise systems. ZFS list of features: 
-
-Provable integrity - it checksums all data (and meta-data), which makes it
+1. Provable integrity - it checksums all data (and meta-data), which makes it
 possible to detect hardware errors (hard disk corruption, flaky IDE cables..).
-Read how ZFS helped to detect a faulty power supply after only two hours of
-usage, which was previously silently corrupting data for almost a year! 
+ZFS helped to detect a faulty power supply after only two hours of usage,
+which was previously silently corrupting data for almost a year.
 
-Atomic updates - means that the on-disk state is consistent at all times,
-there's no need to perform a lengthy filesystem check after forced
-reboots/power failures. 
+2. Atomic, transactional updates - means that the on-disk state is consistent
+at all times, there's no need to perform a lengthy filesystem check after
+forced reboots/power failures. 
 
-Instantaneous snapshots and clones - it makes it possible to have hourly, daily
-and weekly backups efficiently, as well as experiment with new system
-configurations without any risks. 
+3. Instantaneous snapshots and clones - it makes it possible to have hourly,
+daily and weekly backups efficiently, as well as experiment with new system
+configurations without any risks.
 
-Built-in (optional) compression 
+4. Built-in (optional) compression 
 
-Highly scalable 
-
-Pooled storage model - creating filesystems is as easy as creating a new
+6. Pooled storage model - creating filesystems is as easy as creating a new
 directory. You can efficiently have thousands of filesystems, each with it's
 own quotas and reservations, and different properties (compression algorithm,
 checksum algorithm, etc..). 
 
-Built-in stripes (RAID-0), mirrors (RAID-1) and RAID-Z (it's like software
-RAID-5, but more efficient due to ZFS's copy-on-write transactional model). 
+5. Very high scalability.  You can have an almost infinite number of snapshots
+and more files / bytes in your filesystems than it is even theoretically
+possible to store with every atom in Earth.  Performance scales linearly
+with the number of mirrors you add to your pool.
 
-Among others (variable sector sizes, adaptive endianness, ...)
+6. Built-in stripes (RAID-0), mirrors (RAID-1) and RAID-Z (it's like software
+RAID-5, but without the requirement of uninterruptible power or battery-
+backed power to prevent catastrophes due to sudden power outages.
+It is more efficient in resyncing failed arrays due to ZFS's copy-on-write
+transactional model. 
+
+...and many others (variable sector sizes, adaptive endianness, incremental
+backups over the network...)
+
+This project is a port of the ZFS filesystem to FUSE/Linux, done as part of the
+Google Summer of Code 2006 initiative.
+
+
 
 %prep
 %setup -q 
@@ -56,8 +66,9 @@ scons
 %install
 [ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] && rm -rf $RPM_BUILD_ROOT;
 mkdir -p $RPM_BUILD_ROOT%_sbindir
-mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/init.d/
+mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/init.d $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig
 install -m755 contrib/%{name}.initd.fedora $RPM_BUILD_ROOT%{_sysconfdir}/init.d/%{name}
+install -m644 contrib/%{name}.sysconfig $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig/%{name}
 ln -s %{_sysconfdir}/init.d/%{name} $RPM_BUILD_ROOT%_sbindir/rc%{name}
 cd src
 scons install install_dir=$RPM_BUILD_ROOT%_sbindir
@@ -69,6 +80,7 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %defattr(-,root,root)
 %doc BUGS CHANGES HACKING INSTALL LICENSE README README.NFS STATUS TESTING TODO
 %{_sysconfdir}/init.d/%{name}
+%config(noreplace) %{_sysconfdir}/sysconfig/%{name}
 %_sbindir/rc%{name}
 %{_sbindir}/zdb
 %{_sbindir}/zfs
@@ -77,6 +89,9 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %{_sbindir}/zfs-fuse
 
 %changelog
+* Fri Aug 14 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.5.1-0.0.432snapshot
+- Included /etc/sysconfig/zfs-fuse to provide command-line options for ZFS in a config file
+
 * Fri Aug 14 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.5.1-0.0.431snapshot
 - Thanks to Emmanuel Anne, we now conform to POSIX according to the NTFS-3G suite
 
