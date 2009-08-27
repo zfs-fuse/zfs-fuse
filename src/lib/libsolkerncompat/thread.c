@@ -40,7 +40,6 @@ zk_thread_create(void (*func)(), void *arg)
 	pthread_attr_init(&attr);
 
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-	pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
 
 	VERIFY(pthread_create(&tid, &attr, (void *(*)(void *)) func, arg) == 0);
 
