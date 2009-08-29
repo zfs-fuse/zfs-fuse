@@ -834,11 +834,25 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 		  syslog(LOG_WARNING,"put_nvlist: error %s on xcopyout",strerror(error));
 	}
 
-	/* zc->zc_nvlist_dst_size = size; */
-	/* This commented allocation was probably some kind of optimization
-	since this zc is sent to the socket. Except that put_nvlist is sometimes
-	called recursively and in this case we get very fast an out of memory error
-	in this function. Simply commenting out the allocation fixes the problem */
+	/* This size update is rather tricky.
+	 * The original code was updating it always but if you do so the size
+	 * becomes too small for some inherited attributes and some filesystems
+	 * disappear from zfs list and are not mounted by zfs mount -a
+	 * On the other hand if you never update it and you get some problem on
+	 * a raidz1 pool (unavailable disk), you get an infinite loop on this
+	 * function, always calling with the same size.
+	 * So this hack tries to address the raidz1 problem : it stores the last
+	 * size received, and if it's the same then it stores it.
+	 * Luckily the size seems to always be different except in case of loop
+	 * like what happens in the raidz1 case.
+	 * TODO : make a real fix here instead of this hack (when enough time
+	 * and motivation is available !) */
+	static int last_size;
+	if (size == last_size)
+		zc->zc_nvlist_dst_size = size;
+	else {
+		last_size = size;
+	}
 	return (error);
 }
 
