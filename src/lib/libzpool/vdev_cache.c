@@ -74,9 +74,9 @@
  * vdev's vdev_cache.
  */
 /* Cache settings for big_writes, even with fuse 2.7 it can't harm... */
-static int zfs_vdev_cache_max = 1<<16;                        /* 64KB */
-static int zfs_vdev_cache_size = 30ULL << 20;         /* 30MB */
-static int zfs_vdev_cache_bshift = 17;
+static int zfs_vdev_cache_max = 1<<14;                        /* 16KB */
+int zfs_vdev_cache_size; // init in main.c
+static int zfs_vdev_cache_bshift = 16; // turned into 64K
 
 #define	VCBS (1 << zfs_vdev_cache_bshift)	/* 64KB */
 
