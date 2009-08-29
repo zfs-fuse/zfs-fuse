@@ -69,6 +69,9 @@ static int set_signal_handler(int sig, void (*handler)(int))
 extern char *optarg;
 extern int optind, opterr, optopt;
 
+extern int zfs_vdev_cache_size; // in lib/libzpool/vdev_cache.c
+extern int zfs_prefetch_disable; // lib/libzpool/dmu_zfetch.c
+
 static struct option longopts[] = {
 	{ "no-daemon",
 	  0, /* has-arg */
@@ -94,6 +97,16 @@ static struct option longopts[] = {
 		1,
 		NULL,
 		'm'
+	},
+	{ "zfs-prefetch-disable",
+		0,
+		&zfs_prefetch_disable,
+		1
+	},
+	{ "vdev-cache-size",
+		1,
+		NULL,
+		'v'
 	},
 	{ "fuse-attr-timeout",
 	  1,
@@ -154,26 +167,35 @@ void print_usage(int argc, char *argv[]) {
 		"  -o OPT..., --fuse-mount-options OPT,OPT,OPT...\n"
 		"			Sets FUSE mount options for all filesystems.\n"
 		"			Format: comma-separated string of characters.\n"
+		"  -v MB, --vdev-cache-size MB\n"
+		"			adjust the size of the vdev cache. Default : 10\n"
+		"  --zfs-prefetch-disable\n"
+		"			Disable the high level prefetch cache in zfs.\n"
+		"			This thing can eat up to 150 Mb of ram, maybe more\n"
 		"  -h, --help\n"
 		"			Show this usage summary.\n"
 		, progname);
+}
+
+static void check_opt(const char *progname) {
+	// checks if optarg is defined for an option requiring an argument
+	if (!optarg) {
+		fprintf(stderr,"%s: you need to specify an argument\n\n",progname);
+		exit(64);
+	}
 }
 
 static void parse_args(int argc, char *argv[])
 {
 	int retval;
 	char * detecterror;
-
 	const char *progname = "zfs-fuse";
 	if (argc > 0)
 		progname = argv[0];
-	
-	/* one sane default a day keeps GDB away - Rudd-O */
-	fuse_attr_timeout = 0.0;
-	fuse_entry_timeout = 0.0;
-	fuse_mount_options = "";
 
-	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:o:", longopts, NULL)) != -1) {
+	optind = 0;
+	optarg = NULL;
+	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:o:v:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -232,10 +254,7 @@ static void parse_args(int argc, char *argv[])
 				}
 				break;
 			case 'm':
-				if (!optarg) {
-					fprintf(stderr,"%s: you need to specify a maximum ARC size\n\n",progname);
-					exit(64);
-				}
+				check_opt(progname);
 				max_arc_size = strtol(optarg,&detecterror,10);
 				if ((max_arc_size == 0 && detecterror == optarg) || (max_arc_size < 16) || (max_arc_size > 16384)) {
 					fprintf(stderr, "%s: you need to specify a valid, in-range integer for the maximum ARC size\n\n", progname);
@@ -243,6 +262,10 @@ static void parse_args(int argc, char *argv[])
 					exit(64);
 				}
 				max_arc_size = max_arc_size<<20;
+				break;
+			case 'v':
+				check_opt(progname);
+				zfs_vdev_cache_size = strtol(optarg,&detecterror,10)<<20;
 				break;
 			case 0:
 				break; /* flag is not NULL */
@@ -253,8 +276,72 @@ static void parse_args(int argc, char *argv[])
 				exit(64); /* 64 is standard UNIX EX_USAGE */
 				break;
 		}
-	}
+	}	
+}
 
+static void split_command(char *field, char **argv, int *argc, int max) {
+	char *s = field;
+	*argc = 1;
+	argv[0] = "zfs-fuse";
+	while (*s && (*s == ' ' || *s==9)) // skip the leading spaces
+		s++;
+	if (*s) {
+		if (*s == '#') return;
+		memmove(&s[2],s,strlen(s)+1); // includes the traililng 0
+		s[0] = s[1] = '-'; // add -- prefix
+		argv[(*argc)++] = s;
+	}
+	while (*s) {
+		while (*s != ' ' && *s)  {
+			s++;
+		}
+		if (*s == ' ' || *s==9) {
+			*s++ = 0;
+			while (*s == ' ' || *s==9)
+				s++;
+			if (*s) {
+				if (*s == '#') return;
+				argv[(*argc)++] = s;
+				if (*argc == max) // no more args, thanks !
+					return;
+			}
+		}
+	}
+}
+
+static void read_cfg() {
+	FILE *f = fopen("/etc/zfs/zfsrc","r");
+	if (!f)
+		return;
+	while (!feof(f)) {
+		char buf[1024];
+		int argc;
+		char *argv[10];
+		fgets(buf,1024,f);
+		int l = strlen(buf)-1;
+		while (l >= 0 && buf[l] < 32)
+			buf[l--] = 0; // remove trailing cr (or any code < ' ')
+		split_command(buf, argv, &argc, 10);
+		if (argc == 1) continue;
+		if (argc > 2 && *argv[2] ==  '=') {
+			// remove the =
+			memmove(&argv[2],&argv[3],sizeof(char*)*(argc-2));
+			argc--;
+		}
+		parse_args(argc,argv);
+	}
+	fclose(f);
+}
+
+int main(int argc, char *argv[])
+{
+	/* one sane default a day keeps GDB away - Rudd-O */
+	fuse_attr_timeout = 0.0;
+	fuse_entry_timeout = 0.0;
+	fuse_mount_options = "";
+	zfs_vdev_cache_size = 10ULL << 20;         /* 10MB */
+	read_cfg();
+	parse_args(argc, argv);
 	/* we invert the options positively, since they both default to enabled */
 	block_cache = cf_disable_block_cache ? 0 : 1;
 	page_cache = cf_disable_page_cache ? 0 : 1;
@@ -279,12 +366,6 @@ static void parse_args(int argc, char *argv[])
 		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
 	if (fuse_entry_timeout > 0.0) /* security bug! */
 		syslog(LOG_WARNING,"FUSE entry timeout > 0 -- expect insecure directory traversal");
-	
-}
-
-int main(int argc, char *argv[])
-{
-	parse_args(argc, argv);
 
 	if (cf_daemonize) {
 		do_daemon(cf_pidfile);
