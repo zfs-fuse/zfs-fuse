@@ -15,12 +15,12 @@
 
 
 export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
-ZFS_FUSE_BIN=zfs-fuse
+ZFS_FUSE_BIN=`which zfs-fuse`
 
 . /etc/rc.status
 
 OPTIONS=
-[ -f /etc/default/zfs-fuse ] && . /etc/default/zfs-fuse
+[ -f /etc/sysconfig/zfs-fuse ] && . /etc/sysconfig/zfs-fuse
 
 
 # Shell functions sourced from /etc/rc.status:
