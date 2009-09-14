@@ -20,7 +20,7 @@ ZFS_FUSE_BIN=`which zfs-fuse`
 . /etc/rc.status
 
 OPTIONS=
-[ -f /etc/sysconfig/zfs-fuse ] && . /etc/sysconfig/zfs-fuse
+[ -f /etc/default/zfs-fuse ] && . /etc/default/zfs-fuse
 
 
 # Shell functions sourced from /etc/rc.status:
