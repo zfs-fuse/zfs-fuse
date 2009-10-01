@@ -28,12 +28,24 @@
 #include <sys/zfs_context.h>
 #include <sys/uberblock_impl.h>
 #include <sys/vdev_impl.h>
+#include <syslog.h>
 
 int
 uberblock_verify(uberblock_t *ub)
 {
 	if (ub->ub_magic == BSWAP_64((uint64_t)UBERBLOCK_MAGIC))
 		byteswap_uint64_array(ub, sizeof (uberblock_t));
+	/*
+	syslog(LOG_WARNING,"uberblock_verify block txg %lu time %lu ", ub->ub_txg, ub->ub_timestamp);
+
+	There seems to be a lot of uberblocks, and in case the most recent fail
+	for a bad reason, you can skip them using something like that :
+	    if (ub-<ub_txg < 1058110) { 
+	      printf("txg too new; skipping");
+	      return EINVAL;
+	    }
+	See : http://drewp.quickwitretort.com/2009/09/25/0 */
+
 
 	if (ub->ub_magic != UBERBLOCK_MAGIC)
 		return (EINVAL);
