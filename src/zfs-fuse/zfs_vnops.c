@@ -1052,9 +1052,6 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 	*vpp = NULL;
 
 	if (flags & LOOKUP_XATTR) {
-		/* ZFSFUSE: not implemented */
-		ZFS_EXIT(zfsvfs);
-		return (EINVAL);
 		/*
 		 * If the xattr property is off, refuse the lookup request.
 		 */
@@ -1070,7 +1067,7 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 		if (zdp->z_phys->zp_flags & ZFS_XATTR) {
 			ZFS_EXIT(zfsvfs);
 			return (EINVAL);
-		}
+		} 
 
 		if (error = zfs_get_xattrdir(VTOZ(dvp), vpp, cr, flags)) {
 			ZFS_EXIT(zfsvfs);

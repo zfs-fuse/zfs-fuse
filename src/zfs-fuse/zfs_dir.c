@@ -868,7 +868,6 @@ zfs_make_xattrdir(znode_t *zp, vattr_t *vap, vnode_t **xvpp, cred_t *cr)
  *	RETURN:	0 on success
  *		error number on failure
  */
-#if 0
 int
 zfs_get_xattrdir(znode_t *zp, vnode_t **xvpp, cred_t *cr, int flags)
 {
@@ -925,7 +924,6 @@ top:
 
 	return (error);
 }
-#endif
 
 /*
  * Decide whether it is okay to remove within a sticky directory.
