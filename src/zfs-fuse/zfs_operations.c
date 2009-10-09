@@ -206,6 +206,7 @@ static int int_zfs_enter(zfsvfs_t *zfsvfs) {
 #define MY_LOOKUP_XATTR() \
     vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);		\
     zfsvfs_t *zfsvfs = vfs->vfs_data;				\
+    if (ino == 1) ino = 3;					\
 								\
     ZFS_VOID_ENTER(zfsvfs);					\
 								\
@@ -230,7 +231,7 @@ static int int_zfs_enter(zfsvfs_t *zfsvfs) {
     error = VOP_LOOKUP(dvp, "", &vp, NULL, LOOKUP_XATTR |	\
 	    CREATE_XATTR_DIR, NULL, &cred, NULL, NULL, NULL);	\
     if(error || vp == NULL) {					\
-	error = ENOSYS; /* xattr disabled ? */			\
+	if (error != EACCES) error = ENOSYS; 			\
 	goto out;						\
     }
 
@@ -390,7 +391,10 @@ static void zfsfuse_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
 	goto out;
 
     error = VOP_OPEN(&vp, FREAD, &cred, NULL);
-    if (error) goto out;
+    if (error) {
+	free(buf);
+	goto out;
+    }
 
     iovec_t iovec;
     uio_t uio;
@@ -406,7 +410,10 @@ static void zfsfuse_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
     uio.uio_loffset = 0;
 
     error = VOP_READ(vp, &uio, FREAD, &cred, NULL);
-    if (error) goto out;
+    if (error) {
+	free(buf);
+	goto out;
+    }
     fuse_reply_buf(req,buf,vattr.va_size);
     free(buf);
     error = VOP_CLOSE(vp, FREAD, 1, (offset_t) 0, &cred, NULL);
