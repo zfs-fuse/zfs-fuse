@@ -420,6 +420,20 @@ out:
 	fuse_reply_err(req,error);
 }
 
+static void zfsfuse_removexattr(fuse_req_t req, fuse_ino_t ino, const char *name)
+{
+    MY_LOOKUP_XATTR();
+    error = VOP_REMOVE(vp, (char *) name, &cred, NULL, 0);
+
+out:
+    if(vp != NULL)
+	VN_RELE(vp);
+    VN_RELE(dvp);
+    ZFS_EXIT(zfsvfs);
+	if (error == ENOENT)
+		error = ENOATTR;
+    fuse_reply_err(req,error);
+}
 
 static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
@@ -1805,4 +1819,5 @@ struct fuse_lowlevel_ops zfs_operations =
 	.listxattr  = zfsfuse_listxattr,
 	.setxattr   = zfsfuse_setxattr,
 	.getxattr   = zfsfuse_getxattr,
+	.removexattr= zfsfuse_removexattr,
 };
