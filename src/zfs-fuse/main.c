@@ -71,12 +71,23 @@ extern int optind, opterr, optopt;
 
 extern int zfs_vdev_cache_size; // in lib/libzpool/vdev_cache.c
 extern int zfs_prefetch_disable; // lib/libzpool/dmu_zfetch.c
+extern int arg_log_uberblocks, arg_min_uberblock_txg; // uberblock.c
 
 static struct option longopts[] = {
 	{ "no-daemon",
 	  0, /* has-arg */
 	  &cf_daemonize, /* flag */
 	  0 /* val */
+	},
+	{ "log-uberblocks",
+	    0,
+	    &arg_log_uberblocks,
+	    1
+	},
+	{ "min-uberblock-txg",
+	    1,
+	    NULL,
+	    'u'
 	},
 	{ "disable-block-cache",
 	  0,
@@ -161,12 +172,16 @@ void print_usage(int argc, char *argv[]) {
 		"			Defaults to 0.0.\n"
 		"			Higher values give a 10000%% performance boost\n"
 		"			but cause file permission checking security issues.\n"
+		"  --log-uberblocks\n"
+		"			Logs uberblocks of any mounted filesystem to syslog\n"
 		"  -m MB, --max-arc-size MB\n"
 		"			Forces the maximum ARC size (in megabytes).\n"
 		"			Range: 16 to 16384.\n"
 		"  -o OPT..., --fuse-mount-options OPT,OPT,OPT...\n"
 		"			Sets FUSE mount options for all filesystems.\n"
 		"			Format: comma-separated string of characters.\n"
+		"  --min-uberblock-txg MIN, -u MIN\n"
+		"			Skips uberblocks with a TXG < MIN when mounting any fs\n"
 		"  -v MB, --vdev-cache-size MB\n"
 		"			adjust the size of the vdev cache. Default : 10\n"
 		"  --zfs-prefetch-disable\n"
@@ -177,10 +192,10 @@ void print_usage(int argc, char *argv[]) {
 		, progname);
 }
 
-static void check_opt(const char *progname) {
+static void check_opt(const char *progname,char *opt) {
 	// checks if optarg is defined for an option requiring an argument
 	if (!optarg) {
-		fprintf(stderr,"%s: you need to specify an argument\n\n",progname);
+		fprintf(stderr,"%s: you need to specify an argument (%s)\n\n",progname,opt);
 		exit(64);
 	}
 }
@@ -195,7 +210,7 @@ static void parse_args(int argc, char *argv[])
 
 	optind = 0;
 	optarg = NULL;
-	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:o:v:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:o:u:v:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -254,7 +269,7 @@ static void parse_args(int argc, char *argv[])
 				}
 				break;
 			case 'm':
-				check_opt(progname);
+				check_opt(progname,"-m");
 				max_arc_size = strtol(optarg,&detecterror,10);
 				if ((max_arc_size == 0 && detecterror == optarg) || (max_arc_size < 16) || (max_arc_size > 16384)) {
 					fprintf(stderr, "%s: you need to specify a valid, in-range integer for the maximum ARC size\n\n", progname);
@@ -263,8 +278,12 @@ static void parse_args(int argc, char *argv[])
 				}
 				max_arc_size = max_arc_size<<20;
 				break;
+			case 'u':
+				check_opt(progname,"-u");
+				arg_min_uberblock_txg = atol(optarg);
+				break;
 			case 'v':
-				check_opt(progname);
+				check_opt(progname,"-v");
 				zfs_vdev_cache_size = strtol(optarg,&detecterror,10)<<20;
 				break;
 			case 0:
@@ -366,7 +385,6 @@ int main(int argc, char *argv[])
 		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
 	if (fuse_entry_timeout > 0.0) /* security bug! */
 		syslog(LOG_WARNING,"FUSE entry timeout > 0 -- expect insecure directory traversal");
-
 	if (cf_daemonize) {
 		do_daemon(cf_pidfile);
 	}
