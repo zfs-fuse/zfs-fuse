@@ -148,6 +148,13 @@ out:
 	/* If error == 0 then the user belongs to the group */
 	return error ? 0 : 1;
 #else // FUSE_MINOR_VERSION >= 8
+	if (!cr->req) {
+	    /* This function can be called with cr=kcred if called by
+	     * zfs_replay_create for example. kcred does not contain any fuse
+	     * request, but it's used when you need all the privileges, so you
+	     * can safety return 1 here in this case */
+	    return 1;
+	}
 	int ngroups_max = sysconf(_SC_NGROUPS_MAX)+1;
 	gid_t *groups = malloc(ngroups_max * sizeof(gid_t));
 	if (!groups) {
