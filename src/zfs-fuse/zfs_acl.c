@@ -925,6 +925,11 @@ zfs_acl_node_read_internal(znode_t *zp, boolean_t will_modify)
 	if (zp->z_phys->zp_acl.z_acl_version == ZFS_ACL_VERSION_INITIAL) {
 		aclp->z_acl_count = zp->z_phys->zp_acl.z_acl_size;
 		aclp->z_acl_bytes = ZFS_ACL_SIZE(aclp->z_acl_count);
+		if (!aclp->z_acl_count) {
+			/* mac os x vers 119 symptom */
+			aclp->z_acl_count = 6; // zp->z_phys->zp_acl.z_acl_count/12;
+			aclp->z_acl_bytes = 6*12; // zp->z_phys->zp_acl.z_acl_count;
+		}
 	} else {
 		aclp->z_acl_count = zp->z_phys->zp_acl.z_acl_count;
 		aclp->z_acl_bytes = zp->z_phys->zp_acl.z_acl_size;
@@ -2332,6 +2337,28 @@ zfs_zaccess_aces_check(znode_t *zp, uint32_t *working_mode,
 		/* Are we done? */
 		if (*working_mode == 0)
 			break;
+	}
+
+	if (*working_mode &&
+		zp->z_phys->zp_acl.z_acl_version == ZFS_ACL_VERSION_INITIAL) {
+		/* Sometimes mac os x has a completely empty acl
+		(0 everywhere). Seems to happen for volumes created with
+		zfs create. Anyway if we don't ignore them, then only root
+		can enter these volumes because the acls will deny access
+		to everyone else because of this ! (this thing is really
+		totally broken !!!)
+		It's finally confirmed it's indeed a bug, see man 5 attr,
+		the part about valid acls. So this is an invalid acl and
+		it should be ignored (normally mac os x zfs driver shouldn't
+		have created it to begin with */
+		int all_zero = 1;
+		int n;
+		for (n=0; n<72; n++)
+			if (zp->z_phys->zp_acl.z_ace_data[n]) {
+				all_zero = 0;
+				break;
+			}
+		if (all_zero) *working_mode = 0; // just ignore it then
 	}
 
 	mutex_exit(&zp->z_acl_lock);
