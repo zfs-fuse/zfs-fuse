@@ -1,4 +1,4 @@
-src/lib/libsolkerncompat/taskq.c/*
+/*
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
