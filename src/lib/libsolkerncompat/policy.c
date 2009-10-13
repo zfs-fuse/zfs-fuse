@@ -43,6 +43,8 @@ long grp_buflen = 0;
 cred_t st_kcred = { 0 };
 cred_t *kcred = &st_kcred;
 
+int ngroups_max = 0;
+
 uid_t crgetuid(const cred_t *cr)
 {
 	return cr->cr_uid;
@@ -148,7 +150,7 @@ out:
 	/* If error == 0 then the user belongs to the group */
 	return error ? 0 : 1;
 #else // FUSE_MINOR_VERSION >= 8
-	int ngroups_max = sysconf(_SC_NGROUPS_MAX)+1;
+	if (!ngroups_max) { ngroups_max = sysconf(_SC_NGROUPS_MAX)+1; }
 	gid_t *groups = malloc(ngroups_max * sizeof(gid_t));
 	if (!groups) {
 		errno = ENOMEM;
