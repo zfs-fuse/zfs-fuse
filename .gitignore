@@ -1,0 +1,13 @@
+*.o
+*.a
+*.pyc
+*.swp
+*.orig
+*.sconsign.dblite
+
+src/zfs-fuse/zfs-fuse
+src/cmd/zdb/zdb
+src/cmd/zfs/zfs
+src/cmd/zpool/zpool
+src/cmd/ztest/ztest
+

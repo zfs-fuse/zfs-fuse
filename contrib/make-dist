@@ -21,10 +21,10 @@ cd ..
 rm -rf "zfs-fuse-$version"
 cp -R "$BASE" "zfs-fuse-$version"
 cd "zfs-fuse-$version"
-rm -rf .hg .hgignore .hgtags zfs-fuse*tar.bz2
+rm -rf .git .gitignore zfs-fuse*tar.bz2
 cd src
 scons -c
-rm .sconsign.dblite
+rm -f .sconsign.dblite
 cd ../..
 tar cvjf "zfs-fuse-$version.tar.bz2" "zfs-fuse-$version"
 rm -rf "zfs-fuse-$version"

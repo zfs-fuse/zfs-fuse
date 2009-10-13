@@ -70,6 +70,8 @@ mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/init.d $RPM_BUILD_ROOT%{_sysconfdir}/sysc
 install -m755 contrib/%{name}.initd.fedora $RPM_BUILD_ROOT%{_sysconfdir}/init.d/%{name}
 install -m644 contrib/%{name}.sysconfig $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig/%{name}
 ln -s %{_sysconfdir}/init.d/%{name} $RPM_BUILD_ROOT%_sbindir/rc%{name}
+mkdir -p $RPM_BUILD_ROOT%{_mandir}/man8
+install -m 644 doc/*.8.gz $RPM_BUILD_ROOT%{_mandir}/man8
 cd src
 scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 
@@ -79,6 +81,7 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %files
 %defattr(-,root,root)
 %doc BUGS CHANGES HACKING INSTALL LICENSE README README.NFS STATUS TESTING TODO
+%doc %{_mandir}/man8/*
 %{_sysconfdir}/init.d/%{name}
 %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
 %_sbindir/rc%{name}
@@ -89,6 +92,9 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %{_sbindir}/zfs-fuse
 
 %changelog
+* Wed Sep 02 2009 Lenz Grimmer <lenz@grimmer.com> 0.6.0-0.0.433snapshot
+- Added man pages to the package
+
 * Sat Aug 15 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.6.0-0.0.433snapshot
 - Bumped to 0.6.0
 

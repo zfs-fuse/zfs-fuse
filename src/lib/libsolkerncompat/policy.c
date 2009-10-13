@@ -1,4 +1,4 @@
-/*
+src/lib/libsolkerncompat/taskq.c/*
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
@@ -42,6 +42,8 @@ long grp_buflen = 0;
 
 cred_t st_kcred = { 0 };
 cred_t *kcred = &st_kcred;
+
+int ngroups_max = 0;
 
 uid_t crgetuid(const cred_t *cr)
 {
@@ -155,7 +157,7 @@ out:
 	     * can safety return 1 here in this case */
 	    return 1;
 	}
-	int ngroups_max = sysconf(_SC_NGROUPS_MAX)+1;
+	if (!ngroups_max) { ngroups_max = sysconf(_SC_NGROUPS_MAX)+1; }
 	gid_t *groups = malloc(ngroups_max * sizeof(gid_t));
 	if (!groups) {
 		errno = ENOMEM;

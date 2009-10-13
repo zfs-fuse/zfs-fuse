@@ -15,7 +15,7 @@
 
 
 export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
-ZFS_FUSE_BIN=zfs-fuse
+ZFS_FUSE_BIN=`which zfs-fuse`
 
 . /etc/rc.status
 
