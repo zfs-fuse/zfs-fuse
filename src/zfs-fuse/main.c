@@ -36,8 +36,6 @@
 
 extern uint64_t max_arc_size; // defined in arc.c
 static const char *cf_pidfile = NULL;
-static const char *cf_fuse_attr_timeout = NULL;
-static const char *cf_fuse_entry_timeout = NULL;
 static const char *cf_fuse_mount_options = NULL;
 static int cf_disable_block_cache = 0;
 static int cf_disable_page_cache = 0;
@@ -241,28 +239,18 @@ static void parse_args(int argc, char *argv[])
 				asprintf(&fuse_mount_options,",%s",optarg);
 				break;
 			case 'a':
-				if (cf_fuse_attr_timeout != NULL) {
-					fprintf(stderr, "%s: you need to specify an attribute timeout\n\n", progname);
-					print_usage(argc, argv);
-					exit(64);
-				}
-				cf_fuse_attr_timeout = optarg;
-				fuse_attr_timeout = strtof(cf_fuse_attr_timeout,&detecterror);
-				if ((fuse_attr_timeout == 0.0 && detecterror == cf_fuse_attr_timeout) || (fuse_attr_timeout < 0.0)) {
+				check_opt(progname,"-a");
+				fuse_attr_timeout = strtof(optarg,&detecterror);
+				if ((fuse_attr_timeout == 0.0 && detecterror == optarg) || (fuse_attr_timeout < 0.0)) {
 					fprintf(stderr, "%s: you need to specify a valid, non-zero attribute timeout\n\n", progname);
 					print_usage(argc, argv);
 					exit(64);
 				}
 				break;
 			case 'e':
-				if (cf_fuse_entry_timeout != NULL) {
-					fprintf(stderr, "%s: you need to specify an entry timeout\n\n", progname);
-					print_usage(argc, argv);
-					exit(64);
-				}
-				cf_fuse_entry_timeout = optarg;
-				fuse_entry_timeout = strtof(cf_fuse_entry_timeout,&detecterror);
-				if ((fuse_entry_timeout == 0.0 && detecterror == cf_fuse_entry_timeout) || (fuse_entry_timeout < 0.0)) {
+				check_opt(progname,"-e");
+				fuse_entry_timeout = strtof(optarg,&detecterror);
+				if ((fuse_entry_timeout == 0.0 && detecterror == optarg) || (fuse_entry_timeout < 0.0)) {
 					fprintf(stderr, "%s: you need to specify a valid, non-zero entry timeout\n\n", progname);
 					print_usage(argc, argv);
 					exit(64);
