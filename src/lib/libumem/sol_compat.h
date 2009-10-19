@@ -80,6 +80,7 @@ static INLINE int thr_create(void *stack_base,
   if (flags & THR_DETACHED) {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
   }
+  pthread_attr_setstacksize(&attr,16384);
   ret = pthread_create(new_thread_ID, &attr, start_func, arg);
   pthread_attr_destroy(&attr);
   return ret;

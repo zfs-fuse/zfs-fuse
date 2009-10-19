@@ -99,7 +99,10 @@ int do_init()
 	if(ioctl_fd == -1)
 		return -1;
 
-	if(pthread_create(&listener_thread, NULL, listener_loop, (void *) &ioctl_fd) != 0) {
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
+	if(pthread_create(&listener_thread, &attr, listener_loop, (void *) &ioctl_fd) != 0) {
 		cmn_err(CE_WARN, "Error creating listener thread.");
 		return -1;
 	}

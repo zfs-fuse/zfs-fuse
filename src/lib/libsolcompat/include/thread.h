@@ -84,6 +84,7 @@ static inline int thr_create(void *stack_base, size_t stack_size, void *(*start_
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
 	/* This function ignores the THR_BOUND flag, since NPTL doesn't seem to support PTHREAD_SCOPE_PROCESS */
+	pthread_attr_setstacksize(&attr,32768 /*PTHREAD_STACK_MIN*/);
 
 	int ret = pthread_create(new_thread_ID, &attr, start_func, arg);
 
