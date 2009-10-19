@@ -54,7 +54,6 @@
 #include <sys/zfs_fuid.h>
 #include <sys/dnlc.h>
 #include <sys/extdirent.h>
-#include <syslog.h>
 
 /*
  * zfs_match_find() is used by zfs_dirent_lock() to peform zap lookups
@@ -558,11 +557,9 @@ zfs_rmnode(znode_t *zp)
 	dmu_tx_t	*tx;
 	uint64_t	acl_obj;
 	int		error;
-	uint64_t obj = zp->z_id;
 
 	ASSERT(ZTOV(zp)->v_count == 0);
 	ASSERT(zp->z_phys->zp_links == 0);
-	ZFS_OBJ_HOLD_ENTER(zfsvfs, obj);
 
 	/*
 	 * If this is an attribute directory, purge its contents.
@@ -574,7 +571,6 @@ zfs_rmnode(znode_t *zp)
 			 * Leave it in the unlinked set.
 			 */
 			zfs_znode_dmu_fini(zp);
-			ZFS_OBJ_HOLD_EXIT(zfsvfs, obj);
 			zfs_znode_free(zp);
 			return;
 		}
@@ -589,7 +585,6 @@ zfs_rmnode(znode_t *zp)
 		 * Not enough space.  Leave the file in the unlinked set.
 		 */
 		zfs_znode_dmu_fini(zp);
-		ZFS_OBJ_HOLD_EXIT(zfsvfs, obj);
 		zfs_znode_free(zp);
 		return;
 	}
@@ -626,7 +621,6 @@ zfs_rmnode(znode_t *zp)
 		 */
 		dmu_tx_abort(tx);
 		zfs_znode_dmu_fini(zp);
-		ZFS_OBJ_HOLD_EXIT(zfsvfs, obj);
 		zfs_znode_free(zp);
 		goto out;
 	}
@@ -644,7 +638,6 @@ zfs_rmnode(znode_t *zp)
 	VERIFY3U(0, ==,
 	    zap_remove_int(zfsvfs->z_os, zfsvfs->z_unlinkedobj, zp->z_id, tx));
 
-	ZFS_OBJ_HOLD_EXIT(zfsvfs, obj);
 	zfs_znode_delete(zp, tx);
 
 	dmu_tx_commit(tx);

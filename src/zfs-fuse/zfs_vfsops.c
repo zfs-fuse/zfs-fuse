@@ -1635,15 +1635,11 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 	 */
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	for (zp = list_head(&zfsvfs->z_all_znodes); zp != NULL;
-	    zp = list_next(&zfsvfs->z_all_znodes, zp)) {
+	    zp = list_next(&zfsvfs->z_all_znodes, zp))
 		if (zp->z_dbuf) {
-		    uint64_t obj = zp->z_id;
-		    ZFS_OBJ_HOLD_ENTER(zfsvfs, obj);
-		    ASSERT(ZTOV(zp)->v_count > 0);
-		    zfs_znode_dmu_fini(zp);
-		    ZFS_OBJ_HOLD_EXIT(zfsvfs, obj);
+			ASSERT(ZTOV(zp)->v_count > 0);
+			zfs_znode_dmu_fini(zp);
 		}
-	}
 	mutex_exit(&zfsvfs->z_znodes_lock);
 
 	/*
