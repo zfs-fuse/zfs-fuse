@@ -125,6 +125,8 @@ struct vdev {
 	uint64_t	vdev_children;	/* number of children		*/
 	space_map_t	vdev_dtl[DTL_TYPES]; /* in-core dirty time logs	*/
 	vdev_stat_t	vdev_stat;	/* virtual device statistics	*/
+	int		vdev_open_error; /* error on last open		*/
+	kthread_t	*vdev_open_thread; /* thread opening children	*/
 
 	/*
 	 * Top-level vdev state.
