@@ -1312,6 +1312,7 @@ top:
 		    &acl_ids)) != 0)
 			goto out;
 		if (zfs_acl_ids_overquota(zfsvfs, &acl_ids)) {
+			zfs_acl_ids_free(&acl_ids);
 			error = EDQUOT;
 			goto out;
 		}
@@ -1718,6 +1719,7 @@ top:
 		return (error);
 	}
 	if (zfs_acl_ids_overquota(zfsvfs, &acl_ids)) {
+		zfs_acl_ids_free(&acl_ids);
 		zfs_dirent_unlock(dl);
 		ZFS_EXIT(zfsvfs);
 		return (EDQUOT);
@@ -2816,6 +2818,8 @@ top:
 		zp->z_phys->zp_mode = new_mode;
 		err = zfs_aclset_common(zp, aclp, cr, tx);
 		ASSERT3U(err, ==, 0);
+		zp->z_acl_cached = aclp;
+		aclp = NULL;
 		mutex_exit(&zp->z_acl_lock);
 	}
 
@@ -2906,6 +2910,9 @@ top:
 out:
 	if (attrzp)
 		VN_RELE(ZTOV(attrzp));
+
+	if (aclp)
+		zfs_acl_free(aclp);
 
 	if (fuidp) {
 		zfs_fuid_info_free(fuidp);
