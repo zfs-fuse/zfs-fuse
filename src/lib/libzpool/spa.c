@@ -2289,6 +2289,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 
 	if (version >= SPA_VERSION_ZPOOL_HISTORY && history_str != NULL)
 		(void) spa_history_log(spa, history_str, LOG_CMD_POOL_CREATE);
+	spa_history_log_version(spa, LOG_POOL_CREATE);
 
 	spa->spa_minref = refcount_count(&spa->spa_refcount);
 
@@ -2480,6 +2481,7 @@ spa_import_rootpool(char *devpath, char *devid)
 
 	VERIFY(nvlist_dup(config, &spa->spa_config, 0) == 0);
 	error = 0;
+	spa_history_log_version(spa, LOG_POOL_IMPORT);
 out:
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	vdev_free(rvd);
@@ -2520,6 +2522,7 @@ spa_import_verbatim(const char *pool, nvlist_t *config, nvlist_t *props)
 	spa_config_sync(spa, B_FALSE, B_TRUE);
 
 	mutex_exit(&spa_namespace_lock);
+	spa_history_log_version(spa, LOG_POOL_IMPORT);
 
 	return (0);
 }
@@ -2649,6 +2652,7 @@ spa_import(const char *pool, nvlist_t *config, nvlist_t *props)
 	}
 
 	mutex_exit(&spa_namespace_lock);
+	spa_history_log_version(spa, LOG_POOL_IMPORT);
 
 	return (0);
 }
@@ -3006,7 +3010,6 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 	vdev_t *rvd = spa->spa_root_vdev;
 	vdev_t *oldvd, *newvd, *newrootvd, *pvd, *tvd;
 	vdev_ops_t *pvops;
-	dmu_tx_t *tx;
 	char *oldvdpath, *newvdpath;
 	int newvd_isspare;
 	int error;
@@ -3169,17 +3172,11 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 
 	(void) spa_vdev_exit(spa, newrootvd, open_txg, 0);
 
-	tx = dmu_tx_create_dd(spa_get_dsl(spa)->dp_mos_dir);
-	if (dmu_tx_assign(tx, TXG_WAIT) == 0) {
-		spa_history_internal_log(LOG_POOL_VDEV_ATTACH, spa, tx,
-		    CRED(),  "%s vdev=%s %s vdev=%s",
-		    replacing && newvd_isspare ? "spare in" :
-		    replacing ? "replace" : "attach", newvdpath,
-		    replacing ? "for" : "to", oldvdpath);
-		dmu_tx_commit(tx);
-	} else {
-		dmu_tx_abort(tx);
-	}
+	spa_history_internal_log(LOG_POOL_VDEV_ATTACH, spa, NULL,
+	    CRED(),  "%s vdev=%s %s vdev=%s",
+	    replacing && newvd_isspare ? "spare in" :
+	    replacing ? "replace" : "attach", newvdpath,
+	    replacing ? "for" : "to", oldvdpath);
 
 	spa_strfree(oldvdpath);
 	spa_strfree(newvdpath);
