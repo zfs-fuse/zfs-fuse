@@ -328,6 +328,8 @@ dsl_dataset_snap_lookup(dsl_dataset_t *ds, const char *name, uint64_t *value)
 	matchtype_t mt;
 	int err;
 
+	dsl_dir_snap_cmtime_update(ds->ds_dir);
+
 	if (ds->ds_phys->ds_flags & DS_FLAG_CI_DATASET)
 		mt = MT_FIRST;
 	else
@@ -1997,6 +1999,8 @@ dsl_dataset_snapshot_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	    ds->ds_phys->ds_prev_snap_obj, ds, &ds->ds_prev));
 
 	dsl_pool_ds_snapshotted(ds, tx);
+
+	dsl_dir_snap_cmtime_update(ds->ds_dir);
 
 	spa_history_internal_log(LOG_DS_SNAPSHOT, dp->dp_spa, tx, cr,
 	    "dataset = %llu", dsobj);
