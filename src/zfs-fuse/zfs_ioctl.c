@@ -3562,6 +3562,7 @@ zfs_ioc_smb_acl(zfs_cmd_t *zc)
  * zc_value	short name of snap
  * zc_string	user-supplied tag for this reference
  * zc_cookie	recursive flag
+ * zc_temphold	set if hold is temporary
  *
  * outputs:		none
  */
@@ -3574,7 +3575,7 @@ zfs_ioc_hold(zfs_cmd_t *zc)
 		return (EINVAL);
 
 	return (dsl_dataset_user_hold(zc->zc_name, zc->zc_value,
-	    zc->zc_string, recursive));
+	    zc->zc_string, recursive, zc->zc_temphold));
 }
 
 /*
