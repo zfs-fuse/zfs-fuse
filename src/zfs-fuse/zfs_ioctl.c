@@ -386,13 +386,8 @@ zfs_secpolicy_fsacl(zfs_cmd_t *zc, cred_t *cr)
 int
 zfs_secpolicy_rollback(zfs_cmd_t *zc, cred_t *cr)
 {
-	int error;
-	error = zfs_secpolicy_write_perms(zc->zc_name,
-	    ZFS_DELEG_PERM_ROLLBACK, cr);
-	if (error == 0)
-		error = zfs_secpolicy_write_perms(zc->zc_name,
-		    ZFS_DELEG_PERM_MOUNT, cr);
-	return (error);
+	return (zfs_secpolicy_write_perms(zc->zc_name,
+	    ZFS_DELEG_PERM_ROLLBACK, cr));
 }
 
 int
@@ -611,16 +606,8 @@ zfs_secpolicy_receive(zfs_cmd_t *zc, cred_t *cr)
 int
 zfs_secpolicy_snapshot_perms(const char *name, cred_t *cr)
 {
-	int error;
-
-	if ((error = zfs_secpolicy_write_perms(name,
-	    ZFS_DELEG_PERM_SNAPSHOT, cr)) != 0)
-		return (error);
-
-	error = zfs_secpolicy_write_perms(name,
-	    ZFS_DELEG_PERM_MOUNT, cr);
-
-	return (error);
+	return (zfs_secpolicy_write_perms(name,
+	    ZFS_DELEG_PERM_SNAPSHOT, cr));
 }
 
 static int
@@ -678,22 +665,6 @@ zfs_secpolicy_config(zfs_cmd_t *zc, cred_t *cr)
 {
 	if (secpolicy_sys_config(cr, B_FALSE) != 0)
 		return (EPERM);
-
-	return (0);
-}
-
-/*
- * Just like zfs_secpolicy_config, except that we will check for
- * mount permission on the dataset for permission to create/remove
- * the minor nodes.
- */
-static int
-zfs_secpolicy_minor(zfs_cmd_t *zc, cred_t *cr)
-{
-	if (secpolicy_sys_config(cr, B_FALSE) != 0) {
-		return (dsl_deleg_access(zc->zc_name,
-		    ZFS_DELEG_PERM_MOUNT, cr));
-	}
 
 	return (0);
 }
@@ -1008,6 +979,8 @@ zfs_ioc_pool_destroy(zfs_cmd_t *zc)
 	int error;
 	zfs_log_history(zc);
 	error = spa_destroy(zc->zc_name);
+/*	if (error == 0)
+		zvol_remove_minors(zc->zc_name); */
 	return (error);
 }
 
@@ -1055,6 +1028,8 @@ zfs_ioc_pool_export(zfs_cmd_t *zc)
 
 	zfs_log_history(zc);
 	error = spa_export(zc->zc_name, NULL, force, hardforce);
+/*	if (error == 0)
+		zvol_remove_minors(zc->zc_name); */
 	return (error);
 }
 
@@ -1309,12 +1284,16 @@ zfs_ioc_vdev_remove(zfs_cmd_t *zc)
 static int
 zfs_ioc_vdev_set_state(zfs_cmd_t *zc)
 {
+	boolean_t nslock;
 	spa_t *spa;
 	int error;
 	vdev_state_t newstate = VDEV_STATE_UNKNOWN;
 
 	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
 		return (error);
+	nslock = spa_uses_zvols(spa);
+	if (nslock)
+		mutex_enter(&spa_namespace_lock);
 	switch (zc->zc_cookie) {
 	case VDEV_STATE_ONLINE:
 		error = vdev_online(spa, zc->zc_guid, zc->zc_obj, &newstate);
@@ -1335,6 +1314,8 @@ zfs_ioc_vdev_set_state(zfs_cmd_t *zc)
 	default:
 		error = EINVAL;
 	}
+	if (nslock)
+		mutex_exit(&spa_namespace_lock);
 	zc->zc_cookie = newstate;
 	spa_close(spa, FTAG);
 	return (error);
@@ -1581,12 +1562,16 @@ zfs_ioc_dataset_list_next(zfs_cmd_t *zc)
 		    NULL, &zc->zc_cookie);
 		if (error == ENOENT)
 			error = ESRCH;
-	} while (error == 0 && dataset_name_hidden(zc->zc_name));
+	} while (error == 0 && dataset_name_hidden(zc->zc_name) &&
+	    !(zc->zc_iflags & FKIOCTL));
 	dmu_objset_rele(os, FTAG);
 
-	if (error == 0)
+	/*
+	 * If it's an internal dataset (ie. with a '$' in its name),
+	 * don't try to get stats for it, otherwise we'll return ENOENT.
+	 */
+	if (error == 0 && strchr(zc->zc_name, '$') == NULL)
 		error = zfs_ioc_objset_stats(zc); /* fill in the stats */
-
 	return (error);
 }
 
@@ -1820,10 +1805,6 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 			break;
 
 		case ZFS_PROP_VOLSIZE:
-			/* ZFSFUSE: ZVols not implemented */
-			return ENXIO;
-
-		case ZFS_PROP_VOLBLOCKSIZE:
 			/* ZFSFUSE: ZVols not implemented */
 			return ENXIO;
 
@@ -2176,32 +2157,6 @@ zfs_ioc_get_fsacl(zfs_cmd_t *zc)
 }
 
 /*
- * inputs:
- * zc_name		name of volume
- *
- * outputs:		none
- */
-static int
-zfs_ioc_create_minor(zfs_cmd_t *zc)
-{
-	/* ZFSFUSE TODO: implement ZVOLs */
-	return ENXIO;
-}
-
-/*
- * inputs:
- * zc_name		name of volume
- *
- * outputs:		none
- */
-static int
-zfs_ioc_remove_minor(zfs_cmd_t *zc)
-{
-	/* ZFSFUSE TODO: implement ZVOLs */
-	return ENXIO;
-}
-
-/*
  * Search the vfs list for a specified resource.  Returns a pointer to it
  * or NULL if no suitable entry is found. The caller of this routine
  * is responsible for releasing the returned vfs pointer.
@@ -2536,7 +2491,8 @@ zfs_ioc_create(zfs_cmd_t *zc)
  * zc_cookie	recursive flag
  * zc_nvlist_src[_size] property list
  *
- * outputs:	none
+ * outputs:
+ * zc_value	short snapname (i.e. part after the '@')
  */
 static int
 zfs_ioc_snapshot(zfs_cmd_t *zc)
@@ -2645,13 +2601,17 @@ zfs_ioc_destroy_snaps(zfs_cmd_t *zc)
 static int
 zfs_ioc_destroy(zfs_cmd_t *zc)
 {
+	int err;
 	if (strchr(zc->zc_name, '@') && zc->zc_objset_type == DMU_OST_ZFS) {
-		int err = zfs_unmount_snap(zc->zc_name, NULL);
+		err = zfs_unmount_snap(zc->zc_name, NULL);
 		if (err)
 			return (err);
 	}
 
-	return (dmu_objset_destroy(zc->zc_name, zc->zc_defer_destroy));
+	err = dmu_objset_destroy(zc->zc_name, zc->zc_defer_destroy);
+/*	if (zc->zc_objset_type == DMU_OST_ZVOL && err == 0)
+		zvol_remove_minor(zc->zc_name); */
+	return (err);
 }
 
 /*
@@ -2767,6 +2727,8 @@ zfs_ioc_rename(zfs_cmd_t *zc)
 		if (err)
 			return (err);
 	}
+/*	if (zc->zc_objset_type == DMU_OST_ZVOL)
+		(void) zvol_remove_minor(zc->zc_name); */
 	return (dmu_objset_rename(zc->zc_name, zc->zc_value, recursive));
 }
 
@@ -3097,7 +3059,8 @@ zfs_ioc_clear(zfs_cmd_t *zc)
  * zc_name	name of filesystem
  * zc_value	name of origin snapshot
  *
- * outputs:	none
+ * outputs:
+ * zc_string	name of conflicting snapshot, if there is one
  */
 static int
 zfs_ioc_promote(zfs_cmd_t *zc)
@@ -3113,7 +3076,7 @@ zfs_ioc_promote(zfs_cmd_t *zc)
 		*cp = '\0';
 	(void) dmu_objset_find(zc->zc_value,
 	    zfs_unmount_snap, NULL, DS_FIND_SNAPSHOTS);
-	return (dsl_dataset_promote(zc->zc_name));
+	return (dsl_dataset_promote(zc->zc_name, zc->zc_string));
 }
 
 /*
@@ -3642,10 +3605,6 @@ static zfs_ioc_vec_t zfs_ioc_vec[] = {
 	{ zfs_ioc_snapshot_list_next, zfs_secpolicy_read, DATASET_NAME, B_FALSE,
 	    B_FALSE },
 	{ zfs_ioc_set_prop, zfs_secpolicy_none, DATASET_NAME, B_TRUE, B_TRUE },
-	{ zfs_ioc_create_minor,	zfs_secpolicy_minor, DATASET_NAME, B_FALSE,
-	    B_FALSE },
-	{ zfs_ioc_remove_minor,	zfs_secpolicy_minor, DATASET_NAME, B_FALSE,
-	    B_FALSE },
 	{ zfs_ioc_create, zfs_secpolicy_create, DATASET_NAME, B_TRUE, B_TRUE },
 	{ zfs_ioc_destroy, zfs_secpolicy_destroy, DATASET_NAME, B_TRUE,
 	    B_TRUE},
@@ -3741,7 +3700,7 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 
 	error = xcopyin((void *)arg, zc, sizeof (zfs_cmd_t));
 
-	if (error == 0)
+	if ((error == 0) && !(flag & FKIOCTL))
 		error = zfs_ioc_vec[vec].zvec_secpolicy(zc, cr);
 
 	/*

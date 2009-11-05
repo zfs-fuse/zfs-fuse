@@ -550,19 +550,13 @@ typedef struct vdev_stat {
 #define ZFS_SOCK_DIR "/var/run/zfs"
 #define ZFS_SOCK_NAME ZFS_SOCK_DIR "/zfs_socket"
 
-/*
- * zvol paths.  Irritatingly, the devfsadm interfaces want all these
- * paths without the /dev prefix, but for some things, we want the
- * /dev prefix.  Below are the names without /dev.
- */
-#define	ZVOL_DEV_DIR	"zvol/dsk"
-#define	ZVOL_RDEV_DIR	"zvol/rdsk"
-
-/*
- * And here are the things we need with /dev, etc. in front of them.
- */
+/* general zvol path */
+#define	ZVOL_DIR		"/dev/zvol"
+/* expansion */
 #define	ZVOL_PSEUDO_DEV		"/devices/pseudo/zvol@0:"
-#define	ZVOL_FULL_DEV_DIR	"/dev/" ZVOL_DEV_DIR "/"
+/* for dump and swap */
+#define	ZVOL_FULL_DEV_DIR	ZVOL_DIR "/dsk/"
+#define	ZVOL_FULL_RDEV_DIR	ZVOL_DIR "/rdsk/"
 
 #define	ZVOL_PROP_NAME		"name"
 
@@ -595,8 +589,6 @@ typedef enum zfs_ioc {
 	ZFS_IOC_DATASET_LIST_NEXT,
 	ZFS_IOC_SNAPSHOT_LIST_NEXT,
 	ZFS_IOC_SET_PROP,
-	ZFS_IOC_CREATE_MINOR,
-	ZFS_IOC_REMOVE_MINOR,
 	ZFS_IOC_CREATE,
 	ZFS_IOC_DESTROY,
 	ZFS_IOC_ROLLBACK,
