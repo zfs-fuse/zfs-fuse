@@ -69,6 +69,36 @@
 #include "zfs_prop.h"
 #include "zfs_deleg.h"
 
+#ifdef _KERNEL
+/* In opensolaris they have added the definitions of kmem_asprintf and
+ * strfree in a system lib. I'll add them here from zfs_context, and let's
+ * hope they won't be needed elsewhere... */
+/* Actually this is added to dsl_dataset.c as well, but if I put this in
+ * an external file, then I have to add it to libzpool_kernel.a and link it
+ * to zfs-fuse, which seems to be a little over the top for such a simple
+ * function. But if they continue to use this, I'll have to do it anyway */
+#define	strfree(str) kmem_free((str), strlen(str)+1)
+
+static char *
+kmem_asprintf(const char *fmt, ...)
+{
+	int size;
+	va_list adx;
+	char *buf;
+
+	va_start(adx, fmt);
+	size = vsnprintf(NULL, 0, fmt, adx) + 1;
+	va_end(adx);
+
+	buf = kmem_alloc(size, KM_SLEEP);
+
+	va_start(adx, fmt);
+	size = vsnprintf(buf, size, fmt, adx);
+	va_end(adx);
+
+	return (buf);
+}
+#endif
 extern struct modlfs zfs_modlfs;
 
 extern void zfs_init(void);
@@ -2444,14 +2474,12 @@ zfs_ioc_create(zfs_cmd_t *zc)
 			return (error);
 		}
 
-		error = dmu_objset_create(zc->zc_name, type, clone, 0,
-		    NULL, NULL);
+		error = dmu_objset_clone(zc->zc_name, dmu_objset_ds(clone), 0);
+		dmu_objset_close(clone);
 		if (error) {
-			dmu_objset_close(clone);
 			nvlist_free(nvprops);
 			return (error);
 		}
-		dmu_objset_close(clone);
 	} else {
 		boolean_t is_insensitive = B_FALSE;
 
@@ -2511,7 +2539,7 @@ zfs_ioc_create(zfs_cmd_t *zc)
 				return (error);
 			}
 		}
-		error = dmu_objset_create(zc->zc_name, type, NULL,
+		error = dmu_objset_create(zc->zc_name, type,
 		    is_insensitive ? DS_FLAG_CI_DATASET : 0, cbfunc, &zct);
 		nvlist_free(zct.zct_zplprops);
 	}
@@ -2661,19 +2689,42 @@ zfs_ioc_destroy(zfs_cmd_t *zc)
 static int
 zfs_ioc_rollback(zfs_cmd_t *zc)
 {
-	objset_t *os;
+	dsl_dataset_t *ds, *clone;
 	int error;
-	zfsvfs_t *zfsvfs = NULL;
+	zfsvfs_t *zfsvfs;
+	char *clone_name;
 
-	/*
-	 * Get the zfsvfs for the receiving objset. There
-	 * won't be one if we're operating on a zvol, if the
-	 * objset doesn't exist yet, or is not mounted.
-	 */
-	error = dmu_objset_open(zc->zc_name, DMU_OST_ANY, DS_MODE_USER, &os);
+	error = dsl_dataset_hold(zc->zc_name, FTAG, &ds);
 	if (error)
 		return (error);
 
+	/* must not be a snapshot */
+	if (dsl_dataset_is_snapshot(ds)) {
+		dsl_dataset_rele(ds, FTAG);
+		return (EINVAL);
+	}
+
+	/* must have a most recent snapshot */
+	if (ds->ds_phys->ds_prev_snap_txg < TXG_INITIAL) {
+		dsl_dataset_rele(ds, FTAG);
+		return (EINVAL);
+	}
+
+	/*
+	 * Create clone of most recent snapshot.
+	 */
+	clone_name = kmem_asprintf("%s/%%rollback", zc->zc_name);
+	error = dmu_objset_clone(clone_name, ds->ds_prev, DS_FLAG_INCONSISTENT);
+	if (error)
+		goto out;
+
+	error = dsl_dataset_own(clone_name, DS_MODE_INCONSISTENT, FTAG, &clone);
+	if (error)
+		goto out;
+
+	/*
+	 * Do clone swap.
+	 */
 	if (getzfsvfs(zc->zc_name, &zfsvfs) == 0) {
 		int mode;
 
@@ -2681,18 +2732,37 @@ zfs_ioc_rollback(zfs_cmd_t *zc)
 		if (error == 0) {
 			int resume_err;
 
-			error = dmu_objset_rollback(os);
+			if (dsl_dataset_tryown(ds, B_FALSE, FTAG)) {
+				error = dsl_dataset_clone_swap(clone, ds,
+				    B_TRUE);
+				dsl_dataset_disown(ds, FTAG);
+				ds = NULL;
+			} else {
+				error = EBUSY;
+			}
 			resume_err = zfs_resume_fs(zfsvfs, zc->zc_name, mode);
 			error = error ? error : resume_err;
-		} else {
-			dmu_objset_close(os);
 		}
 		VFS_RELE(zfsvfs->z_vfs);
 	} else {
-		error = dmu_objset_rollback(os);
+		if (dsl_dataset_tryown(ds, B_FALSE, FTAG)) {
+			error = dsl_dataset_clone_swap(clone, ds, B_TRUE);
+			dsl_dataset_disown(ds, FTAG);
+			ds = NULL;
+		} else {
+			error = EBUSY;
+		}
 	}
-	/* Note, the dmu_objset_rollback() releases the objset for us. */
 
+	/*
+	 * Destroy clone (which also closes it).
+	 */
+	(void) dsl_dataset_destroy(clone, FTAG, B_FALSE);
+
+out:
+	strfree(clone_name);
+	if (ds)
+		dsl_dataset_rele(ds, FTAG);
 	return (error);
 }
 
