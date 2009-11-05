@@ -3473,6 +3473,7 @@ struct dsl_ds_holdarg {
 	char *htag;
 	char *snapname;
 	boolean_t recursive;
+	boolean_t gotone;
 	char failed[MAXPATHLEN];
 };
 
@@ -3492,6 +3493,7 @@ dsl_dataset_user_hold_one(char *dsname, void *arg)
 	error = dsl_dataset_hold(name, ha->dstg, &ds);
 	kmem_free(name, buflen);
 	if (error == 0) {
+		ha->gotone = B_TRUE;
 		dsl_sync_task_create(ha->dstg, dsl_dataset_user_hold_check,
 		    dsl_dataset_user_hold_sync, ds, ha->htag, 0);
 	} else if (error == ENOENT && ha->recursive) {
@@ -3544,6 +3546,9 @@ dsl_dataset_user_hold(char *dsname, char *snapname, char *htag,
 		}
 		dsl_dataset_rele(ds, ha->dstg);
 	}
+
+	if (error == 0 && recursive && !ha->gotone)
+		error = ENOENT;
 
 	if (error)
 		(void) strcpy(dsname, ha->failed);
@@ -3695,6 +3700,8 @@ dsl_dataset_user_release_one(char *dsname, void *arg)
 	if (error)
 		return (error);
 
+	ha->gotone = B_TRUE;
+
 	ASSERT(dsl_dataset_is_snapshot(ds));
 
 	error = dsl_dataset_release_might_destroy(ds, ha->htag, &might_destroy);
@@ -3783,6 +3790,9 @@ dsl_dataset_user_release(char *dsname, char *snapname, char *htag,
 
 		kmem_free(ra, sizeof (struct dsl_ds_releasearg));
 	}
+
+	if (error == 0 && recursive && !ha->gotone)
+		error = ENOENT;
 
 	if (error)
 		(void) strcpy(dsname, ha->failed);
