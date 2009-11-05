@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -62,6 +62,9 @@ typedef struct zfetch {
 	uint32_t	zf_stream_cnt;	/* # of active streams */
 	uint64_t	zf_alloc_fail;	/* # of failed attempts to alloc strm */
 } zfetch_t;
+
+void		zfetch_init(void);
+void		zfetch_fini(void);
 
 void		dmu_zfetch_init(zfetch_t *, struct dnode *);
 void		dmu_zfetch_rele(zfetch_t *);
