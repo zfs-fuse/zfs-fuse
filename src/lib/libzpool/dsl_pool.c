@@ -36,6 +36,7 @@
 #include <sys/fs/zfs.h>
 #include <sys/zfs_znode.h>
 #include <sys/spa_impl.h>
+#include "kmem_asprintf.h"
 
 int zfs_no_write_throttle = 0;
 int zfs_write_limit_shift = 3;			/* 1/8th of physical memory */

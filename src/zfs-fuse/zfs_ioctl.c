@@ -68,37 +68,8 @@
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
 #include "zfs_deleg.h"
+#include "kmem_asprintf.h"
 
-#ifdef _KERNEL
-/* In opensolaris they have added the definitions of kmem_asprintf and
- * strfree in a system lib. I'll add them here from zfs_context, and let's
- * hope they won't be needed elsewhere... */
-/* Actually this is added to dsl_dataset.c as well, but if I put this in
- * an external file, then I have to add it to libzpool_kernel.a and link it
- * to zfs-fuse, which seems to be a little over the top for such a simple
- * function. But if they continue to use this, I'll have to do it anyway */
-#define	strfree(str) kmem_free((str), strlen(str)+1)
-
-static char *
-kmem_asprintf(const char *fmt, ...)
-{
-	int size;
-	va_list adx;
-	char *buf;
-
-	va_start(adx, fmt);
-	size = vsnprintf(NULL, 0, fmt, adx) + 1;
-	va_end(adx);
-
-	buf = kmem_alloc(size, KM_SLEEP);
-
-	va_start(adx, fmt);
-	size = vsnprintf(buf, size, fmt, adx);
-	va_end(adx);
-
-	return (buf);
-}
-#endif
 extern struct modlfs zfs_modlfs;
 
 extern void zfs_init(void);

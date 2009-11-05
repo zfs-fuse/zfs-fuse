@@ -40,33 +40,8 @@
 #include <sys/zfs_znode.h>
 #include <sys/sunddi.h>
 #include <sys/zvol.h>
+#include "kmem_asprintf.h"
 
-#ifdef _KERNEL
-/* In opensolaris they have added the definitions of kmem_asprintf and
- * strfree in a system lib. I'll add them here from zfs_context, and let's
- * hope they won't be needed elsewhere... */
-#define	strfree(str) kmem_free((str), strlen(str)+1)
-
-static char *
-kmem_asprintf(const char *fmt, ...)
-{
-	int size;
-	va_list adx;
-	char *buf;
-
-	va_start(adx, fmt);
-	size = vsnprintf(NULL, 0, fmt, adx) + 1;
-	va_end(adx);
-
-	buf = kmem_alloc(size, KM_SLEEP);
-
-	va_start(adx, fmt);
-	size = vsnprintf(buf, size, fmt, adx);
-	va_end(adx);
-
-	return (buf);
-}
-#endif
 
 static char *dsl_reaper = "the grim reaper";
 
