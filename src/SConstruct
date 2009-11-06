@@ -78,6 +78,7 @@ SConscript('lib/libsolkerncompat/SConscript')
 SConscript('cmd/zdb/SConscript')
 SConscript('cmd/ztest/SConscript')
 SConscript('cmd/zpool/SConscript')
+SConscript('cmd/zstreamdump/SConscript')
 SConscript('cmd/zfs/SConscript')
 SConscript('zfs-fuse/SConscript')
 

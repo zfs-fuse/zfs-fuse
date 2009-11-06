@@ -40,6 +40,7 @@
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
+#include "zfs_fletcher.h"
 #include "libzfs_impl.h"
 
 #include <sys/zio_checksum.h>
