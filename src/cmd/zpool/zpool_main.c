@@ -344,7 +344,7 @@ print_vdev_tree(zpool_handle_t *zhp, const char *name, nvlist_t *nv, int indent,
 		if ((is_log && !print_logs) || (!is_log && print_logs))
 			continue;
 
-		vname = zpool_vdev_name(g_zfs, zhp, child[c]);
+		vname = zpool_vdev_name(g_zfs, zhp, child[c], B_FALSE);
 		print_vdev_tree(zhp, vname, child[c], indent + 2,
 		    B_FALSE);
 		free(vname);
@@ -945,7 +945,7 @@ zpool_do_export(int argc, char **argv)
 static int
 max_width(zpool_handle_t *zhp, nvlist_t *nv, int depth, int max)
 {
-	char *name = zpool_vdev_name(g_zfs, zhp, nv);
+	char *name = zpool_vdev_name(g_zfs, zhp, nv, B_TRUE);
 	nvlist_t **child;
 	uint_t c, children;
 	int ret;
@@ -1145,14 +1145,16 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	(void) printf("\n");
 
 	for (c = 0; c < children; c++) {
-		uint64_t is_log = B_FALSE;
+		uint64_t islog = B_FALSE, ishole = B_FALSE;
 
-		/* Don't print logs here */
+		/* Don't print logs or holes here */
 		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_LOG,
-		    &is_log);
-		if (is_log)
+		    &islog);
+		(void) nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_HOLE,
+		    &ishole);
+		if (islog || ishole)
 			continue;
-		vname = zpool_vdev_name(g_zfs, zhp, child[c]);
+		vname = zpool_vdev_name(g_zfs, zhp, child[c], B_TRUE);
 		print_status_config(zhp, vname, child[c],
 		    namewidth, depth + 2, isspare);
 		free(vname);
@@ -1173,7 +1175,8 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth)
 	char *type, *vname;
 
 	verify(nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type) == 0);
-	if (strcmp(type, VDEV_TYPE_MISSING) == 0)
+	if (strcmp(type, VDEV_TYPE_MISSING) == 0 ||
+	    strcmp(type, VDEV_TYPE_HOLE) == 0)
 		return;
 
 	verify(nvlist_lookup_uint64_array(nv, ZPOOL_CONFIG_STATS,
@@ -1225,7 +1228,7 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth)
 		if (is_log)
 			continue;
 
-		vname = zpool_vdev_name(g_zfs, NULL, child[c]);
+		vname = zpool_vdev_name(g_zfs, NULL, child[c], B_TRUE);
 		print_import_config(vname, child[c], namewidth, depth + 2);
 		free(vname);
 	}
@@ -1234,7 +1237,7 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth)
 	    &child, &children) == 0) {
 		(void) printf(gettext("\tcache\n"));
 		for (c = 0; c < children; c++) {
-			vname = zpool_vdev_name(g_zfs, NULL, child[c]);
+			vname = zpool_vdev_name(g_zfs, NULL, child[c], B_FALSE);
 			(void) printf("\t  %s\n", vname);
 			free(vname);
 		}
@@ -1244,7 +1247,7 @@ print_import_config(const char *name, nvlist_t *nv, int namewidth, int depth)
 	    &child, &children) == 0) {
 		(void) printf(gettext("\tspares\n"));
 		for (c = 0; c < children; c++) {
-			vname = zpool_vdev_name(g_zfs, NULL, child[c]);
+			vname = zpool_vdev_name(g_zfs, NULL, child[c], B_FALSE);
 			(void) printf("\t  %s\n", vname);
 			free(vname);
 		}
@@ -1279,7 +1282,7 @@ print_logs(zpool_handle_t *zhp, nvlist_t *nv, int namewidth, boolean_t verbose)
 		    &is_log);
 		if (!is_log)
 			continue;
-		name = zpool_vdev_name(g_zfs, zhp, child[c]);
+		name = zpool_vdev_name(g_zfs, zhp, child[c], B_TRUE);
 		if (verbose)
 			print_status_config(zhp, name, child[c], namewidth,
 			    2, B_FALSE);
@@ -1971,7 +1974,7 @@ print_vdev_stats(zpool_handle_t *zhp, const char *name, nvlist_t *oldnv,
 		return;
 
 	for (c = 0; c < children; c++) {
-		vname = zpool_vdev_name(g_zfs, zhp, newchild[c]);
+		vname = zpool_vdev_name(g_zfs, zhp, newchild[c], B_FALSE);
 		print_vdev_stats(zhp, vname, oldnv ? oldchild[c] : NULL,
 		    newchild[c], cb, depth + 2);
 		free(vname);
@@ -1992,7 +1995,8 @@ print_vdev_stats(zpool_handle_t *zhp, const char *name, nvlist_t *oldnv,
 		(void) printf("%-*s      -      -      -      -      -      "
 		    "-\n", cb->cb_namewidth, "cache");
 		for (c = 0; c < children; c++) {
-			vname = zpool_vdev_name(g_zfs, zhp, newchild[c]);
+			vname = zpool_vdev_name(g_zfs, zhp, newchild[c],
+			    B_FALSE);
 			print_vdev_stats(zhp, vname, oldnv ? oldchild[c] : NULL,
 			    newchild[c], cb, depth + 2);
 			free(vname);
@@ -3003,7 +3007,7 @@ print_spares(zpool_handle_t *zhp, nvlist_t **spares, uint_t nspares,
 	(void) printf(gettext("\tspares\n"));
 
 	for (i = 0; i < nspares; i++) {
-		name = zpool_vdev_name(g_zfs, zhp, spares[i]);
+		name = zpool_vdev_name(g_zfs, zhp, spares[i], B_FALSE);
 		print_status_config(zhp, name, spares[i],
 		    namewidth, 2, B_TRUE);
 		free(name);
@@ -3023,7 +3027,7 @@ print_l2cache(zpool_handle_t *zhp, nvlist_t **l2cache, uint_t nl2cache,
 	(void) printf(gettext("\tcache\n"));
 
 	for (i = 0; i < nl2cache; i++) {
-		name = zpool_vdev_name(g_zfs, zhp, l2cache[i]);
+		name = zpool_vdev_name(g_zfs, zhp, l2cache[i], B_FALSE);
 		print_status_config(zhp, name, l2cache[i],
 		    namewidth, 2, B_FALSE);
 		free(name);
@@ -3580,6 +3584,7 @@ zpool_do_upgrade(int argc, char **argv)
 		(void) printf(gettext(" 16  stmf property support\n"));
 		(void) printf(gettext(" 17  Triple-parity RAID-Z\n"));
 		(void) printf(gettext(" 18  snapshot user holds\n"));
+		(void) printf(gettext(" 19  Log device removal\n"));
 		(void) printf(gettext("For more information on a particular "
 		    "version, including supported releases, see:\n\n"));
 		(void) printf("http://www.opensolaris.org/os/community/zfs/"
