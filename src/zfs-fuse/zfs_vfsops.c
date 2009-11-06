@@ -1560,7 +1560,7 @@ zfs_root(vfs_t *vfsp, vnode_t **vpp)
 
 	ZFS_ENTER(zfsvfs);
 
-	error = zfs_zget(zfsvfs, zfsvfs->z_root, &rootzp, B_FALSE);
+	error = zfs_zget(zfsvfs, zfsvfs->z_root, &rootzp);
 	if (error == 0)
 		*vpp = ZTOV(rootzp);
 

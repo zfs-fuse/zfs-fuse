@@ -2581,7 +2581,7 @@ zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr)
 	 */
 	if (is_attr) {
 		if ((error = zfs_zget(zp->z_zfsvfs,
-		    zp->z_phys->zp_parent, &xzp, B_FALSE)) != 0)	{
+		    zp->z_phys->zp_parent, &xzp)) != 0)	{
 			return (error);
 		}
 

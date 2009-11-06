@@ -908,7 +908,7 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	/*
 	 * Nothing to do if the file has been removed
 	 */
-	if (zfs_zget(zfsvfs, lr->lr_foid, &zp, B_FALSE) != 0)
+	if (zfs_zget(zfsvfs, lr->lr_foid, &zp) != 0)
 		return (ENOENT);
 	if (zp->z_unlinked) {
 		/*
@@ -1599,7 +1599,7 @@ top:
 
 	if (delete_now) {
 		if (zp->z_phys->zp_xattr) {
-			error = zfs_zget(zfsvfs, zp->z_phys->zp_xattr, &xzp, B_FALSE);
+			error = zfs_zget(zfsvfs, zp->z_phys->zp_xattr, &xzp);
 			ASSERT3U(error, ==, 0);
 			ASSERT3U(xzp->z_phys->zp_links, ==, 2);
 			dmu_buf_will_dirty(xzp->z_dbuf, tx);
@@ -2111,6 +2111,21 @@ zfs_readdir(vnode_t *vp, uio_t *uio, cred_t *cr, int *eofp,
  #endif
 		}
 
+		if (flags & V_RDDIR_ACCFILTER) {
+			/*
+			 * If we have no access at all, don't include
+			 * this entry in the returned information
+			 */
+			znode_t	*ezp;
+			if (zfs_zget(zp->z_zfsvfs, objnum, &ezp) != 0)
+				goto skip_entry;
+			if (!zfs_has_access(ezp, cr)) {
+				VN_RELE(ZTOV(ezp));
+				goto skip_entry;
+			}
+			VN_RELE(ZTOV(ezp));
+		}
+
 		if (flags & V_RDDIR_ENTFLAGS)
 			reclen = EDIRENT_RECLEN(strlen(zap.za_name));
 		else
@@ -2162,6 +2177,7 @@ zfs_readdir(vnode_t *vp, uio_t *uio, cred_t *cr, int *eofp,
 		if (prefetch)
 			dmu_prefetch(os, objnum, 0, 0);
 
+	skip_entry:
 		/*
 		 * Move to the next entry, fill in the previous offset.
 		 */
@@ -2784,7 +2800,7 @@ top:
 
 	if (mask & (AT_UID | AT_GID)) {
 		if (pzp->zp_xattr) {
-			err = zfs_zget(zp->z_zfsvfs, pzp->zp_xattr, &attrzp, B_FALSE);
+			err = zfs_zget(zp->z_zfsvfs, pzp->zp_xattr, &attrzp);
 			if (err)
 				goto out;
 			dmu_tx_hold_bonus(tx, attrzp->z_id);
@@ -3043,7 +3059,7 @@ zfs_rename_lock(znode_t *szp, znode_t *tdzp, znode_t *sdzp, zfs_zlock_t **zlpp)
 			return (0);
 
 		if (rw == RW_READER) {		/* i.e. not the first pass */
-			int error = zfs_zget(zp->z_zfsvfs, *oidp, &zp, B_FALSE);
+			int error = zfs_zget(zp->z_zfsvfs, *oidp, &zp);
 			if (error)
 				return (error);
 			zl->zl_znode = zp;
@@ -4539,6 +4555,11 @@ zfs_pathconf(vnode_t *vp, int cmd, ulong_t *valp, cred_t *cr,
 	case _PC_SATTR_EXISTS:
 		*valp = vfs_has_feature(vp->v_vfsp, VFSFT_SYSATTR_VIEWS) &&
 		    (vp->v_type == VREG || vp->v_type == VDIR);
+		return (0);
+
+	case _PC_ACCESS_FILTERING:
+		*valp = vfs_has_feature(vp->v_vfsp, VFSFT_ACCESS_FILTER) &&
+		    vp->v_type == VDIR;
 		return (0);
 
 	case _PC_ACL_ENABLED:
