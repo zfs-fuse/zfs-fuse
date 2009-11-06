@@ -59,6 +59,8 @@
 #include <sys/systeminfo.h>
 #include <sys/sunddi.h>
 #include <sys/spa_boot.h>
+#include <sys/zfs_ioctl.h>
+#include <syslog.h>
 
 #ifdef	_KERNEL
 #include <sys/zone.h>
@@ -332,6 +334,7 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 		case ZPOOL_PROP_DELEGATION:
 		case ZPOOL_PROP_AUTOREPLACE:
 		case ZPOOL_PROP_LISTSNAPS:
+		case ZPOOL_PROP_AUTOEXPAND:
 			error = nvpair_value_uint64(elem, &intval);
 			if (!error && intval > 1)
 				error = EINVAL;
@@ -705,7 +708,7 @@ spa_config_parse(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent,
     uint_t id, int atype)
 {
 	nvlist_t **child;
-	uint_t c, children;
+	uint_t children;
 	int error;
 
 	if ((error = vdev_alloc(spa, vdp, nv, parent, id, atype)) != 0)
@@ -726,7 +729,7 @@ spa_config_parse(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent,
 		return (EINVAL);
 	}
 
-	for (c = 0; c < children; c++) {
+	for (int c = 0; c < children; c++) {
 		vdev_t *vd;
 		if ((error = spa_config_parse(spa, &vd, child[c], *vdp, c,
 		    atype)) != 0) {
@@ -954,7 +957,7 @@ spa_load_l2cache(spa_t *spa)
 	nvlist_t **l2cache;
 	uint_t nl2cache;
 	int i, j, oldnvdevs;
-	uint64_t guid, size;
+	uint64_t guid;
 	vdev_t *vd, **oldvdevs, **newvdevs;
 	spa_aux_vdev_t *sav = &spa->spa_l2cache;
 
@@ -1018,12 +1021,8 @@ spa_load_l2cache(spa_t *spa)
 
 			(void) vdev_validate_aux(vd);
 
-			if (!vdev_is_dead(vd)) {
-				size = vdev_get_rsize(vd);
-				l2arc_add_vdev(spa, vd,
-				    VDEV_LABEL_START_SIZE,
-				    size - VDEV_LABEL_START_SIZE);
-			}
+			if (!vdev_is_dead(vd))
+				l2arc_add_vdev(spa, vd);
 		}
 	}
 
@@ -1102,9 +1101,7 @@ load_nvlist(spa_t *spa, uint64_t obj, nvlist_t **value)
 static void
 spa_check_removed(vdev_t *vd)
 {
-	int c;
-
-	for (c = 0; c < vd->vdev_children; c++)
+	for (int c = 0; c < vd->vdev_children; c++)
 		spa_check_removed(vd->vdev_child[c]);
 
 	if (vd->vdev_ops->vdev_op_leaf && vdev_is_dead(vd)) {
@@ -1122,7 +1119,7 @@ spa_load_log_state(spa_t *spa)
 {
 	nvlist_t *nv, *nvroot, **child;
 	uint64_t is_log;
-	uint_t children, c;
+	uint_t children;
 	vdev_t *rvd = spa->spa_root_vdev;
 
 	VERIFY(load_nvlist(spa, spa->spa_config_object, &nv) == 0);
@@ -1130,7 +1127,7 @@ spa_load_log_state(spa_t *spa)
 	VERIFY(nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) == 0);
 
-	for (c = 0; c < children; c++) {
+	for (int c = 0; c < children; c++) {
 		vdev_t *tvd = rvd->vdev_child[c];
 
 		if (nvlist_lookup_uint64(child[c], ZPOOL_CONFIG_IS_LOG,
@@ -1532,6 +1529,10 @@ spa_load(spa_t *spa, nvlist_t *config, spa_load_state_t state, int mosconfig)
 		    spa->spa_pool_props_object,
 		    zpool_prop_to_name(ZPOOL_PROP_FAILUREMODE),
 		    sizeof (uint64_t), 1, &spa->spa_failmode);
+		(void) zap_lookup(spa->spa_meta_objset,
+		    spa->spa_pool_props_object,
+		    zpool_prop_to_name(ZPOOL_PROP_AUTOEXPAND),
+		    sizeof (uint64_t), 1, &spa->spa_autoexpand);
 	}
 
 	/*
@@ -2122,7 +2123,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	vdev_t *rvd;
 	dsl_pool_t *dp;
 	dmu_tx_t *tx;
-	int c, error = 0;
+	int error = 0;
 	uint64_t txg = TXG_INITIAL;
 	nvlist_t **spares, **l2cache;
 	uint_t nspares, nl2cache;
@@ -2184,9 +2185,10 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	    (error = vdev_create(rvd, txg, B_FALSE)) == 0 &&
 	    (error = spa_validate_aux(spa, nvroot, txg,
 	    VDEV_ALLOC_ADD)) == 0) {
-		for (c = 0; c < rvd->vdev_children; c++)
-			vdev_init(rvd->vdev_child[c], txg);
-		vdev_config_dirty(rvd);
+		for (int c = 0; c < rvd->vdev_children; c++) {
+			vdev_metaslab_set_size(rvd->vdev_child[c]);
+			vdev_expand(rvd->vdev_child[c], txg);
+		}
 	}
 
 	spa_config_exit(spa, SCL_ALL, FTAG);
@@ -2285,6 +2287,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	spa->spa_bootfs = zpool_prop_default_numeric(ZPOOL_PROP_BOOTFS);
 	spa->spa_delegation = zpool_prop_default_numeric(ZPOOL_PROP_DELEGATION);
 	spa->spa_failmode = zpool_prop_default_numeric(ZPOOL_PROP_FAILUREMODE);
+	spa->spa_autoexpand = zpool_prop_default_numeric(ZPOOL_PROP_AUTOEXPAND);
 	if (props != NULL) {
 		spa_configfile_set(spa, props, B_FALSE);
 		spa_sync_props(spa, props, CRED(), tx);
@@ -2369,9 +2372,7 @@ spa_generate_rootconf(char *devpath, char *devid, uint64_t *guid)
 static void
 spa_alt_rootvdev(vdev_t *vd, vdev_t **avd, uint64_t *txg)
 {
-	int c;
-
-	for (c = 0; c < vd->vdev_children; c++)
+	for (int c = 0; c < vd->vdev_children; c++)
 		spa_alt_rootvdev(vd->vdev_child[c], avd, txg);
 
 	if (vd->vdev_ops->vdev_op_leaf) {
@@ -2669,6 +2670,12 @@ spa_import(const char *pool, nvlist_t *config, nvlist_t *props)
 		 */
 		spa_config_update(spa, SPA_CONFIG_UPDATE_POOL);
 	}
+
+	/*
+	 * It's possible that the pool was expanded while it was exported.
+	 * We kick off an async task to handle this for us.
+	 */
+	spa_async_request(spa, SPA_ASYNC_AUTOEXPAND);
 
 	mutex_exit(&spa_namespace_lock);
 	spa_history_log_version(spa, LOG_POOL_IMPORT);
@@ -3107,10 +3114,9 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 	}
 
 	/*
-	 * Compare the new device size with the replaceable/attachable
-	 * device size.
+	 * Make sure the new device is big enough.
 	 */
-	if (newvd->vdev_psize < vdev_get_rsize(oldvd))
+	if (newvd->vdev_asize < vdev_get_min_asize(oldvd))
 		return (spa_vdev_exit(spa, newrootvd, txg, EOVERFLOW));
 
 	/*
@@ -3153,12 +3159,6 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing)
 	vdev_remove_child(newrootvd, newvd);
 	newvd->vdev_id = pvd->vdev_children;
 	vdev_add_child(pvd, newvd);
-
-	/*
-	 * If newvd is smaller than oldvd, but larger than its rsize,
-	 * the addition of newvd may have decreased our parent's asize.
-	 */
-	pvd->vdev_asize = MIN(pvd->vdev_asize, newvd->vdev_asize);
 
 	tvd = newvd->vdev_top;
 	ASSERT(pvd->vdev_top == tvd);
@@ -3370,12 +3370,16 @@ spa_vdev_detach(spa_t *spa, uint64_t guid, uint64_t pguid, int replace_done)
 	vdev_propagate_state(cvd);
 
 	/*
-	 * If the device we just detached was smaller than the others, it may be
-	 * possible to add metaslabs (i.e. grow the pool).  vdev_metaslab_init()
-	 * can't fail because the existing metaslabs are already in core, so
-	 * there's nothing to read from disk.
+	 * If the 'autoexpand' property is set on the pool then automatically
+	 * try to expand the size of the pool. For example if the device we
+	 * just detached was smaller than the others, it may be possible to
+	 * add metaslabs (i.e. grow the pool). We need to reopen the vdev
+	 * first so that we can obtain the updated sizes of the leaf vdevs.
 	 */
-	VERIFY(vdev_metaslab_init(tvd, txg) == 0);
+	if (spa->spa_autoexpand) {
+		vdev_reopen(tvd);
+		vdev_expand(tvd, txg);
+	}
 
 	vdev_config_dirty(tvd);
 
@@ -3533,9 +3537,8 @@ static vdev_t *
 spa_vdev_resilver_done_hunt(vdev_t *vd)
 {
 	vdev_t *newvd, *oldvd;
-	int c;
 
-	for (c = 0; c < vd->vdev_children; c++) {
+	for (int c = 0; c < vd->vdev_children; c++) {
 		oldvd = spa_vdev_resilver_done_hunt(vd->vdev_child[c]);
 		if (oldvd != NULL)
 			return (oldvd);
@@ -3733,6 +3736,41 @@ spa_async_probe(spa_t *spa, vdev_t *vd)
 }
 
 static void
+spa_async_autoexpand(spa_t *spa, vdev_t *vd)
+{
+	// sysevent_id_t eid;
+	nvlist_t *attr;
+	char *physpath;
+
+	if (!spa->spa_autoexpand)
+		return;
+
+	for (int c = 0; c < vd->vdev_children; c++) {
+		vdev_t *cvd = vd->vdev_child[c];
+		spa_async_autoexpand(spa, cvd);
+	}
+
+	if (!vd->vdev_ops->vdev_op_leaf || vd->vdev_physpath == NULL)
+		return;
+
+	physpath = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
+	(void) snprintf(physpath, MAXPATHLEN, "/devices%s", vd->vdev_physpath);
+	syslog(LOG_WARNING,"spa_async_autoexpand: would have used %s",physpath);
+
+	/* zfs-fuse : DEV_PHYS_PATH is defined in sysevent/dev.h, and there is no
+	 * sysevent in linux... so nothing for now !
+	VERIFY(nvlist_alloc(&attr, NV_UNIQUE_NAME, KM_SLEEP) == 0);
+	VERIFY(nvlist_add_string(attr, DEV_PHYS_PATH, physpath) == 0);
+
+	(void) ddi_log_sysevent(zfs_dip, SUNW_VENDOR, EC_DEV_STATUS,
+	    ESC_DEV_DLE, attr, &eid, DDI_SLEEP);
+
+	nvlist_free(attr);
+	*/
+	kmem_free(physpath, MAXPATHLEN);
+}
+
+static void
 spa_async_thread(spa_t *spa)
 {
 	int tasks;
@@ -3748,9 +3786,33 @@ spa_async_thread(spa_t *spa)
 	 * See if the config needs to be updated.
 	 */
 	if (tasks & SPA_ASYNC_CONFIG_UPDATE) {
+		uint64_t oldsz, space_update;
+
 		mutex_enter(&spa_namespace_lock);
+		oldsz = spa_get_space(spa);
 		spa_config_update(spa, SPA_CONFIG_UPDATE_POOL);
+		space_update = spa_get_space(spa) - oldsz;
 		mutex_exit(&spa_namespace_lock);
+
+		/*
+		 * If the pool grew as a result of the config update,
+		 * then log an internal history event.
+		 */
+		if (space_update) {
+			dmu_tx_t *tx;
+
+			tx = dmu_tx_create_dd(spa_get_dsl(spa)->dp_mos_dir);
+			if (dmu_tx_assign(tx, TXG_WAIT) == 0) {
+				spa_history_internal_log(LOG_POOL_VDEV_ONLINE,
+				    spa, tx, CRED(),
+				    "pool '%s' size: %llu(+%llu)",
+				    spa_name(spa), spa_get_space(spa),
+				    space_update);
+				dmu_tx_commit(tx);
+			} else {
+				dmu_tx_abort(tx);
+			}
+		}
 	}
 
 	/*
@@ -3764,6 +3826,12 @@ spa_async_thread(spa_t *spa)
 		for (int i = 0; i < spa->spa_spares.sav_count; i++)
 			spa_async_remove(spa, spa->spa_spares.sav_vdevs[i]);
 		(void) spa_vdev_state_exit(spa, NULL, 0);
+	}
+
+	if ((tasks & SPA_ASYNC_AUTOEXPAND) && !spa_suspended(spa)) {
+		spa_config_enter(spa, SCL_CONFIG, FTAG, RW_READER);
+		spa_async_autoexpand(spa, spa->spa_root_vdev);
+		spa_config_exit(spa, SCL_CONFIG, FTAG);
 	}
 
 	/*
@@ -4078,6 +4146,10 @@ spa_sync_props(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 			case ZPOOL_PROP_FAILUREMODE:
 				spa->spa_failmode = intval;
 				break;
+			case ZPOOL_PROP_AUTOEXPAND:
+				spa->spa_autoexpand = intval;
+				spa_async_request(spa, SPA_ASYNC_AUTOEXPAND);
+				break;
 			default:
 				break;
 			}
@@ -4239,9 +4311,8 @@ spa_sync(spa_t *spa, uint64_t txg)
 			int svdcount = 0;
 			int children = rvd->vdev_children;
 			int c0 = spa_get_random(children);
-			int c;
 
-			for (c = 0; c < children; c++) {
+			for (int c = 0; c < children; c++) {
 				vd = rvd->vdev_child[(c0 + c) % children];
 				if (vd->vdev_ms_array == 0 || vd->vdev_islog)
 					continue;

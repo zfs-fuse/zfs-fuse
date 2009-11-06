@@ -154,6 +154,7 @@ typedef enum {
 	ZPOOL_PROP_CACHEFILE,
 	ZPOOL_PROP_FAILUREMODE,
 	ZPOOL_PROP_LISTSNAPS,
+	ZPOOL_PROP_AUTOEXPAND,
 	ZPOOL_NUM_PROPS
 } zpool_prop_t;
 
@@ -553,7 +554,7 @@ typedef struct vdev_stat {
 /* general zvol path */
 #define	ZVOL_DIR		"/dev/zvol"
 /* expansion */
-#define	ZVOL_PSEUDO_DEV		"/devices/pseudo/zvol@0:"
+#define	ZVOL_PSEUDO_DEV		"/devices/pseudo/zfs@0:"
 /* for dump and swap */
 #define	ZVOL_FULL_DEV_DIR	ZVOL_DIR "/dsk/"
 #define	ZVOL_FULL_RDEV_DIR	ZVOL_DIR "/rdsk/"
@@ -660,6 +661,7 @@ typedef enum {
 #define	ZFS_ONLINE_CHECKREMOVE	0x1
 #define	ZFS_ONLINE_UNSPARE	0x2
 #define	ZFS_ONLINE_FORCEFAULT	0x4
+#define	ZFS_ONLINE_EXPAND	0x8
 #define	ZFS_OFFLINE_TEMPORARY	0x1
 
 /*
