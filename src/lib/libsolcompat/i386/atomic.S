@@ -18,14 +18,13 @@
  *
  * CDDL HEADER END
  */
+
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
-	.ident	"%Z%%M%	%I%	%E% SMI"
-
-	.file	"%M%"
+	.file	"atomic.s"
 
 #define _ASM
 #include <sys/asm_linkage.h>
@@ -41,11 +40,6 @@
 	ANSI_PRAGMA_WEAK2(casptr,atomic_cas_ptr,function)
 	ANSI_PRAGMA_WEAK2(atomic_and_long,atomic_and_ulong,function)
 	ANSI_PRAGMA_WEAK2(atomic_or_long,atomic_or_ulong,function)
-#else
-	/*
-	 * Include the definitions for the libc weak aliases.
-	 */
-#include "../atomic_asm_weak.h"
 #endif
 
 	ENTRY(atomic_inc_8)
@@ -79,28 +73,28 @@
 
 	ENTRY(atomic_inc_8_nv)
 	ALTENTRY(atomic_inc_uchar_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movb	(%edx), %al	# %al = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movb	(%edx), %al	// %al = old value
 1:
-	leal	1(%eax), %ecx	# %cl = new value
+	leal	1(%eax), %ecx	// %cl = new value
 	lock
-	cmpxchgb %cl, (%edx)	# try to stick it in
+	cmpxchgb %cl, (%edx)	// try to stick it in
 	jne	1b
-	movzbl	%cl, %eax	# return new value
+	movzbl	%cl, %eax	// return new value
 	ret
 	SET_SIZE(atomic_inc_uchar_nv)
 	SET_SIZE(atomic_inc_8_nv)
 
 	ENTRY(atomic_inc_16_nv)
 	ALTENTRY(atomic_inc_ushort_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movw	(%edx), %ax	# %ax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movw	(%edx), %ax	// %ax = old value
 1:
-	leal	1(%eax), %ecx	# %cx = new value
+	leal	1(%eax), %ecx	// %cx = new value
 	lock
-	cmpxchgw %cx, (%edx)	# try to stick it in
+	cmpxchgw %cx, (%edx)	// try to stick it in
 	jne	1b
-	movzwl	%cx, %eax	# return new value
+	movzwl	%cx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_inc_ushort_nv)
 	SET_SIZE(atomic_inc_16_nv)
@@ -108,14 +102,14 @@
 	ENTRY(atomic_inc_32_nv)
 	ALTENTRY(atomic_inc_uint_nv)
 	ALTENTRY(atomic_inc_ulong_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movl	(%edx), %eax	# %eax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movl	(%edx), %eax	// %eax = old value
 1:
-	leal	1(%eax), %ecx	# %ecx = new value
+	leal	1(%eax), %ecx	// %ecx = new value
 	lock
-	cmpxchgl %ecx, (%edx)	# try to stick it in
+	cmpxchgl %ecx, (%edx)	// try to stick it in
 	jne	1b
-	movl	%ecx, %eax	# return new value
+	movl	%ecx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_inc_ulong_nv)
 	SET_SIZE(atomic_inc_uint_nv)
@@ -131,20 +125,20 @@
 	ALTENTRY(atomic_inc_64_nv)
 	pushl	%edi
 	pushl	%ebx
-	movl	12(%esp), %edi	# %edi = target address
+	movl	12(%esp), %edi	// %edi = target address
 	movl	(%edi), %eax
-	movl	4(%edi), %edx	# %edx:%eax = old value
+	movl	4(%edi), %edx	// %edx:%eax = old value
 1:
 	xorl	%ebx, %ebx
 	xorl	%ecx, %ecx
-	incl	%ebx		# %ecx:%ebx = 1
+	incl	%ebx		// %ecx:%ebx = 1
 	addl	%eax, %ebx
-	adcl	%edx, %ecx	# add in the carry from inc
+	adcl	%edx, %ecx	// add in the carry from inc
 	lock
-	cmpxchg8b (%edi)	# try to stick it in
+	cmpxchg8b (%edi)	// try to stick it in
 	jne	1b
 	movl	%ebx, %eax
-	movl	%ecx, %edx	# return new value
+	movl	%ecx, %edx	// return new value
 	popl	%ebx
 	popl	%edi
 	ret
@@ -182,28 +176,28 @@
 
 	ENTRY(atomic_dec_8_nv)
 	ALTENTRY(atomic_dec_uchar_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movb	(%edx), %al	# %al = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movb	(%edx), %al	// %al = old value
 1:
-	leal	-1(%eax), %ecx	# %cl = new value
+	leal	-1(%eax), %ecx	// %cl = new value
 	lock
-	cmpxchgb %cl, (%edx)	# try to stick it in
+	cmpxchgb %cl, (%edx)	// try to stick it in
 	jne	1b
-	movzbl	%cl, %eax	# return new value
+	movzbl	%cl, %eax	// return new value
 	ret
 	SET_SIZE(atomic_dec_uchar_nv)
 	SET_SIZE(atomic_dec_8_nv)
 
 	ENTRY(atomic_dec_16_nv)
 	ALTENTRY(atomic_dec_ushort_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movw	(%edx), %ax	# %ax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movw	(%edx), %ax	// %ax = old value
 1:
-	leal	-1(%eax), %ecx	# %cx = new value
+	leal	-1(%eax), %ecx	// %cx = new value
 	lock
-	cmpxchgw %cx, (%edx)	# try to stick it in
+	cmpxchgw %cx, (%edx)	// try to stick it in
 	jne	1b
-	movzwl	%cx, %eax	# return new value
+	movzwl	%cx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_dec_ushort_nv)
 	SET_SIZE(atomic_dec_16_nv)
@@ -211,14 +205,14 @@
 	ENTRY(atomic_dec_32_nv)
 	ALTENTRY(atomic_dec_uint_nv)
 	ALTENTRY(atomic_dec_ulong_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movl	(%edx), %eax	# %eax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movl	(%edx), %eax	// %eax = old value
 1:
-	leal	-1(%eax), %ecx	# %ecx = new value
+	leal	-1(%eax), %ecx	// %ecx = new value
 	lock
-	cmpxchgl %ecx, (%edx)	# try to stick it in
+	cmpxchgl %ecx, (%edx)	// try to stick it in
 	jne	1b
-	movl	%ecx, %eax	# return new value
+	movl	%ecx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_dec_ulong_nv)
 	SET_SIZE(atomic_dec_uint_nv)
@@ -234,21 +228,21 @@
 	ALTENTRY(atomic_dec_64_nv)
 	pushl	%edi
 	pushl	%ebx
-	movl	12(%esp), %edi	# %edi = target address
+	movl	12(%esp), %edi	// %edi = target address
 	movl	(%edi), %eax
-	movl	4(%edi), %edx	# %edx:%eax = old value
+	movl	4(%edi), %edx	// %edx:%eax = old value
 1:
 	xorl	%ebx, %ebx
 	xorl	%ecx, %ecx
 	not	%ecx
-	not	%ebx		# %ecx:%ebx = -1
+	not	%ebx		// %ecx:%ebx = -1
 	addl	%eax, %ebx
-	adcl	%edx, %ecx	# add in the carry from inc
+	adcl	%edx, %ecx	// add in the carry from inc
 	lock
-	cmpxchg8b (%edi)	# try to stick it in
+	cmpxchg8b (%edi)	// try to stick it in
 	jne	1b
 	movl	%ebx, %eax
-	movl	%ecx, %edx	# return new value
+	movl	%ecx, %edx	// return new value
 	popl	%ebx
 	popl	%edi
 	ret
@@ -355,30 +349,30 @@
 
 	ENTRY(atomic_add_8_nv)
 	ALTENTRY(atomic_add_char_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movb	(%edx), %al	# %al = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movb	(%edx), %al	// %al = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	addb	%al, %cl	# %cl = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	addb	%al, %cl	// %cl = new value
 	lock
-	cmpxchgb %cl, (%edx)	# try to stick it in
+	cmpxchgb %cl, (%edx)	// try to stick it in
 	jne	1b
-	movzbl	%cl, %eax	# return new value
+	movzbl	%cl, %eax	// return new value
 	ret
 	SET_SIZE(atomic_add_char_nv)
 	SET_SIZE(atomic_add_8_nv)
 
 	ENTRY(atomic_add_16_nv)
 	ALTENTRY(atomic_add_short_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movw	(%edx), %ax	# %ax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movw	(%edx), %ax	// %ax = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	addw	%ax, %cx	# %cx = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	addw	%ax, %cx	// %cx = new value
 	lock
-	cmpxchgw %cx, (%edx)	# try to stick it in
+	cmpxchgw %cx, (%edx)	// try to stick it in
 	jne	1b
-	movzwl	%cx, %eax	# return new value
+	movzwl	%cx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_add_short_nv)
 	SET_SIZE(atomic_add_16_nv)
@@ -387,15 +381,15 @@
 	ALTENTRY(atomic_add_int_nv)
 	ALTENTRY(atomic_add_ptr_nv)
 	ALTENTRY(atomic_add_long_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movl	(%edx), %eax	# %eax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movl	(%edx), %eax	// %eax = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	addl	%eax, %ecx	# %ecx = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	addl	%eax, %ecx	// %ecx = new value
 	lock
-	cmpxchgl %ecx, (%edx)	# try to stick it in
+	cmpxchgl %ecx, (%edx)	// try to stick it in
 	jne	1b
-	movl	%ecx, %eax	# return new value
+	movl	%ecx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_add_long_nv)
 	SET_SIZE(atomic_add_ptr_nv)
@@ -412,19 +406,19 @@
 	ALTENTRY(atomic_add_64_nv)
 	pushl	%edi
 	pushl	%ebx
-	movl	12(%esp), %edi	# %edi = target address
+	movl	12(%esp), %edi	// %edi = target address
 	movl	(%edi), %eax
-	movl	4(%edi), %edx	# %edx:%eax = old value
+	movl	4(%edi), %edx	// %edx:%eax = old value
 1:
 	movl	16(%esp), %ebx
-	movl	20(%esp), %ecx	# %ecx:%ebx = delta
+	movl	20(%esp), %ecx	// %ecx:%ebx = delta
 	addl	%eax, %ebx
-	adcl	%edx, %ecx	# %ecx:%ebx = new value
+	adcl	%edx, %ecx	// %ecx:%ebx = new value
 	lock
-	cmpxchg8b (%edi)	# try to stick it in
+	cmpxchg8b (%edi)	// try to stick it in
 	jne	1b
 	movl	%ebx, %eax
-	movl	%ecx, %edx	# return new value
+	movl	%ecx, %edx	// return new value
 	popl	%ebx
 	popl	%edi
 	ret
@@ -433,30 +427,30 @@
 
 	ENTRY(atomic_or_8_nv)
 	ALTENTRY(atomic_or_uchar_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movb	(%edx), %al	# %al = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movb	(%edx), %al	// %al = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	orb	%al, %cl	# %cl = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	orb	%al, %cl	// %cl = new value
 	lock
-	cmpxchgb %cl, (%edx)	# try to stick it in
+	cmpxchgb %cl, (%edx)	// try to stick it in
 	jne	1b
-	movzbl	%cl, %eax	# return new value
+	movzbl	%cl, %eax	// return new value
 	ret
 	SET_SIZE(atomic_or_uchar_nv)
 	SET_SIZE(atomic_or_8_nv)
 
 	ENTRY(atomic_or_16_nv)
 	ALTENTRY(atomic_or_ushort_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movw	(%edx), %ax	# %ax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movw	(%edx), %ax	// %ax = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	orw	%ax, %cx	# %cx = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	orw	%ax, %cx	// %cx = new value
 	lock
-	cmpxchgw %cx, (%edx)	# try to stick it in
+	cmpxchgw %cx, (%edx)	// try to stick it in
 	jne	1b
-	movzwl	%cx, %eax	# return new value
+	movzwl	%cx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_or_ushort_nv)
 	SET_SIZE(atomic_or_16_nv)
@@ -464,15 +458,15 @@
 	ENTRY(atomic_or_32_nv)
 	ALTENTRY(atomic_or_uint_nv)
 	ALTENTRY(atomic_or_ulong_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movl	(%edx), %eax	# %eax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movl	(%edx), %eax	// %eax = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	orl	%eax, %ecx	# %ecx = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	orl	%eax, %ecx	// %ecx = new value
 	lock
-	cmpxchgl %ecx, (%edx)	# try to stick it in
+	cmpxchgl %ecx, (%edx)	// try to stick it in
 	jne	1b
-	movl	%ecx, %eax	# return new value
+	movl	%ecx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_or_ulong_nv)
 	SET_SIZE(atomic_or_uint_nv)
@@ -488,19 +482,19 @@
 	ALTENTRY(atomic_or_64_nv)
 	pushl	%edi
 	pushl	%ebx
-	movl	12(%esp), %edi	# %edi = target address
+	movl	12(%esp), %edi	// %edi = target address
 	movl	(%edi), %eax
-	movl	4(%edi), %edx	# %edx:%eax = old value
+	movl	4(%edi), %edx	// %edx:%eax = old value
 1:
 	movl	16(%esp), %ebx
-	movl	20(%esp), %ecx	# %ecx:%ebx = delta
+	movl	20(%esp), %ecx	// %ecx:%ebx = delta
 	orl	%eax, %ebx
-	orl	%edx, %ecx	# %ecx:%ebx = new value
+	orl	%edx, %ecx	// %ecx:%ebx = new value
 	lock
-	cmpxchg8b (%edi)	# try to stick it in
+	cmpxchg8b (%edi)	// try to stick it in
 	jne	1b
 	movl	%ebx, %eax
-	movl	%ecx, %edx	# return new value
+	movl	%ecx, %edx	// return new value
 	popl	%ebx
 	popl	%edi
 	ret
@@ -509,30 +503,30 @@
 
 	ENTRY(atomic_and_8_nv)
 	ALTENTRY(atomic_and_uchar_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movb	(%edx), %al	# %al = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movb	(%edx), %al	// %al = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	andb	%al, %cl	# %cl = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	andb	%al, %cl	// %cl = new value
 	lock
-	cmpxchgb %cl, (%edx)	# try to stick it in
+	cmpxchgb %cl, (%edx)	// try to stick it in
 	jne	1b
-	movzbl	%cl, %eax	# return new value
+	movzbl	%cl, %eax	// return new value
 	ret
 	SET_SIZE(atomic_and_uchar_nv)
 	SET_SIZE(atomic_and_8_nv)
 
 	ENTRY(atomic_and_16_nv)
 	ALTENTRY(atomic_and_ushort_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movw	(%edx), %ax	# %ax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movw	(%edx), %ax	// %ax = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	andw	%ax, %cx	# %cx = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	andw	%ax, %cx	// %cx = new value
 	lock
-	cmpxchgw %cx, (%edx)	# try to stick it in
+	cmpxchgw %cx, (%edx)	// try to stick it in
 	jne	1b
-	movzwl	%cx, %eax	# return new value
+	movzwl	%cx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_and_ushort_nv)
 	SET_SIZE(atomic_and_16_nv)
@@ -540,15 +534,15 @@
 	ENTRY(atomic_and_32_nv)
 	ALTENTRY(atomic_and_uint_nv)
 	ALTENTRY(atomic_and_ulong_nv)
-	movl	4(%esp), %edx	# %edx = target address
-	movl	(%edx), %eax	# %eax = old value
+	movl	4(%esp), %edx	// %edx = target address
+	movl	(%edx), %eax	// %eax = old value
 1:
-	movl	8(%esp), %ecx	# %ecx = delta
-	andl	%eax, %ecx	# %ecx = new value
+	movl	8(%esp), %ecx	// %ecx = delta
+	andl	%eax, %ecx	// %ecx = new value
 	lock
-	cmpxchgl %ecx, (%edx)	# try to stick it in
+	cmpxchgl %ecx, (%edx)	// try to stick it in
 	jne	1b
-	movl	%ecx, %eax	# return new value
+	movl	%ecx, %eax	// return new value
 	ret
 	SET_SIZE(atomic_and_ulong_nv)
 	SET_SIZE(atomic_and_uint_nv)
@@ -564,19 +558,19 @@
 	ALTENTRY(atomic_and_64_nv)
 	pushl	%edi
 	pushl	%ebx
-	movl	12(%esp), %edi	# %edi = target address
+	movl	12(%esp), %edi	// %edi = target address
 	movl	(%edi), %eax
-	movl	4(%edi), %edx	# %edx:%eax = old value
+	movl	4(%edi), %edx	// %edx:%eax = old value
 1:
 	movl	16(%esp), %ebx
-	movl	20(%esp), %ecx	# %ecx:%ebx = delta
+	movl	20(%esp), %ecx	// %ecx:%ebx = delta
 	andl	%eax, %ebx
-	andl	%edx, %ecx	# %ecx:%ebx = new value
+	andl	%edx, %ecx	// %ecx:%ebx = new value
 	lock
-	cmpxchg8b (%edi)	# try to stick it in
+	cmpxchg8b (%edi)	// try to stick it in
 	jne	1b
 	movl	%ebx, %eax
-	movl	%ecx, %edx	# return new value
+	movl	%ecx, %edx	// return new value
 	popl	%ebx
 	popl	%edi
 	ret
@@ -676,7 +670,7 @@
 	movl	16(%esp), %ebx
 	movl	20(%esp), %ecx
 	movl	(%esi), %eax
-	movl	4(%esi), %edx	# %edx:%eax = old value
+	movl	4(%esi), %edx	// %edx:%eax = old value
 1:
 	lock
 	cmpxchg8b (%esi)
@@ -687,25 +681,25 @@
 	SET_SIZE(atomic_swap_64)
 
 	ENTRY(atomic_set_long_excl)
-	movl	4(%esp), %edx	# %edx = target address
-	movl	8(%esp), %ecx	# %ecx = bit id
+	movl	4(%esp), %edx	// %edx = target address
+	movl	8(%esp), %ecx	// %ecx = bit id
 	xorl	%eax, %eax
 	lock
 	btsl	%ecx, (%edx)
 	jnc	1f
-	decl	%eax		# return -1
+	decl	%eax		// return -1
 1:
 	ret
 	SET_SIZE(atomic_set_long_excl)
 
 	ENTRY(atomic_clear_long_excl)
-	movl	4(%esp), %edx	# %edx = target address
-	movl	8(%esp), %ecx	# %ecx = bit id
+	movl	4(%esp), %edx	// %edx = target address
+	movl	8(%esp), %ecx	// %ecx = bit id
 	xorl	%eax, %eax
 	lock
 	btrl	%ecx, (%edx)
 	jc	1f
-	decl	%eax		# return -1
+	decl	%eax		// return -1
 1:
 	ret
 	SET_SIZE(atomic_clear_long_excl)
@@ -746,7 +740,3 @@
 	SET_SIZE(membar_consumer)
 
 #endif	/* !_KERNEL */
-
-#ifdef __ELF__
-.section .note.GNU-stack,"",%progbits
-#endif
