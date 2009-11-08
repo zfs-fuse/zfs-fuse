@@ -178,7 +178,7 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		fuse_reply_attr(req, &stbuf, 0.0);
+		fuse_reply_attr(req, &stbuf, fuse_attr_timeout);
 
 	return error;
 }
@@ -1287,7 +1287,7 @@ out: ;
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		fuse_reply_attr(req, &stat_reply, 0.0);
+		fuse_reply_attr(req, &stat_reply, fuse_attr_timeout);
 
 	return error;
 }
