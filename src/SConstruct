@@ -97,8 +97,7 @@ env.Install(install_dir, 'cmd/zstreamdump/zstreamdump')
 # env.Install(man_dir, '../doc/zpool.8.gz')
 # env.Install(man_dir, '../doc/zstreamdump.8.gz')
 # meanwhile I'll use a more direct approach !
-install = int(ARGUMENTS.get('install', '1'))
-if install:
+if "install" in sys.argv:
     os.system("install -m 0644 ../doc/zfs.8.gz " + man_dir)
     os.system("install -m 0644 ../doc/zpool.8.gz " + man_dir)
     os.system("install -m 0644 ../doc/zdb.8.gz " + man_dir)
