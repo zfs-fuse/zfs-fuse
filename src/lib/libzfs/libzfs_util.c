@@ -610,7 +610,7 @@ libzfs_fini(libzfs_handle_t *hdl)
 	if (hdl->libzfs_log_str)
 		(void) free(hdl->libzfs_log_str);
 	zpool_free_handles(hdl);
-	libzfs_fru_clear(hdl, B_TRUE);
+	// libzfs_fru_clear(hdl, B_TRUE);
 	namespace_clear(hdl);
 	libzfs_mnttab_fini(hdl);
 	free(hdl);
