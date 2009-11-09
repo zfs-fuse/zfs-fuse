@@ -1819,34 +1819,6 @@ zpool_get_physpath(zpool_handle_t *zhp, char *physpath, size_t phypath_size)
 }
 
 /*
- * Returns TRUE if the given guid corresponds to the given type.
- * This is used to check for hot spares (INUSE or not), and level 2 cache
- * devices.
- */
-static boolean_t
-is_guid_type(zpool_handle_t *zhp, uint64_t guid, const char *type)
-{
-	uint64_t target_guid;
-	nvlist_t *nvroot;
-	nvlist_t **list;
-	uint_t count;
-	int i;
-
-	verify(nvlist_lookup_nvlist(zhp->zpool_config, ZPOOL_CONFIG_VDEV_TREE,
-	    &nvroot) == 0);
-	if (nvlist_lookup_nvlist_array(nvroot, type, &list, &count) == 0) {
-		for (i = 0; i < count; i++) {
-			verify(nvlist_lookup_uint64(list[i], ZPOOL_CONFIG_GUID,
-			    &target_guid) == 0);
-			if (guid == target_guid)
-				return (B_TRUE);
-		}
-	}
-
-	return (B_FALSE);
-}
-
-/*
  * If the device has being dynamically expanded then we need to relabel
  * the disk to use the new unallocated space.
  */
@@ -1916,8 +1888,7 @@ zpool_vdev_online(zpool_handle_t *zhp, const char *path, int flags,
 
 	verify(nvlist_lookup_uint64(tgt, ZPOOL_CONFIG_GUID, &zc.zc_guid) == 0);
 
-	if (avail_spare ||
-	    is_guid_type(zhp, zc.zc_guid, ZPOOL_CONFIG_SPARES) == B_TRUE)
+	if (avail_spare)
 		return (zfs_error(hdl, EZFS_ISSPARE, msg));
 
 	if (flags & ZFS_ONLINE_EXPAND ||
@@ -1977,8 +1948,7 @@ zpool_vdev_offline(zpool_handle_t *zhp, const char *path, boolean_t istmp)
 
 	verify(nvlist_lookup_uint64(tgt, ZPOOL_CONFIG_GUID, &zc.zc_guid) == 0);
 
-	if (avail_spare ||
-	    is_guid_type(zhp, zc.zc_guid, ZPOOL_CONFIG_SPARES) == B_TRUE)
+	if (avail_spare)
 		return (zfs_error(hdl, EZFS_ISSPARE, msg));
 
 	zc.zc_cookie = VDEV_STATE_OFFLINE;
@@ -2010,7 +1980,7 @@ zpool_vdev_offline(zpool_handle_t *zhp, const char *path, boolean_t istmp)
  * Mark the given vdev faulted.
  */
 int
-zpool_vdev_fault(zpool_handle_t *zhp, uint64_t guid)
+zpool_vdev_fault(zpool_handle_t *zhp, uint64_t guid, vdev_aux_t aux)
 {
 	zfs_cmd_t zc = { 0 };
 	char msg[1024];
@@ -2022,6 +1992,7 @@ zpool_vdev_fault(zpool_handle_t *zhp, uint64_t guid)
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	zc.zc_guid = guid;
 	zc.zc_cookie = VDEV_STATE_FAULTED;
+	zc.zc_obj = aux;
 
 	if (ioctl(zhp->zpool_hdl->libzfs_fd, ZFS_IOC_VDEV_SET_STATE, &zc) == 0)
 		return (0);
@@ -2044,7 +2015,7 @@ zpool_vdev_fault(zpool_handle_t *zhp, uint64_t guid)
  * Mark the given vdev degraded.
  */
 int
-zpool_vdev_degrade(zpool_handle_t *zhp, uint64_t guid)
+zpool_vdev_degrade(zpool_handle_t *zhp, uint64_t guid, vdev_aux_t aux)
 {
 	zfs_cmd_t zc = { 0 };
 	char msg[1024];
@@ -2056,6 +2027,7 @@ zpool_vdev_degrade(zpool_handle_t *zhp, uint64_t guid)
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	zc.zc_guid = guid;
 	zc.zc_cookie = VDEV_STATE_DEGRADED;
+	zc.zc_obj = aux;
 
 	if (ioctl(zhp->zpool_hdl->libzfs_fd, ZFS_IOC_VDEV_SET_STATE, &zc) == 0)
 		return (0);
