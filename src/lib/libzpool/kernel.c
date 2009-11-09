@@ -836,7 +836,8 @@ kernel_init(int mode)
 	    (double)physmem * sysconf(_SC_PAGE_SIZE) / (1ULL << 30));
 
 	uname(&utsname);
-	(void) snprintf(hw_serial, sizeof (hw_serial), "%ld", gethostid());
+	(void) snprintf(hw_serial, sizeof (hw_serial), "%ld",
+	    (mode & FWRITE) ? gethostid() : 0);
 
 	VERIFY((random_fd = open("/dev/random", O_RDONLY)) != -1);
 	VERIFY((urandom_fd = open("/dev/urandom", O_RDONLY)) != -1);
