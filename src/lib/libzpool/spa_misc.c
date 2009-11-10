@@ -440,6 +440,8 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	mutex_init(&spa->spa_errlist_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_history_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_props_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_suspend_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_vdev_top_lock, NULL, MUTEX_DEFAULT, NULL);
 
 	cv_init(&spa->spa_async_cv, NULL, CV_DEFAULT, NULL);
 	cv_init(&spa->spa_scrub_io_cv, NULL, CV_DEFAULT, NULL);
@@ -459,8 +461,6 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	spa_config_lock_init(spa);
 
 	avl_add(&spa_namespace_avl, spa);
-
-	mutex_init(&spa->spa_suspend_lock, NULL, MUTEX_DEFAULT, NULL);
 
 	/*
 	 * Set the alternate root, if there is one.
@@ -537,6 +537,7 @@ spa_remove(spa_t *spa)
 	mutex_destroy(&spa->spa_history_lock);
 	mutex_destroy(&spa->spa_props_lock);
 	mutex_destroy(&spa->spa_suspend_lock);
+	mutex_destroy(&spa->spa_vdev_top_lock);
 
 	kmem_free(spa, sizeof (spa_t));
 }
@@ -845,6 +846,7 @@ uint64_t
 spa_vdev_enter(spa_t *spa)
 {
 	mutex_enter(&spa_namespace_lock);
+	mutex_enter(&spa->spa_vdev_top_lock);
 	return (spa_vdev_config_enter(spa));
 }
 
@@ -940,6 +942,7 @@ int
 spa_vdev_exit(spa_t *spa, vdev_t *vd, uint64_t txg, int error)
 {
 	spa_vdev_config_exit(spa, vd, txg, error, FTAG);
+	mutex_exit(&spa->spa_vdev_top_lock);
 	mutex_exit(&spa_namespace_lock);
 
 	return (error);
