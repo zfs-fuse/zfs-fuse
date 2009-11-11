@@ -2783,6 +2783,8 @@ zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv,
 			    (u_longlong_t)value);
 			path = buf;
 		}
+		char str[64];
+		strcpy(str,path);
 
 		/*
 		 * We identify each top-level vdev by using a <type-id>
@@ -2793,7 +2795,7 @@ zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv,
 
 			verify(nvlist_lookup_uint64(nv, ZPOOL_CONFIG_ID,
 			    &id) == 0);
-			(void) snprintf(buf, sizeof (buf), "%s-%llu", path,
+			(void) snprintf(buf, sizeof (buf), "%s-%llu", str,
 			    (u_longlong_t)id);
 			path = buf;
 		}
