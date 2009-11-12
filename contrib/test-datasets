@@ -6,17 +6,15 @@
 # of your cmd/zfs, cmd/zpool and zfs-fuse directories in your source
 # directories if you want to test a recently-compiled ZFS.
 
-set -e
-set -x
-killall -9 zfs-fuse || true
+set -e # exit on error
+set -x # write each command on stderr
 rm -f image
-zfs-fuse --no-daemon &
 sleep 2
 dd if=/dev/zero of=image bs=1024 count=102400
 zpool list | grep -q external && zpool destroy external
 rm -rf /mnt/external
 zpool create external -m /mnt/external $PWD/image
-zfs umount -a
+# zfs umount -a
 zfs set compression=on external
 zfs set primarycache=none external
 zfs set secondarycache=none external
@@ -39,4 +37,12 @@ zfs set mountpoint=/mnt/test/Entertainment/Music external/backup/shared/fun/musi
 zfs set mountpoint=/mnt/test/Entertainment/TV external/backup/shared/fun/tv
 zfs set compression=off external/backup/shared
 sleep 1
-zfs list
+count=`zfs list|grep ^external|wc -l`
+if [ $count == 13 ]; then
+  echo 13 zfs fs for external, everything ok
+  zpool export external
+else
+  echo $count external zfs fs, expected 13, here is the list
+  zfs list|grep external
+fi
+

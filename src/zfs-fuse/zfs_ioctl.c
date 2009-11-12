@@ -828,11 +828,13 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 	 * like what happens in the raidz1 case.
 	 * TODO : make a real fix here instead of this hack (when enough time
 	 * and motivation is available !) */
-	static int last_size;
-	if (size == last_size)
+	static int last_size,counter;
+	if (size == last_size && counter++>=10) {
 		zc->zc_nvlist_dst_size = size;
-	else {
+		counter = 0;
+	} else {
 		last_size = size;
+		counter=0;
 	}
 	return (error);
 }
