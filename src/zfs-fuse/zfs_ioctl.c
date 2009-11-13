@@ -815,27 +815,7 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 		  syslog(LOG_WARNING,"put_nvlist: error %s on xcopyout",strerror(error));
 	}
 
-	/* This size update is rather tricky.
-	 * The original code was updating it always but if you do so the size
-	 * becomes too small for some inherited attributes and some filesystems
-	 * disappear from zfs list and are not mounted by zfs mount -a
-	 * On the other hand if you never update it and you get some problem on
-	 * a raidz1 pool (unavailable disk), you get an infinite loop on this
-	 * function, always calling with the same size.
-	 * So this hack tries to address the raidz1 problem : it stores the last
-	 * size received, and if it's the same then it stores it.
-	 * Luckily the size seems to always be different except in case of loop
-	 * like what happens in the raidz1 case.
-	 * TODO : make a real fix here instead of this hack (when enough time
-	 * and motivation is available !) */
-	static int last_size,counter;
-	if (size == last_size && counter++>=10) {
-		zc->zc_nvlist_dst_size = size;
-		counter = 0;
-	} else {
-		last_size = size;
-		counter=0;
-	}
+	zc->zc_nvlist_dst_size = size;
 	return (error);
 }
 
@@ -1841,7 +1821,7 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 				zfs_cmd_t zc = { 0 };
 				(void) strcpy(zc.zc_name, name);
 				(void) zfs_ioc_userspace_upgrade(&zc);
-			}			
+			}
 			if (error)
 				goto out;
 			break;
@@ -2399,7 +2379,7 @@ zfs_ioc_create(zfs_cmd_t *zc)
 	    strchr(zc->zc_name, '%'))
 		return (EINVAL);
 
-	if (zc->zc_nvlist_src != (uint64_t)(uintptr_t) NULL &&
+	if (zc->zc_nvlist_src != 0L &&
 	    (error = get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
 	    zc->zc_iflags, &nvprops)) != 0)
 		return (error);
@@ -3051,7 +3031,7 @@ zfs_ioc_clear(zfs_cmd_t *zc)
 		nvlist_t *policy;
 		nvlist_t *config = NULL;
 
-		if (zc->zc_nvlist_src == NULL)
+		if (zc->zc_nvlist_src == 0L)
 			return (EINVAL);
 
 		if ((error = get_nvlist(zc->zc_nvlist_src,
