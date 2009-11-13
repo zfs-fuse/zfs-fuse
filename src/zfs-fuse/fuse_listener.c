@@ -195,6 +195,7 @@ static void destroy_fs(int i)
 #endif
 	fuse_session_reset(fsinfo[i].se);
 	fuse_session_destroy(fsinfo[i].se);
+	fuse_unmount(mountpoints[i],fsinfo[i].ch);
 	close(fds[i].fd);
 	fds[i].fd = -1;
 	free(mountpoints[i]);
@@ -340,7 +341,12 @@ void fuse_unmount_all() {
 	    continue;
 
 	/* unmount before shuting down... */
+	fuse_session_remove_chan(fsinfo[i].ch);
+	fuse_session_destroy(fsinfo[i].se);
 	fuse_unmount(mountpoints[i],fsinfo[i].ch);
+	close(fds[i].fd);
+	fds[i].fd = -1;
+	free(mountpoints[i]);
 
     }
 }
