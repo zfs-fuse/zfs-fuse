@@ -39,11 +39,13 @@ static const char *cf_pidfile = NULL;
 static const char *cf_fuse_mount_options = NULL;
 static int cf_disable_block_cache = 0;
 static int cf_disable_page_cache = 0;
+extern void fuse_unmount_all(); // in fuse_listener.c
 static int cf_daemonize = 1;
 
 static void exit_handler(int sig)
 {
-	exit_fuse_listener = B_TRUE;
+    fuse_unmount_all();
+    exit_fuse_listener = B_TRUE;
 }
 
 static int set_signal_handler(int sig, void (*handler)(int))
