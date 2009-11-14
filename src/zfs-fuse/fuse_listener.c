@@ -195,7 +195,6 @@ static void destroy_fs(int i)
 #endif
 	fuse_session_reset(fsinfo[i].se);
 	fuse_session_destroy(fsinfo[i].se);
-	fuse_unmount(mountpoints[i],fsinfo[i].ch);
 	close(fds[i].fd);
 	fds[i].fd = -1;
 	free(mountpoints[i]);
