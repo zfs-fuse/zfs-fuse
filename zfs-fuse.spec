@@ -90,6 +90,7 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %{_sbindir}/zpool
 %{_sbindir}/ztest
 %{_sbindir}/zfs-fuse
+%{_sbindir}/zstreamdump
 
 %changelog
 * Wed Sep 02 2009 Lenz Grimmer <lenz@grimmer.com> 0.6.0-0.0.433snapshot
