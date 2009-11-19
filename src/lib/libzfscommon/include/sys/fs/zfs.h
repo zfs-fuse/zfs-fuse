@@ -477,7 +477,7 @@ typedef struct zpool_rewind_policy {
  * The location of the pool configuration repository, shared between kernel and
  * userland.
  */
-#define	ZPOOL_CACHE_DIR		"/etc/zfs"
+#define	ZPOOL_CACHE_DIR		"/var/lib/zfs"
 #define	ZPOOL_CACHE		ZPOOL_CACHE_DIR "/zpool.cache"
 
 /*
