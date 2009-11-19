@@ -1,0 +1,20 @@
+#! /usr/bin/env python
+# encoding: utf-8
+# Sandeep S Srinivasa, 2009
+from Logs import error, debug, warn
+
+include_dirs = """
+                 #lib/libsolcompat/include
+                 include
+                 """.split()
+
+obj = bld.new_task_gen(
+        features = 'cc cstaticlib',
+        includes = include_dirs,
+        defines = [ '_FILE_OFFSET_BITS=64'],
+        target = 'libavl'
+        )
+
+
+obj.find_sources_in_dirs('.') # take the sources in the current folder
+
