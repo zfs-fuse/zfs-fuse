@@ -1,0 +1,42 @@
+#! /usr/bin/env python
+# encoding: utf-8
+# Sandeep S Srinivasa, 2009
+from Logs import error, debug, warn
+
+common_sources = """
+                    libnvpair.c
+                    nvpair.c
+                    nvpair_alloc_fixed.c
+                    nvpair_alloc_system.c
+                 """.split()
+
+
+include_dirs = """
+                 include 
+                 #lib/libumem/include 
+                 #lib/libnvpair/include1 
+                 #lib/libsolcompat/include
+                 .
+                 """.split()
+
+##########################################
+
+obj_user = bld.new_task_gen(
+        features = 'cc cstaticlib',
+        includes = include_dirs,
+        defines = [ '_KERNEL', '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
+        target = 'nvpair-user'
+        )
+
+
+obj_user.find_sources_in_dirs('.') # take the sources in the current folder
+
+obj_kernel = bld.new_task_gen(
+        features = 'cc cstaticlib',
+        includes = include_dirs,
+        defines = [ '_KERNEL', '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
+        target = 'nvpair-kernel'
+        )
+
+obj_kernel.find_sources_in_dirs('.') # take the sources in the current folder
+
