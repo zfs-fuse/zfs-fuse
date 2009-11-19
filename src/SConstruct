@@ -45,7 +45,7 @@ def getarch(arch):
 	if re.compile('i\d86').match(arch):
 		return 'i386'
 
-	return None
+	return 'generic'
 
 myarch = getarch(arch)
 

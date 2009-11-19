@@ -165,8 +165,14 @@ static INLINE uint_t ec_atomic_inc(uint_t *mem)
 #define ISP2(x)    (((x) & ((x) - 1)) == 0)
 
 /* beware! umem only uses these atomic adds for incrementing by 1 */
+#if defined(_WIN32) || (defined(__GNUC__) && \
+   (defined(__i386__) || defined(__x86_64__) || defined(__sparc__)))
 #define atomic_add_64(lvalptr, delta) ec_atomic_inc64(lvalptr)
 #define atomic_add_32_nv(a, b)  	  ec_atomic_inc(a) 
+#else
+extern uint32_t atomic_add_32_nv(volatile uint32_t *, int32_t);
+extern void atomic_add_64(volatile uint64_t *, int64_t);
+#endif
 
 #ifndef NANOSEC
 #define NANOSEC 1000000000
