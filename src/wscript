@@ -64,6 +64,8 @@ blddir = '__build'
 
 subdirs = """
             lib/libsolcompat/
+            lib/libumem/
+            lib/libavl/
           """.split()
 
 
