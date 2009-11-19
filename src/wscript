@@ -66,6 +66,7 @@ subdirs = """
             lib/libsolcompat/
             lib/libumem/
             lib/libavl/
+            lib/libsolkerncompat/
           """.split()
 
 
