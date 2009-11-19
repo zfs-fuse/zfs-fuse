@@ -14,7 +14,7 @@ obj = bld.new_task_gen(
         features = 'cc cstaticlib',
         includes = include_dirs,
         defines = [ '_KERNEL', '_FILE_OFFSET_BITS=64'],
-        target = 'libsolkerncompat'
+        target = 'solkerncompat'
         )
 
 
