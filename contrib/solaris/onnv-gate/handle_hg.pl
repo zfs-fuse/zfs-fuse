@@ -224,7 +224,7 @@ while (1) {
 }
 close(G);
 unlink "ok";
-# system("patch -p1 < diff && echo ok && touch ok");
+system("patch -p1 < diff && echo ok && touch ok");
 if ( -f "ok" ) {
     print "commiting...\n";
     system("git commit -F header --author \"$author\" @files && rm $arg");
