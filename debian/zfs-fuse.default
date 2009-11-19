@@ -1,0 +1,18 @@
+# Defaults for zfs-fuse initscript
+# sourced by /etc/init.d/zfs-fuse
+# installed at /etc/default/zfs-fuse by the maintainer scripts
+
+#
+# This is a POSIX shell fragment
+#
+
+# Enable ZFS support? (yes/no)
+ENABLE_ZFS=yes
+
+# Try to restart zfs-fuse when upgrading? (yes/no)
+# This will require unmounting all ZFS volumes upon upgrade
+# Do not use this if a vital system volume is on ZFS (/var, /home, etc)
+RESTART_ON_UPGRADE=no
+
+# Additional options that are passed to the Daemon.
+DAEMON_OPTS=""
