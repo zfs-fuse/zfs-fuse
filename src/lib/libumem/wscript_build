@@ -7,7 +7,7 @@ obj = bld.new_task_gen(
         features = 'cc cstaticlib',
         includes = ['include', '.'],
         defines = [ '_FILE_OFFSET_BITS=64'],
-        target = 'libumem'
+        target = 'umem'
         )
 
 
