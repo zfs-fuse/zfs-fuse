@@ -1,0 +1,136 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+# WAF build script - this file is part of ZFS-Fuse, a port of the Solaris ZFS to Linux
+#
+#  Sandeep S Srinivasa <sandys(at)gmail(dot)com>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# $Id$
+
+"""
+This is a WAF build script (http://code.google.com/p/waf/).
+It can be used as an alternative build system to autotools
+for Geany. It does not (yet) cover all of the autotools tests and
+configure options but all important things are working.
+"make dist" should be done with autotools, most other targets and
+functions should work better (regarding performance and flexibility)
+or at least equally.
+
+Missing features: --enable-binreloc, make targets: dist, pdf (in doc/)
+Known issues: Dependency handling is buggy, e.g. if src/document.h is
+			  changed, depending source files are not rebuilt (maybe Waf bug).
+
+Requires WAF 1.5 (SVN r4661 or later) and Python 2.4 (or later).
+"""
+
+
+import Build, Configure, Options, Runner, Task, Utils
+import sys, os, subprocess, shutil
+from distutils import version
+
+APPNAME = 'zfs-fuse'
+VERSION = '0.6'
+
+srcdir = '.'
+blddir = '__build'
+
+#subdirs = """
+#            lib/libavl/
+#            lib/libsolcompat/
+#            lib/libnvpair/
+#            lib/libumem/
+#            lib/libuutil/
+#            lib/libzfs/
+#            lib/libzfscommon/
+#            lib/libzpool/
+#            lib/libsolkerncompat/
+#            cmd/zdb/
+#            cmd/ztest/
+#            cmd/zpool/
+#            cmd/zstreamdump/
+#            cmd/zfs/
+#            zfs-fuse/
+#          """.split()
+
+subdirs = """
+            lib/libsolcompat/
+          """.split()
+
+
+#####
+#Cmd Line Options
+####
+def set_options(opt):
+    opt.add_option('--prefix', type='string',help='set install path prefix', dest='usr_prefix')
+
+
+def init(ctx):
+    import Configure
+#    Configure.configure.define('_FILE_OFFSET_BITS', 64)
+####
+#Configuration
+####
+def configure(conf):
+#    import Options # getting the user-provided options to the configuration section
+#    if Options.options.usr_prefix
+#        Options.prefix = Options.options.usr_prefix
+
+
+    conf.check_tool('gcc glib2')
+#    conf.env.CCFLAGS = ['-Wall']
+    conf.env.CCFLAGS = ['-pipe', '-Wall', '-std=c99', '-Wno-switch', '-Wno-unused', '-Wno-missing-braces', '-Wno-parentheses', '-Wno-uninitialized', '-fno-strict-aliasing', '-D_GNU_SOURCE', '-DLINUX_AIO']
+    conf.env.INCLUDEDIR = ['/usr/include/']
+#    conf.env['INCLUDEDIR'] = '/usr/include'
+#    conf.define('_FILE_OFFSET_BITS', 64) 
+#    conf.write_config_header('config.h')
+
+    conf.check(header_name="aio.h", uselib_store='aio_defines', mandatory=True)
+    conf.check(lib='aio',  uselib_store='aio_lib', mandatory=True)
+    conf.check(lib='pthread',  uselib_store='pthread_lib', mandatory=True)
+    conf.check_cc(lib='fuse',  uselib_store='fuse_defines_and_lib',  mandatory=True)
+    conf.check_cc(lib='dl',  uselib_store='dl_lib',  mandatory=True)
+    conf.check_cc(lib='z',  uselib_store='z_lib',  mandatory=True)
+    conf.check_cc(header_name='fuse/fuse_lowlevel.h', includes=['/usr/include/'], 
+            ccflags='-D_FILE_OFFSET_BITS=64', uselib_store='fuse_defines', mandatory=True)
+#    conf.check_cc(header_name='attr/xattr.h', includes=['/usr/include/'], mandatory=True) # FIXME not working properly
+    conf.check_cc(lib='rt', uselib_store='rt_lib', mandatory=True)
+    conf.check_tool('gas')
+    #if not conf.env.AS: conf.env.AS = conf.env.CC
+    conf.env.AS = conf.env.CC
+
+#    try:
+#		conf.check_cc(compile_filename='test.s', fragment='''
+#.text
+#.align 2
+#
+#val:
+# .long 10
+#
+## Multiply input value by 10...
+#.global mult10
+#.type mult10, function
+#mult10:
+#  movl val,%eax
+#  imul 4(%esp),%eax
+#  ret
+#	''', type='cstaticlib', mandatory=True, msg='Checking for assembler')
+#    except:
+#		conf.env.AS = None
+
+
+####
+#Build
+####
+def build(bld):
+    bld.add_subdirs(subdirs)
+    bld.includes = '/usr/include/'
