@@ -1,0 +1,99 @@
+#! /usr/bin/env python
+# encoding: utf-8
+# Sandeep S Srinivasa, 2009
+
+include_dirs = """
+                #lib/libavl/include 
+                #lib/libnvpair/include 
+                #lib/libzfscommon/include 
+                #lib/libumem/include
+                """.split()
+
+include_dirs_user = """
+                        include 
+                        #lib/libsolcompat/include
+                    """.split()
+
+include_dirs_kernel = """
+                         #lib/libsolkerncompat/include
+                      """.split()
+
+kernel_sources = """
+    arc.c
+    bplist.c
+    dbuf.c
+    dmu.c
+    dmu_object.c
+    dmu_objset.c
+    dmu_send.c
+    dmu_traverse.c
+    dmu_tx.c
+    dmu_zfetch.c
+    dnode.c
+    dnode_sync.c
+    dsl_dataset.c
+    dsl_deleg.c
+    dsl_dir.c
+    dsl_pool.c
+    dsl_prop.c
+    dsl_scrub.c
+    dsl_synctask.c
+    fletcher.c
+    flushwc.c
+    gzip.c
+    kmem_asprintf.c
+    lzjb.c
+    metaslab.c
+    refcount.c
+    rprwlock.c
+    rrwlock.c
+    sha256.c
+    spa.c
+    space_map.c
+    spa_config.c
+    spa_errlog.c
+    spa_history.c
+    spa_misc.c
+    txg.c
+    uberblock.c
+    unique.c
+    util.c
+    vdev.c
+    vdev_cache.c
+    vdev_file.c
+    vdev_label.c
+    vdev_mirror.c
+    vdev_missing.c
+    vdev_queue.c
+    vdev_raidz.c
+    vdev_root.c
+    zap.c
+    zap_leaf.c
+    zap_micro.c
+    zfs_byteswap.c
+    zfs_fm.c
+    zfs_fuid.c
+    zfs_znode.c
+    zil.c
+    zio.c
+    zio_checksum.c
+    zio_compress.c
+    zio_inject.c""".split()
+
+user_sources = kernel_sources + ['kernel.c', 'taskq.c']
+
+user_obj = bld.new_task_gen(
+        features = 'cc cstaticlib',
+        source = user_sources,
+        includes = include_dirs + include_dirs_user,
+        defines = ['_FILE_OFFSET_BITS=64'],
+        target = 'zpool-user'
+        )
+
+kernel_obj = bld.new_task_gen(
+        features = 'cc cstaticlib',
+        source = kernel_sources,
+        includes = include_dirs + include_dirs_kernel,
+        defines = ['_KERNEL=1', '_FILE_OFFSET_BITS=64'],
+        target = 'zpool-kernel'
+        )
