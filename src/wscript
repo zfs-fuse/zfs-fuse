@@ -44,29 +44,17 @@ VERSION = '0.6'
 srcdir = '.'
 blddir = '__build'
 
-#subdirs = """
-#            lib/libavl/
-#            lib/libsolcompat/
-#            lib/libnvpair/
-#            lib/libumem/
-#            lib/libuutil/
-#            lib/libzfs/
-#            lib/libzfscommon/
-#            lib/libzpool/
-#            lib/libsolkerncompat/
-#            cmd/zdb/
-#            cmd/ztest/
-#            cmd/zpool/
-#            cmd/zstreamdump/
-#            cmd/zfs/
-#            zfs-fuse/
-#          """.split()
-
 subdirs = """
             lib/libsolcompat/
             lib/libumem/
             lib/libavl/
             lib/libsolkerncompat/
+            lib/libnvpair/
+            lib/libuutil/
+            lib/libzpool/
+            lib/libzfs/
+            lib/libzfscommon/
+            zfs-fuse/
           """.split()
 
 
@@ -100,7 +88,7 @@ def configure(conf):
     conf.check(header_name="aio.h", uselib_store='aio_defines', mandatory=True)
     conf.check(lib='aio',  uselib_store='aio_lib', mandatory=True)
     conf.check(lib='pthread',  uselib_store='pthread_lib', mandatory=True)
-    conf.check_cc(lib='fuse',  uselib_store='fuse_defines_and_lib',  mandatory=True)
+    conf.check_cc(lib='fuse',  uselib_store='fuse_lib',  mandatory=True)
     conf.check_cc(lib='dl',  uselib_store='dl_lib',  mandatory=True)
     conf.check_cc(lib='z',  uselib_store='z_lib',  mandatory=True)
     conf.check_cc(header_name='fuse/fuse_lowlevel.h', includes=['/usr/include/'], 
