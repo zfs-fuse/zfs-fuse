@@ -133,8 +133,8 @@ def configure(conf):
 
     conf.check_tool('gnu_dirs')
     warn(" setting MANDIR = %s" % conf.env.MANDIR)
-    conf.env.PREFIX = '/home/user/man_test'
-    conf.env.MANDIR = '/home/user/man_test/man'
+    conf.env.PREFIX = '/'
+    conf.env.MANDIR = '/usr/share/man/man8'
 
 
 ####
