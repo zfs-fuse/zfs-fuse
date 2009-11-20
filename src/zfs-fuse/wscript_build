@@ -16,7 +16,7 @@ obj = bld.new_task_gen(
         includes = include_dirs,
         defines = [ '_FILE_OFFSET_BITS=64', '_KERNEL'],
         uselib_local = 'zpool-kernel zfscommon-kernel nvpair-kernel avl umem solkerncompat',
-        uselib = 'aio_lib fuse_lib dl z pthread_lib rt_lib',
+        uselib = 'aio_lib fuse_lib dl_lib z_lib pthread_lib rt_lib',
         target = 'zfs-fuse'
         )
 
