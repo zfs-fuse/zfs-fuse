@@ -1,0 +1,28 @@
+#! /usr/bin/env python
+# encoding: utf-8
+# Sandeep S Srinivasa, 2009
+from Logs import error, debug, warn
+
+include_dirs = """
+                #lib/libavl/include 
+                #lib/libnvpair/include 
+                #lib/libumem/include 
+                #lib/libzfscommon/include 
+                #lib/libzpool/include 
+                #lib/libsolcompat/include 
+                #lib/libzfs/include
+               """.split()
+
+obj = bld.new_task_gen(
+        features = 'cc cprogram',
+        includes = include_dirs,
+        defines = [ '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
+        uselib_local = 'avl nvpair-user umem zfs-lib zpool-user zfscommon-user uutil solcompat',
+        uselib = 'rt_lib pthread_lib dl_lib z_lib m_lib aio_lib',
+        name = 'zdb',
+        target = 'zdb'
+        )
+
+
+obj.find_sources_in_dirs('.') # take the sources in the current folder
+
