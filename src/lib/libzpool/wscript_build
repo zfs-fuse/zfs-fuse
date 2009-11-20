@@ -1,21 +1,21 @@
-#! /usr/bin/env python
-# encoding: utf-8
-# Sandeep S Srinivasa, 2009
+#src/! /usr/bin/env python
+#src/ encoding: utf-8
+#src/ Sandeep S Srinivasa, 2009
 
 include_dirs = """
-                #lib/libavl/include 
-                #lib/libnvpair/include 
-                #lib/libzfscommon/include 
-                #lib/libumem/include
+                #src/lib/libavl/include 
+                #src/lib/libnvpair/include 
+                #src/lib/libzfscommon/include 
+                #src/lib/libumem/include
                 """.split()
 
 include_dirs_user = """
                         include 
-                        #lib/libsolcompat/include
+                        #src/lib/libsolcompat/include
                     """.split()
 
 include_dirs_kernel = """
-                         #lib/libsolkerncompat/include
+                         #src/lib/libsolkerncompat/include
                       """.split()
 
 kernel_sources = """
@@ -87,6 +87,8 @@ user_obj = bld.new_task_gen(
         source = user_sources,
         includes = include_dirs + include_dirs_user,
         defines = ['_FILE_OFFSET_BITS=64'],
+        install_path = None, #prevents installation of this file
+        name = "zpool-user",
         target = 'zpool-user'
         )
 
@@ -95,5 +97,7 @@ kernel_obj = bld.new_task_gen(
         source = kernel_sources,
         includes = include_dirs + include_dirs_kernel,
         defines = ['_KERNEL=1', '_FILE_OFFSET_BITS=64'],
+        install_path = None, #prevents installation of this file
+        name = "zpool-kernel",
         target = 'zpool-kernel'
         )

@@ -24,7 +24,7 @@
  * Use is subject to license terms.
  */
 
-	.file	"atomic.s"
+ 	.file	"atomic.s"
 
 #define _ASM
 #include <sys/asm_linkage.h>

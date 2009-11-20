@@ -37,6 +37,9 @@ Requires WAF 1.5 (SVN r4661 or later) and Python 2.4 (or later).
 import Build, Configure, Options, Runner, Task, Utils
 import sys, os, subprocess, shutil
 from distutils import version
+from Logs import error, debug, warn
+
+
 
 APPNAME = 'zfs-fuse'
 VERSION = '0.6'
@@ -45,16 +48,21 @@ srcdir = '.'
 blddir = '__build'
 
 subdirs = """
-            lib/libsolcompat/
-            lib/libumem/
-            lib/libavl/
-            lib/libsolkerncompat/
-            lib/libnvpair/
-            lib/libuutil/
-            lib/libzpool/
-            lib/libzfs/
-            lib/libzfscommon/
-            zfs-fuse/
+            src/lib/libsolcompat/
+            src/lib/libumem/
+            src/lib/libavl/
+            src/lib/libsolkerncompat/
+            src/lib/libnvpair/
+            src/lib/libuutil/
+            src/lib/libzpool/
+            src/lib/libzfs/
+            src/lib/libzfscommon/
+            src/zfs-fuse/
+            src/cmd/zfs/
+            src/cmd/zpool/
+            src/cmd/zstreamdump/
+            src/cmd/zdb/
+            src/cmd/ztest/
           """.split()
 
 
@@ -78,6 +86,8 @@ def configure(conf):
 
 
     conf.check_tool('gcc glib2')
+
+
 #    conf.env.CCFLAGS = ['-Wall']
     conf.env.CCFLAGS = ['-pipe', '-Wall', '-std=c99', '-Wno-switch', '-Wno-unused', '-Wno-missing-braces', '-Wno-parentheses', '-Wno-uninitialized', '-fno-strict-aliasing', '-D_GNU_SOURCE', '-DLINUX_AIO']
     conf.env.INCLUDEDIR = ['/usr/include/']
@@ -91,6 +101,7 @@ def configure(conf):
     conf.check_cc(lib='fuse',  uselib_store='fuse_lib',  mandatory=True)
     conf.check_cc(lib='dl',  uselib_store='dl_lib',  mandatory=True)
     conf.check_cc(lib='z',  uselib_store='z_lib',  mandatory=True)
+    conf.check_cc(lib='m',  uselib_store='m_lib',  mandatory=True)
     conf.check_cc(header_name='fuse/fuse_lowlevel.h', includes=['/usr/include/'], 
             ccflags='-D_FILE_OFFSET_BITS=64', uselib_store='fuse_defines', mandatory=True)
 #    conf.check_cc(header_name='attr/xattr.h', includes=['/usr/include/'], mandatory=True) # FIXME not working properly
@@ -118,6 +129,13 @@ def configure(conf):
 #    except:
 #		conf.env.AS = None
 
+    ###################### install configuration ################
+
+    conf.check_tool('gnu_dirs')
+    warn(" setting MANDIR = %s" % conf.env.MANDIR)
+    conf.env.PREFIX = '/home/user/man_test'
+    conf.env.MANDIR = '/home/user/man_test/man'
+
 
 ####
 #Build
@@ -125,3 +143,6 @@ def configure(conf):
 def build(bld):
     bld.add_subdirs(subdirs)
     bld.includes = '/usr/include/'
+    #man_list = bld.path.ant_glob('doc/*.gz')
+    bld.install_files('${MANDIR}', 'doc/*.gz')
+    

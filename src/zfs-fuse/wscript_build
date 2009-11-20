@@ -1,14 +1,14 @@
-#! /usr/bin/env python
-# encoding: utf-8
-# Sandeep S Srinivasa, 2009
+#src/! /usr/bin/env python
+#src/ encoding: utf-8
+#src/ Sandeep S Srinivasa, 2009
 from Logs import error, debug, warn
 
 include_dirs = """
-                #lib/libavl/include 
-                #lib/libnvpair/include 
-                #lib/libumem/include 
-                #lib/libzfscommon/include 
-                #lib/libsolkerncompat/include
+                #src/lib/libavl/include 
+                #src/lib/libnvpair/include 
+                #src/lib/libumem/include 
+                #src/lib/libzfscommon/include 
+                #src/lib/libsolkerncompat/include
                """.split()
 
 obj = bld.new_task_gen(
@@ -17,9 +17,10 @@ obj = bld.new_task_gen(
         defines = [ '_FILE_OFFSET_BITS=64', '_KERNEL'],
         uselib_local = 'zpool-kernel zfscommon-kernel nvpair-kernel avl umem solkerncompat',
         uselib = 'aio_lib fuse_lib dl_lib z_lib pthread_lib rt_lib',
+        install_path = '${PREFIX}/usr/local/sbin/',
         target = 'zfs-fuse'
         )
 
 
-obj.find_sources_in_dirs('.') # take the sources in the current folder
+obj.find_sources_in_dirs('.') #src/ take the sources in the current folder
 
