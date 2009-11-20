@@ -25,5 +25,5 @@ obj = bld.new_task_gen(
         )
 
 
-obj.find_sources_in_dirs('.') #src/ take the sources in the current folder
+obj.find_sources_in_dirs('.', excludes=['libzfs_fru.c']) #src/ take the sources in the current folder
 
