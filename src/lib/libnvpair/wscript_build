@@ -24,7 +24,8 @@ include_dirs = """
 obj_user = bld.new_task_gen(
         features = 'cc cstaticlib',
         includes = include_dirs,
-        defines = [ '_KERNEL', '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
+        defines = [ '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
+        name = "nvpair-user",
         target = 'nvpair-user'
         )
 
@@ -35,6 +36,7 @@ obj_kernel = bld.new_task_gen(
         features = 'cc cstaticlib',
         includes = include_dirs,
         defines = [ '_KERNEL', '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
+        name = "nvpair-kernel",
         target = 'nvpair-kernel'
         )
 
