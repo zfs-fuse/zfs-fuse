@@ -22,6 +22,8 @@ kernel_sources = """
     arc.c
     bplist.c
     dbuf.c
+    ddt.c
+    ddt_zap.c
     dmu.c
     dmu_object.c
     dmu_objset.c
@@ -78,7 +80,9 @@ kernel_sources = """
     zio.c
     zio_checksum.c
     zio_compress.c
-    zio_inject.c""".split()
+    zio_inject.c
+    zle.c
+    """.split()
 
 user_sources = kernel_sources + ['kernel.c', 'taskq.c']
 
