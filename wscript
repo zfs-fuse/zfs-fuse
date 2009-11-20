@@ -20,17 +20,7 @@
 """
 This is a WAF build script (http://code.google.com/p/waf/).
 It can be used as an alternative build system to autotools
-for Geany. It does not (yet) cover all of the autotools tests and
-configure options but all important things are working.
-"make dist" should be done with autotools, most other targets and
-functions should work better (regarding performance and flexibility)
-or at least equally.
-
-Missing features: --enable-binreloc, make targets: dist, pdf (in doc/)
-Known issues: Dependency handling is buggy, e.g. if src/document.h is
-			  changed, depending source files are not rebuilt (maybe Waf bug).
-
-Requires WAF 1.5 (SVN r4661 or later) and Python 2.4 (or later).
+for zfs-fuse. 
 """
 
 
