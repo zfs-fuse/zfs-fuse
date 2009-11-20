@@ -15,12 +15,9 @@ else
 	OPTIM = -O2
 endif
 
-src/lib/libsolkerncompat/generic:
-	ln -s ../libsolcompat/generic src/lib/libsolkerncompat/generic
-
 build: build-stamp
 
-build-stamp: src/lib/libsolkerncompat/generic
+build-stamp:
 	dh_testdir
 
 	# Add here commands to compile the package.
