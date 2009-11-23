@@ -66,8 +66,6 @@
  * The ZAP OBJ is referred to as the jump object.
  */
 
-/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
-
 #include <sys/dmu.h>
 #include <sys/dmu_objset.h>
 #include <sys/dmu_tx.h>

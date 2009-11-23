@@ -1091,7 +1091,6 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 				to_delta = ab->b_size;
 			}
 			atomic_add_64(size, to_delta);
-			atomic_add_64(&new_state->arcs_size, to_delta);
 
 			if (use_mutex)
 				mutex_exit(&new_state->arcs_mtx);
@@ -1104,7 +1103,7 @@ arc_change_state(arc_state_t *new_state, arc_buf_hdr_t *ab, kmutex_t *hash_lock)
 	}
 
 	/* adjust state sizes */
-	if (to_delta && (refcnt != 0 || new_state == arc_anon))
+	if (to_delta)
 		atomic_add_64(&new_state->arcs_size, to_delta);
 	if (from_delta) {
 		ASSERT3U(old_state->arcs_size, >=, from_delta);
@@ -1927,11 +1926,6 @@ arc_shrink(void)
 static int
 arc_reclaim_needed(void)
 {
-	static int counter;
-	if (counter++ > 500) {
-		counter = 0;
-		return 1;
-	}
 #if 0
 	uint64_t extra;
 
@@ -2039,7 +2033,7 @@ arc_kmem_reap_now(arc_reclaim_strategy_t strat)
 static void
 arc_reclaim_thread(void)
 {
-	int64_t			growtime = 0;
+	uint64_t			growtime = 0;
 	arc_reclaim_strategy_t	last_reclaim = ARC_RECLAIM_CONS;
 	callb_cpr_t		cpr;
 
@@ -3106,6 +3100,7 @@ arc_has_callback(arc_buf_t *buf)
 	return (callback);
 }
 
+#ifdef ZFS_DEBUG
 int
 arc_referenced(arc_buf_t *buf)
 {
@@ -3116,6 +3111,7 @@ arc_referenced(arc_buf_t *buf)
 	rw_exit(&buf->b_lock);
 	return (referenced);
 }
+#endif
 
 static void
 arc_write_ready(zio_t *zio)

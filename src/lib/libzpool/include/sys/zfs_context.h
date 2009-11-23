@@ -90,6 +90,12 @@ extern "C" {
 #define	CE_PANIC	3	/* panic		*/
 #define	CE_IGNORE	4	/* print nothing	*/
 
+#if DEBUG
+#define ASSERT(EX) assert(EX)
+#else
+#define	ASSERT(x)  ((void)0)
+#endif
+
 /*
  * ZFS debugging
  */
@@ -114,8 +120,6 @@ extern void vpanic(const char *, __va_list);
         } while(0)
 
 #define VERIFY(EX) do { if(!(EX)) ASSERT_FAIL(EX); } while(0)
-
-#define	ASSERT	assert
 
 extern void __assert(const char *, const char *, int);
 

@@ -130,8 +130,6 @@ __dprintf(const char *file, const char *func, int line, const char *fmt, ...)
 	(void) vsnprintf(buf, sizeof (buf), fmt, adx);
 	va_end(adx);
 
-// 	fprintf(stderr, "%s", buf);
-
 	/*
 	 * To get this data, use the zfs-dprintf probe as so:
 	 * dtrace -q -n 'zfs-dprintf \

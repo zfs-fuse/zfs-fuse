@@ -109,7 +109,13 @@
  
 /* how to write mutex_held with pthread ? owner doesn't seem easy to access ?
  * for now I'll just disable _mutex_held everywhere in this file... */
-#define _mutex_held(a) ((a)->__owner == curthread)
+int _mutex_held(pthread_mutex_t *a) {
+    int ret = pthread_mutex_trylock(a);
+    if (ret == 0) // it was locked when it was supposed to be already locked !
+	pthread_mutex_unlock(a);
+    return ret; // != 0 if already locked (EBUSY)
+}
+
 
 static char cmdname[] = "ztest";
 static char *zopt_pool = cmdname;
@@ -1722,7 +1728,7 @@ ztest_lookup(ztest_ds_t *zd, ztest_od_t *od, int count)
 	int missing = 0;
 	int error;
 
-	// ASSERT(_mutex_held(&zd->zd_dirobj_lock));
+	ASSERT(_mutex_held(&zd->zd_dirobj_lock));
 
 	for (int i = 0; i < count; i++, od++) {
 		od->od_object = 0;
@@ -1762,7 +1768,7 @@ ztest_create(ztest_ds_t *zd, ztest_od_t *od, int count)
 {
 	int missing = 0;
 
-	// ASSERT(_mutex_held(&zd->zd_dirobj_lock));
+	ASSERT(_mutex_held(&zd->zd_dirobj_lock));
 
 	for (int i = 0; i < count; i++, od++) {
 		if (missing) {
@@ -1807,7 +1813,7 @@ ztest_remove(ztest_ds_t *zd, ztest_od_t *od, int count)
 	int missing = 0;
 	int error;
 
-	// ASSERT(_mutex_held(&zd->zd_dirobj_lock));
+	ASSERT(_mutex_held(&zd->zd_dirobj_lock));
 
 	od += count - 1;
 
@@ -2875,6 +2881,7 @@ ztest_dmu_objset_create_destroy(ztest_ds_t *zd, uint64_t id)
 	 */
 	VERIFY3U(EBUSY, ==,
 	    dmu_objset_own(name, DMU_OST_OTHER, B_FALSE, FTAG, &os2));
+
 	zil_close(zilog);
 	dmu_objset_disown(os, FTAG);
 	ztest_zd_fini(&zdtmp);
@@ -3779,16 +3786,16 @@ ztest_fzap(ztest_ds_t *zd, uint64_t id)
 		(void) snprintf(name, sizeof (name), "fzap-%llu-%llu",
 		    id, value);
 
-  		tx = dmu_tx_create(os);
+		tx = dmu_tx_create(os);
 		dmu_tx_hold_zap(tx, object, B_TRUE, name);
 		txg = ztest_tx_assign(tx, TXG_MIGHTWAIT, FTAG);
 		if (txg == 0)
 			return;
 		error = zap_add(os, object, name, sizeof (uint64_t), 1,
 		    &value, tx);
-  		ASSERT(error == 0 || error == EEXIST);
-  		dmu_tx_commit(tx);
-  	}
+		ASSERT(error == 0 || error == EEXIST);
+		dmu_tx_commit(tx);
+	}
 }
 
 /* ARGSUSED */
@@ -3797,13 +3804,13 @@ ztest_zap_parallel(ztest_ds_t *zd, uint64_t id)
 {
 	objset_t *os = zd->zd_os;
 	ztest_od_t od[1];
-  	uint64_t txg, object, count, wsize, wc, zl_wsize, zl_wc;
-  	dmu_tx_t *tx;
-  	int i, namelen, error;
+	uint64_t txg, object, count, wsize, wc, zl_wsize, zl_wc;
+	dmu_tx_t *tx;
+	int i, namelen, error;
 	int micro = ztest_random(2);
-  	char name[20], string_value[20];
-  	void *data;
-  
+	char name[20], string_value[20];
+	void *data;
+
 	ztest_od_init(&od[0], ID_PARALLEL, FTAG, micro, DMU_OT_ZAP_OTHER, 0, 0);
 
 	if (ztest_object_init(zd, od, sizeof (od), B_FALSE) != 0)
@@ -4595,7 +4602,7 @@ ztest_run_zdb(char *pool)
 {
 	int status;
 	char zdb[MAXPATHLEN + MAXNAMELEN + 20];
-	char zbuf[1024];	
+	char zbuf[1024];
 	FILE *fp;	
 
  	(void) sprintf(zdb,

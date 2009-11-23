@@ -2017,15 +2017,15 @@ dump_block_stats(spa_t *spa)
 	 * Report any leaked segments.
 	 */
 	zdb_leak_fini(spa);
-  
+
 	tzb = &zcb.zcb_type[ZB_TOTAL][ZDB_OT_TOTAL];
-  
+
 	norm_alloc = metaslab_class_get_alloc(spa_normal_class(spa));
 	norm_space = metaslab_class_get_space(spa_normal_class(spa));
-  
+
 	total_alloc = norm_alloc + metaslab_class_get_alloc(spa_log_class(spa));
 	total_found = tzb->zb_asize - zcb.zcb_dedup_asize;
-  
+
 	if (total_found == total_alloc) {
 		if (!dump_opt['L'])
 			(void) printf("\n\tNo leaks (block sum matches space"

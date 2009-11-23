@@ -41,7 +41,11 @@
 #define __assert(EX, FILE, LINE) ASSERT_FAIL(EX, FILE, LINE)
 #endif
 
+#if DEBUG
 #define ASSERT(EX) assert(EX)
+#else
+#define	ASSERT(x)  ((void)0)
+#endif
 
 #ifdef lint
 #define	VERIFY3_IMPL(x, y, z, t)	if (x == z) ((void)0)

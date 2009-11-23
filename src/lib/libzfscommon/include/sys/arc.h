@@ -95,7 +95,9 @@ int arc_released(arc_buf_t *buf);
 int arc_has_callback(arc_buf_t *buf);
 void arc_buf_freeze(arc_buf_t *buf);
 void arc_buf_thaw(arc_buf_t *buf);
+#ifdef ZFS_DEBUG
 int arc_referenced(arc_buf_t *buf);
+#endif
 
 int arc_read(zio_t *pio, spa_t *spa, const blkptr_t *bp, arc_buf_t *pbuf,
     arc_done_func_t *done, void *private, int priority, int zio_flags,

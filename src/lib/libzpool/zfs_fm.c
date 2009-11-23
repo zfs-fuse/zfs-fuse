@@ -101,7 +101,7 @@
  * (successfully or not), zfs_ereport_finish_checksum() is called with the
  * good and bad versions of the buffer (if available), and we annotate the
  * ereport with information about the differences.
-   */
+ */
 #ifdef _KERNEL
 static void
 zfs_ereport_start(nvlist_t **ereport_out, nvlist_t **detector_out,

@@ -29,6 +29,10 @@
 
 #include <assert.h>
 
+#if DEBUG
 #define ASSERT(EX) assert(EX)
+#else
+#define	ASSERT(x)  ((void)0)
+#endif
 
 #endif

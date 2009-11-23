@@ -1106,8 +1106,6 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 					goto error;
 				}
 				break;
-			default:
-				break;
 			}
 		}
 	}
@@ -2055,7 +2053,7 @@ userquota_propname_decode(const char *propname, boolean_t zoned,
 #endif
 	} else if (strncmp(cp, "S-1-", 4) == 0) {
 		/* It's a numeric SID (eg "S-1-234-567-89") */
-		(void) strcpy(domain, cp);
+		(void) strlcpy(domain, cp, domainlen);
 		cp = strrchr(domain, '-');
 		*cp = '\0';
 		cp++;
@@ -2098,7 +2096,7 @@ userquota_propname_decode(const char *propname, boolean_t zoned,
 			if (idmap_id_to_numeric_domain_rid(id, isuser,
 			    &mapdomain, &rid) != 0)
 				return (ENOENT);
-			(void) strcpy(domain, mapdomain);
+			(void) strlcpy(domain, mapdomain, domainlen);
 			*ridp = rid;
 #endif
 		return (ENOENT);

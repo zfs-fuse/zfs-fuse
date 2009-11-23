@@ -1371,7 +1371,6 @@ spa_load(spa_t *spa, spa_load_state_t state, int mosconfig)
 		goto out;
 
 	if (rvd->vdev_state <= VDEV_STATE_CANT_OPEN) {
-		dprintf("spa_load(): rvd->vdev_state <= VDEV_STATE_CANT_OPEN\n");
 		error = ENXIO;
 		goto out;
 	}
@@ -1385,7 +1384,6 @@ spa_load(spa_t *spa, spa_load_state_t state, int mosconfig)
 	 * If we weren't able to find a single valid uberblock, return failure.
 	 */
 	if (ub->ub_txg == 0) {
-		dprintf("spa_load(): can't find single valid uberblock\n");
 		vdev_set_state(rvd, B_TRUE, VDEV_STATE_CANT_OPEN,
 		    VDEV_AUX_CORRUPT_DATA);
 		error = ENXIO;
@@ -1407,7 +1405,6 @@ spa_load(spa_t *spa, spa_load_state_t state, int mosconfig)
 	 * incomplete configuration.
 	 */
 	if (rvd->vdev_guid_sum != ub->ub_guid_sum && mosconfig) {
-		dprintf("spa_load(): vdev guid sum doesn't match the uberblock\n");
 		vdev_set_state(rvd, B_TRUE, VDEV_STATE_CANT_OPEN,
 		    VDEV_AUX_BAD_GUID_SUM);
 		error = ENXIO;
@@ -1684,7 +1681,6 @@ spa_load(spa_t *spa, spa_load_state_t state, int mosconfig)
 	 * indicates one or more toplevel vdevs are faulted.
 	 */
 	if (rvd->vdev_state <= VDEV_STATE_CANT_OPEN) {
-		dprintf("spa_load(): one or more toplevel vdevs are faulted\n");
 		error = ENXIO;
 		goto out;
 	}
@@ -1811,8 +1807,6 @@ out:
 	spa->spa_minref = refcount_count(&spa->spa_refcount);
 	if (error && error != EBADF)
 		zfs_ereport_post(ereport, spa, NULL, NULL, 0, 0);
-	if (error)
-		dprintf("spa_load(): error %i\n", error);
 	spa->spa_load_state = SPA_LOAD_NONE;
 	spa->spa_ena = 0;
 
@@ -4257,9 +4251,9 @@ spa_async_thread(spa_t *spa)
 		 * then log an internal history event.
 		 */
 		if (new_space != old_space) {
-  			spa_history_internal_log(LOG_POOL_VDEV_ONLINE,
-  			    spa, NULL, CRED(),
-  			    "pool '%s' size: %llu(+%llu)",
+			spa_history_internal_log(LOG_POOL_VDEV_ONLINE,
+			    spa, NULL, CRED(),
+			    "pool '%s' size: %llu(+%llu)",
 			    spa_name(spa), new_space, new_space - old_space);
 		}
 	}

@@ -308,8 +308,6 @@ dsl_dataset_snap_lookup(dsl_dataset_t *ds, const char *name, uint64_t *value)
 	matchtype_t mt;
 	int err;
 
-	dsl_dir_snap_cmtime_update(ds->ds_dir);
-
 	if (ds->ds_phys->ds_flags & DS_FLAG_CI_DATASET)
 		mt = MT_FIRST;
 	else
@@ -329,6 +327,8 @@ dsl_dataset_snap_remove(dsl_dataset_t *ds, char *name, dmu_tx_t *tx)
 	uint64_t snapobj = ds->ds_phys->ds_snapnames_zapobj;
 	matchtype_t mt;
 	int err;
+
+	dsl_dir_snap_cmtime_update(ds->ds_dir);
 
 	if (ds->ds_phys->ds_flags & DS_FLAG_CI_DATASET)
 		mt = MT_FIRST;
@@ -2429,7 +2429,7 @@ dsl_dataset_promote_check(void *arg1, void *arg2, dmu_tx_t *tx)
 			err = EEXIST;
 			goto out;
 		}
-  		if (err != ENOENT)
+		if (err != ENOENT)
 			goto out;
 
 		/* The very first snapshot does not have a deadlist */

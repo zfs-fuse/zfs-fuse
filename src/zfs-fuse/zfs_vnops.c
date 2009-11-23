@@ -1146,7 +1146,7 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 		if (zdp->z_phys->zp_flags & ZFS_XATTR) {
 			ZFS_EXIT(zfsvfs);
 			return (EINVAL);
-		} 
+		}
 
 		if (error = zfs_get_xattrdir(VTOZ(dvp), vpp, cr, flags)) {
 			ZFS_EXIT(zfsvfs);
@@ -1188,8 +1188,8 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct pathname *pnp,
 	}
 
 	error = zfs_dirlook(zdp, nm, vpp, flags, direntflags, realpnp);
- 	if (error == 0)
- 		error = specvp_check(vpp, cr);
+	if (error == 0)
+		error = specvp_check(vpp, cr);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -1426,7 +1426,7 @@ out:
 			VN_RELE(ZTOV(zp));
 	} else {
 		*vpp = ZTOV(zp);
- 		error = specvp_check(vpp, cr);
+		error = specvp_check(vpp, cr);
 	}
 
 	ZFS_EXIT(zfsvfs);
@@ -2399,6 +2399,12 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 			ZFS_TIME_DECODE(&xoap->xoa_createtime, pzp->zp_crtime);
 			XVA_SET_RTN(xvap, XAT_CREATETIME);
 		}
+
+		if (XVA_ISSET_REQ(xvap, XAT_REPARSE)) {
+			xoap->xoa_reparse =
+			    ((pzp->zp_flags & ZFS_REPARSE) != 0);
+			XVA_SET_RTN(xvap, XAT_REPARSE);
+		}
 	}
 
 	ZFS_TIME_DECODE(&vap->va_atime, pzp->zp_atime);
@@ -2698,6 +2704,12 @@ top:
 				XVA_CLR_REQ(xvap, XAT_AV_QUARANTINED);
 				XVA_SET_REQ(&tmpxvattr, XAT_AV_QUARANTINED);
 			}
+		}
+
+		if (XVA_ISSET_REQ(xvap, XAT_REPARSE)) {
+			mutex_exit(&zp->z_lock);
+			ZFS_EXIT(zfsvfs);
+			return (EPERM);
 		}
 
 		if (need_policy == FALSE &&
@@ -4621,20 +4633,6 @@ zfs_isdir()
 {
 	return (EISDIR);
 }
-
-
-static int
-zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
-    caller_context_t *ct);
-
-static int
-zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
-        caller_context_t *ct);
-
-static int
-zfs_rename(vnode_t *sdvp, char *snm, vnode_t *tdvp, char *tnm, cred_t *cr,
-    caller_context_t *ct, int flags);
-
 /*
  * Directory vnode operations template
  */

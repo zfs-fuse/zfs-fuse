@@ -677,83 +677,102 @@ zvol_update_volsize(objset_t *os, uint64_t volsize)
 		return (error);
 	}
 
-	error = zap_update(zv->zv_objset, ZVOL_ZAP_OBJ, "size", 8, 1,
+	error = zap_update(os, ZVOL_ZAP_OBJ, "size", 8, 1,
 	    &volsize, tx);
 	dmu_tx_commit(tx);
 
 	if (error == 0)
-		error = dmu_free_long_range(zv->zv_objset,
+		error = dmu_free_long_range(os,
 		    ZVOL_OBJ, volsize, DMU_OBJECT_END);
-
-	/*
-	 * If we are using a faked-up state (zv_minor == 0) then don't
-	 * try to update the in-core zvol state.
-	 */
-	if (error == 0 && zv->zv_minor) {
-		zv->zv_volsize = volsize;
-		zvol_size_changed(zv, maj);
-	}
 	return (error);
+}
+
+void
+zvol_remove_minors(const char *name)
+{
+	zvol_state_t *zv;
+	char *namebuf;
+	minor_t minor;
+
+	namebuf = kmem_zalloc(strlen(name) + 2, KM_SLEEP);
+	(void) strncpy(namebuf, name, strlen(name));
+	(void) strcat(namebuf, "/");
+	mutex_enter(&zvol_state_lock);
+	for (minor = 1; minor <= ZVOL_MAX_MINOR; minor++) {
+
+		zv = ddi_get_soft_state(zvol_state, minor);
+		if (zv == NULL)
+			continue;
+		if (strncmp(namebuf, zv->zv_name, strlen(namebuf)) == 0)
+			(void) zvol_remove_zv(zv);
+	}
+	kmem_free(namebuf, strlen(name) + 2);
+
+	mutex_exit(&zvol_state_lock);
 }
 
 int
 zvol_set_volsize(const char *name, major_t maj, uint64_t volsize)
 {
-	zvol_state_t *zv;
+	zvol_state_t *zv = NULL;
+	objset_t *os;
 	int error;
 	dmu_object_info_t doi;
 	uint64_t old_volsize = 0ULL;
+	uint64_t readonly;
 	zvol_state_t state = { 0 };
 
 	mutex_enter(&zvol_state_lock);
-
-	if ((zv = zvol_minor_lookup(name)) == NULL) {
-		/*
-		 * If we are doing a "zfs clone -o volsize=", then the
-		 * minor node won't exist yet.
-		 */
-		error = dmu_objset_own(name, DMU_OST_ZVOL, B_FALSE, FTAG,
-		    &state.zv_objset);
-		if (error != 0)
-			goto out;
-		zv = &state;
+	zv = zvol_minor_lookup(name);
+	if ((error = dmu_objset_hold(name, FTAG, &os)) != 0) {
+		mutex_exit(&zvol_state_lock);
+		return (error);
 	}
-	old_volsize = zv->zv_volsize;
 
-	if ((error = dmu_object_info(zv->zv_objset, ZVOL_OBJ, &doi)) != 0 ||
+	if ((error = dmu_object_info(os, ZVOL_OBJ, &doi)) != 0 ||
 	    (error = zvol_check_volsize(volsize,
 	    doi.doi_data_block_size)) != 0)
 		goto out;
 
-	if (zv->zv_flags & ZVOL_RDONLY || zv->zv_issnap) {
+	VERIFY(dsl_prop_get_integer(name, "readonly", &readonly,
+	    NULL) == 0);
+	if (readonly) {
 		error = EROFS;
 		goto out;
 	}
 
-	error = zvol_update_volsize(zv, maj, volsize);
-
+	error = zvol_update_volsize(os, volsize);
 	/*
 	 * Reinitialize the dump area to the new size. If we
-	 * failed to resize the dump area then restore the it back to
-	 * it's original size.
+	 * failed to resize the dump area then restore it back to
+	 * its original size.
 	 */
-	if (error == 0 && zv->zv_flags & ZVOL_DUMPIFIED) {
-		if ((error = zvol_dumpify(zv)) != 0 ||
-		    (error = dumpvp_resize()) != 0) {
-			(void) zvol_update_volsize(zv, maj, old_volsize);
-			error = zvol_dumpify(zv);
+	if (zv && error == 0) {
+		if (zv->zv_flags & ZVOL_DUMPIFIED) {
+			old_volsize = zv->zv_volsize;
+			zv->zv_volsize = volsize;
+			if ((error = zvol_dumpify(zv)) != 0 ||
+			    (error = dumpvp_resize()) != 0) {
+				(void) zvol_update_volsize(os, old_volsize);
+				zv->zv_volsize = old_volsize;
+				error = zvol_dumpify(zv);
+			}
+		}
+		if (error == 0) {
+			zv->zv_volsize = volsize;
+			zvol_size_changed(volsize, maj, zv->zv_minor);
 		}
 	}
 
 	/*
 	 * Generate a LUN expansion event.
 	 */
-	if (error == 0) {
+	if (zv && error == 0) {
 		sysevent_id_t eid;
 		nvlist_t *attr;
 		char *physpath = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
 
-		(void) snprintf(physpath, MAXPATHLEN, "%s%uc", ZVOL_PSEUDO_DEV,
+		(void) snprintf(physpath, MAXPATHLEN, "%s%u", ZVOL_PSEUDO_DEV,
 		    zv->zv_minor);
 
 		VERIFY(nvlist_alloc(&attr, NV_UNIQUE_NAME, KM_SLEEP) == 0);
