@@ -29,10 +29,12 @@
 #include <getopt.h>
 #include <syslog.h>
 #include <stdlib.h>
+#include <sys/zfs_debug.h>
 
 #include "util.h"
 #include "fuse_listener.h"
 #include "zfs_operations.h"
+#include "format.h"
 
 extern uint64_t max_arc_size; // defined in arc.c
 static const char *cf_pidfile = NULL;
@@ -153,7 +155,7 @@ void print_usage(int argc, char *argv[]) {
 		"Options:\n"
 		"  -p FILE, --pidfile FILE\n"
 		"			Store the process ID of ZFS in the specified file.\n"
-		"  --no-daemon\n"
+		"  --no-daemon -n\n"
 		"			Do not daemonize ZFS.\n"
 		"  --disable-block-cache\n"
 		"			Enable direct I/O for disk operations. Completely\n"
@@ -210,7 +212,7 @@ static void parse_args(int argc, char *argv[])
 
 	optind = 0;
 	optarg = NULL;
-	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:o:u:v:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:no:u:v:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -224,6 +226,9 @@ static void parse_args(int argc, char *argv[])
 					exit(64);
 				}
 				cf_pidfile = optarg;
+				break;
+			case 'n':
+				cf_daemonize = 0;
 				break;
 			case 'o':
 				if (cf_fuse_mount_options != NULL) {
@@ -359,7 +364,7 @@ int main(int argc, char *argv[])
 	syslog(LOG_NOTICE,"caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
 
 	/* notice about ARC size */
-	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: %ld MiB", max_arc_size>>20);
+	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: " FU64 " MiB", max_arc_size>>20);
 	else 			syslog(LOG_NOTICE,"ARC caching: maximum ARC size: compiled-in default");
 
 	/* notice about FUSE caching tunables */
