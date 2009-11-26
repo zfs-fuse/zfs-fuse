@@ -1278,6 +1278,7 @@ zfs_parse_bootfs(char *bpath, char *outpath)
 int
 zfs_check_global_label(const char *dsname, const char *hexsl)
 {
+#if 0
 	if (strcasecmp(hexsl, ZFS_MLSLABEL_DEFAULT) == 0)
 		return (0);
 	if (strcasecmp(hexsl, ADMIN_HIGH) == 0)
@@ -1291,6 +1292,7 @@ zfs_check_global_label(const char *dsname, const char *hexsl)
 			return (EACCES);
 		return (rdonly ? 0 : EACCES);
 	}
+#endif
 	return (EACCES);
 }
 
@@ -1305,6 +1307,7 @@ zfs_check_global_label(const char *dsname, const char *hexsl)
  *		 0 :	access allowed
  *		>0 :	error code, such as EACCES
  */
+#if 0
 static int
 zfs_mount_label_policy(vfs_t *vfsp, char *osname)
 {
@@ -1399,6 +1402,7 @@ zfs_mount_label_policy(vfs_t *vfsp, char *osname)
 	zone_rele(mntzone);
 	return (retv);
 }
+#endif
 
 static int
 zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
@@ -1593,9 +1597,11 @@ zfs_mount(vfs_t *vfsp, vnode_t *mvp, struct mounta *uap, cred_t *cr)
 		goto out;
 	}
 
+	/* zfs-fuse : disabled
 	error = zfs_mount_label_policy(vfsp, osname);
 	if (error)
 		goto out;
+		*/
 
 	/*
 	 * When doing a remount, we simply refresh our temporary properties

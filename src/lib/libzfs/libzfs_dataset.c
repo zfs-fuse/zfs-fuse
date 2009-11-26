@@ -919,6 +919,11 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 			 * internal hex label string.
 			 */
 
+#if 0
+		    /* zfs-fuse : we are going to ignore all this for now
+		     * 1 : they are supposed to be enforced by the kernel
+		     * 2 : they use m_label_* api which is external
+		     * so just forget it for now */
 			m_label_t *new_sl;
 			char *hex = NULL;	/* internal label string */
 
@@ -957,11 +962,12 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 
 			break;
 
+#endif
 badlabel:
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "invalid mlslabel '%s'"), strval);
 			(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
-			m_label_free(new_sl);	/* OK if null */
+			// m_label_free(new_sl);	/* OK if null */
 			goto error;
 
 		}
@@ -1923,6 +1929,8 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 
 	case ZFS_PROP_MLSLABEL:
 		{
+#if 0
+		    /* zfs-fuse : disabled */
 			m_label_t *new_sl = NULL;
 			char *ascii = NULL;	/* human readable label */
 
@@ -1956,6 +1964,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 
 			(void) strlcpy(propbuf, ascii, proplen);
 			free(ascii);
+#endif
 		}
 		break;
 

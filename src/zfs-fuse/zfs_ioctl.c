@@ -43,7 +43,7 @@
 #include <sys/spa.h>
 #include <sys/spa_impl.h>
 #include <sys/vdev.h>
-#include <sys/priv_impl.h>
+// #include <sys/priv_impl.h>
 #include <sys/dmu.h>
 #include <sys/dsl_dir.h>
 #include <sys/dsl_dataset.h>
@@ -332,6 +332,8 @@ zfs_secpolicy_write_perms(const char *name, const char *perm, cred_t *cr)
 	return (error);
 }
 
+#if 0
+/* zfs-fuse : disabled */
 /*
  * Policy for setting the security label property.
  *
@@ -429,6 +431,7 @@ out_check:
 		return (PRIV_POLICY(cr, needed_priv, B_FALSE, EPERM, NULL));
 	return (0);
 }
+#endif
 
 static int
 zfs_secpolicy_setprop(const char *name, zfs_prop_t prop, cred_t *cr)
@@ -463,7 +466,7 @@ zfs_secpolicy_setprop(const char *name, zfs_prop_t prop, cred_t *cr)
 		break;
 
 	case ZFS_PROP_MLSLABEL:
-		if (!is_system_labeled())
+		// if (!is_system_labeled())
 			return (EPERM);
 		break;
 	}
@@ -1932,6 +1935,8 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 			break;
 		}
 
+#if 0
+		/* zfs-fuse : disabled */
 		case ZFS_PROP_MLSLABEL:
 		{
 			objset_t *os = NULL;
@@ -1953,6 +1958,7 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 				goto out;
 			break;
 		}
+#endif
 
 		default:
 			if (nvpair_type(elem) == DATA_TYPE_STRING) {
