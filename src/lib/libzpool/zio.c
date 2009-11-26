@@ -79,7 +79,7 @@ kmem_cache_t *zio_link_cache;
 kmem_cache_t *zio_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 kmem_cache_t *zio_data_buf_cache[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT];
 
-#if 0
+#ifdef _KERNEL
 extern vmem_t *zio_alloc_arena;
 #endif
 
@@ -102,6 +102,7 @@ zio_init(void)
 	vmem_t *data_alloc_arena = NULL;
 
 #if 0
+	// zio_alloc_arena is NULL normally
 	data_alloc_arena = zio_alloc_arena;
 #endif
 	zio_cache = kmem_cache_create("zio_cache",
@@ -1019,10 +1020,6 @@ zio_free_bp_init(zio_t *zio)
 			arc_free(zio->io_spa, bp);
 	}
 
-	if (zio_injection_enabled &&
-	    zio->io_spa->spa_syncing_txg == zio->io_txg)
-		zio_handle_ignored_writes(zio);
-
 	return (ZIO_PIPELINE_CONTINUE);
 }
 
@@ -1163,6 +1160,7 @@ zio_wait(zio_t *zio)
 
 	error = zio->io_error;
 	zio_destroy(zio);
+	pthread_yield();
 
 	return (error);
 }
@@ -2583,6 +2581,10 @@ zio_ready(zio_t *zio)
 			zio->io_pipeline &= ~ZIO_VDEV_IO_STAGES;
 		}
 	}
+
+	if (zio_injection_enabled &&
+	    zio->io_spa->spa_syncing_txg == zio->io_txg)
+		zio_handle_ignored_writes(zio);
 
 	return (ZIO_PIPELINE_CONTINUE);
 }

@@ -1108,6 +1108,7 @@ dmu_tx_commit(dmu_tx_t *tx)
 		}
 		mutex_exit(&dn->dn_mtx);
 		dnode_rele(dn, tx);
+		pthread_yield();
 	}
 
 	if (tx->tx_tempreserve_cookie)
