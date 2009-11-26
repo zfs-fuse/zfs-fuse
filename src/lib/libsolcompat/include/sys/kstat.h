@@ -467,10 +467,10 @@ typedef struct kstat_named {
  * C99 ANSI C compilation environment, the long long type is supported.
  * The _INT64_TYPE is defined by the implementation (see sys/int_types.h).
  */
-#if defined(_INT64_TYPE)
+// #if defined(_INT64_TYPE)
 		int64_t		i64;
 		uint64_t	ui64;
-#endif
+// #endif
 		long		l;
 		ulong_t		ul;
 
