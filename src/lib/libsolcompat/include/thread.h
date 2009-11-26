@@ -73,6 +73,9 @@ typedef pthread_rwlock_t rwlock_t;
 #define THR_DAEMON    0x00000100
 
 static inline int thr_create(void *stack_base, size_t stack_size, void *(*start_func) (void*), void *arg, long flags, thread_t *new_thread_ID) {
+    pthread_t id;
+    if (!new_thread_ID)
+	new_thread_ID = &id;
 	assert(stack_base == NULL);
 	assert(stack_size == 0);
 	assert((flags & ~THR_BOUND & ~THR_DETACHED) == 0);
@@ -83,7 +86,8 @@ static inline int thr_create(void *stack_base, size_t stack_size, void *(*start_
 	if(flags & THR_DETACHED)
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-	/* This function ignores the THR_BOUND flag, since NPTL doesn't seem to support PTHREAD_SCOPE_PROCESS */
+	if (flags & THR_BOUND)
+	    pthread_attr_setscope(&attr,PTHREAD_SCOPE_PROCESS);
 
 	int ret = pthread_create(new_thread_ID, &attr, start_func, arg);
 
