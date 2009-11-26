@@ -224,6 +224,7 @@ extern void mutex_enter(kmutex_t *mp);
 extern void mutex_exit(kmutex_t *mp);
 extern int mutex_tryenter(kmutex_t *mp);
 extern void *mutex_owner(kmutex_t *mp);
+extern int _mutex_held(pthread_mutex_t *a);
 
 /*
  * RW locks
