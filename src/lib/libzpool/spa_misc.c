@@ -1119,6 +1119,11 @@ spa_get_random(uint64_t range)
 void
 sprintf_blkptr(char *buf, const blkptr_t *bp)
 {
+	if (!bp) {
+		strcpy(buf,"NULL");
+		return;
+	}
+
 	char *type = dmu_ot[BP_GET_TYPE(bp)].ot_name;
 	char *checksum = zio_checksum_table[BP_GET_CHECKSUM(bp)].ci_name;
 	char *compress = zio_compress_table[BP_GET_COMPRESS(bp)].ci_name;

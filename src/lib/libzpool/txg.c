@@ -75,6 +75,19 @@ txg_init(dsl_pool_t *dp, uint64_t txg)
 	tx->tx_open_txg = txg;
 }
 
+static void destroy_callbacks(list_t *cb_list) {
+    /* zfs-fuse : another thread problem : sometimes ztest closes its dataset
+     * before the threads had time to be called.
+     * In this case a simple list_destroy fails because the list still contains
+     * the callbacks, so this function is here to do the cleanup */
+	dmu_tx_callback_t *dcb;
+
+	while (dcb = list_head(cb_list)) {
+		list_remove(cb_list, dcb);
+		kmem_free(dcb, sizeof (dmu_tx_callback_t));
+	}
+}
+
 /*
  * Close down the txg subsystem.
  */
@@ -100,6 +113,7 @@ txg_fini(dsl_pool_t *dp)
 		mutex_destroy(&tx->tx_cpu[c].tc_lock);
 		for (i = 0; i < TXG_SIZE; i++) {
 			cv_destroy(&tx->tx_cpu[c].tc_cv[i]);
+			destroy_callbacks(&tx->tx_cpu[c].tc_callbacks[i]);
 			list_destroy(&tx->tx_cpu[c].tc_callbacks[i]);
 		}
 	}
