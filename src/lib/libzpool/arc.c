@@ -135,6 +135,7 @@
 #include <sys/kstat.h>
 #include <zfs_fletcher.h>
 #include <syslog.h>
+#include "format.h"
 
 static kmutex_t		arc_reclaim_thr_lock;
 static kcondvar_t	arc_reclaim_thr_cv;	/* used to signal reclaim thr */
@@ -3425,7 +3426,7 @@ arc_init(void)
 	arc_c_min = 16<<20;
 	if (max_arc_size) {
 		if (max_arc_size < arc_c_min) {
-			syslog(LOG_WARNING,"max_arc_size too small (%ld bytes), using arc_c_min (%ld bytes)",max_arc_size,arc_c_min);
+			syslog(LOG_WARNING,"max_arc_size too small (" FI64 " bytes), using arc_c_min (" FI64 " bytes)",max_arc_size,arc_c_min);
 			arc_c_max = arc_c_min;
 		} else {
 			arc_c_max = max_arc_size;
@@ -3438,8 +3439,8 @@ arc_init(void)
 	arc_c_max = 64<<20;
 #endif
 	}
-	syslog(LOG_NOTICE,"ARC setup: min ARC size set to %ld bytes",arc_c_min);
-	syslog(LOG_NOTICE,"ARC setup: max ARC size set to %ld bytes",arc_c_max);
+	syslog(LOG_NOTICE,"ARC setup: min ARC size set to " FI64 " bytes",arc_c_min);
+	syslog(LOG_NOTICE,"ARC setup: max ARC size set to " FI64 " bytes",arc_c_max);
 
 	/*
 	 * Allow the tunables to override our calculations if they are

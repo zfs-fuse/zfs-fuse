@@ -43,6 +43,7 @@
 #include "zfs_prop.h"
 #include "libzfs_impl.h"
 #include "zfs_comutil.h"
+#include "format.h"
 
 const char *hist_event_table[LOG_END] = {
 	"invalid event",
@@ -1270,7 +1271,7 @@ zpool_rewind_exclaim(libzfs_handle_t *hdl, const char *name, boolean_t dryrun,
 	(void) nvlist_lookup_int64(rbi, ZPOOL_CONFIG_REWIND_TIME, &loss);
 
 	if (localtime_r((time_t *)&rewindto, &t) != NULL &&
-	    strftime(timestr, 128, 0, &t) != 0) {
+	    strftime(timestr, 128, "%F", &t) != 0) {
 		if (dryrun) {
 			(void) printf(dgettext(TEXT_DOMAIN,
 			    "Would be able to return %s "
@@ -1283,14 +1284,14 @@ zpool_rewind_exclaim(libzfs_handle_t *hdl, const char *name, boolean_t dryrun,
 		}
 		if (loss > 120) {
 			(void) printf(dgettext(TEXT_DOMAIN,
-			    "%s approximately %lld "),
+			    "%s approximately " FI64 " "),
 			    dryrun ? "Would discard" : "Discarded",
 			    (loss + 30) / 60);
 			(void) printf(dgettext(TEXT_DOMAIN,
 			    "minutes of transactions.\n"));
 		} else if (loss > 0) {
 			(void) printf(dgettext(TEXT_DOMAIN,
-			    "%s approximately %lld "),
+			    "%s approximately " FI64 " "),
 			    dryrun ? "Would discard" : "Discarded", loss);
 			(void) printf(dgettext(TEXT_DOMAIN,
 			    "seconds of transactions.\n"));
@@ -1329,7 +1330,7 @@ zpool_explain_recover(libzfs_handle_t *hdl, const char *name, int reason,
 	    "Recovery is possible, but will result in some data loss.\n"));
 
 	if (localtime_r((time_t *)&rewindto, &t) != NULL &&
-	    strftime(timestr, 128, 0, &t) != 0) {
+	    strftime(timestr, 128, "%F", &t) != 0) {
 		(void) printf(dgettext(TEXT_DOMAIN,
 		    "\tReturning the pool to its state as of %s\n"
 		    "\tshould correct the problem.  "),
@@ -1342,11 +1343,11 @@ zpool_explain_recover(libzfs_handle_t *hdl, const char *name, int reason,
 
 	if (loss > 120) {
 		(void) printf(dgettext(TEXT_DOMAIN,
-		    "Approximately %lld minutes of data\n"
+		    "Approximately " FI64 " minutes of data\n"
 		    "\tmust be discarded, irreversibly.  "), (loss + 30) / 60);
 	} else if (loss > 0) {
 		(void) printf(dgettext(TEXT_DOMAIN,
-		    "Approximately %lld seconds of data\n"
+		    "Approximately " FI64 " seconds of data\n"
 		    "\tmust be discarded, irreversibly.  "), loss);
 	}
 	if (edata != 0 && edata != UINT64_MAX) {

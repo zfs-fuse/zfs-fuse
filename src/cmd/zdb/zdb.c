@@ -55,6 +55,7 @@
 #undef ZFS_MAXNAMELEN
 #undef verify
 #include <libzfs.h>
+#include "format.h"
 
 #define	ZDB_COMPRESS_NAME(idx) ((idx) < ZIO_COMPRESS_FUNCTIONS ? \
     zio_compress_table[(idx)].ci_name : "UNKNOWN")
@@ -829,7 +830,7 @@ dump_history(spa_t *spa)
 
 			(void) snprintf(internalstr,
 			    sizeof (internalstr),
-			    "[internal %s txg:%lld] %s",
+			    "[internal %s txg:" FI64 "] %s",
 			    hist_event_table[ievent], txg,
 			    intstr);
 			cmd = internalstr;

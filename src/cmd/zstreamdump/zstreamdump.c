@@ -33,6 +33,7 @@
 #include <sys/dmu.h>
 #include <sys/zfs_ioctl.h>
 #include <zfs_fletcher.h>
+#include "format.h"
 
 uint64_t drr_record_count[DRR_NUMTYPES];
 uint64_t total_write_size = 0;
@@ -240,13 +241,13 @@ main(int argc, char *argv[])
 				(void) printf("Expected checksum differs from "
 				    "checksum in stream.\n");
 				(void) printf("Expected checksum = "
-				    "%llx/%llx/%llx/%llx\n",
+				    FX64 "/" FX64 "/" FX64 "/" FX64 "\n",
 				    pcksum.zc_word[0],
 				    pcksum.zc_word[1],
 				    pcksum.zc_word[2],
 				    pcksum.zc_word[3]);
 			}
-			(void) printf("END checksum = %llx/%llx/%llx/%llx\n",
+			(void) printf("END checksum = " FX64 "/" FX64 "/" FX64 "/" FX64 "\n",
 			    drre->drr_checksum.zc_word[0],
 			    drre->drr_checksum.zc_word[1],
 			    drre->drr_checksum.zc_word[2],
