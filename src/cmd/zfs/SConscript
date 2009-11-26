@@ -1,8 +1,8 @@
 Import('env')
 
-objects = Split('zfs_main.c zfs_iter.c ptrace.c #lib/libzfs/libzfs.a #lib/libzfscommon/libzfscommon-user.a #lib/libnvpair/libnvpair-user.a #lib/libumem/libumem.a  #lib/libuutil/libuutil.a #lib/libavl/libavl.a #lib/libsolcompat/libsolcompat.a')
+objects = Split('zfs_main.c zfs_iter.c ptrace.c #lib/libzfs/libzfs.a #lib/libzfscommon/libzfscommon-user.a #lib/libnvpair/libnvpair-user.a #lib/libumem/libumem.a  #lib/libuutil/libuutil.a #lib/libavl/libavl.a #lib/libsolcompat/libsolcompat.a bitmap.c')
 cpppath = Split('#lib/libuutil/include #lib/libnvpair/include #lib/libumem/include #lib/libzfscommon/include #lib/libzfs/include #lib/libsolcompat/include #lib/libavl/include')
 
-libs = Split('pthread m dl')
+libs = Split('pthread m dl ssl')
 
 env.Program('zfs', objects, CPPPATH = env['CPPPATH'] + cpppath, LIBS = libs)

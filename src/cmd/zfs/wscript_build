@@ -18,7 +18,7 @@ obj = bld.new_task_gen(
         includes = include_dirs,
         defines = [ '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
         uselib_local = 'zfs-lib zfscommon-user nvpair-user umem uutil avl solcompat',
-        uselib = 'pthread_lib m_lib dl_lib',
+        uselib = 'pthread_lib m_lib dl_lib openssl',
         install_path = '${PREFIX}/usr/local/sbin/',
         name = 'zfs',
         target = 'zfs'

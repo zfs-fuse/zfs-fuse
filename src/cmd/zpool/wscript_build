@@ -18,8 +18,8 @@ obj = bld.new_task_gen(
         features = 'cc cprogram',
         includes = include_dirs,
         defines = [ '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
-        uselib_local = 'nvpair-user umem zfs-lib zfscommon-user uutil avl solcompat',
-        uselib = 'pthread_lib m_lib dl_lib',
+        uselib_local = 'nvpair-user zfs-lib umem zfscommon-user uutil avl solcompat',
+        uselib = 'pthread_lib m_lib dl_lib openssl',
         install_path = '${PREFIX}/usr/local/sbin/',
         name = 'zpool',
         target = 'zpool'

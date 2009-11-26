@@ -18,7 +18,7 @@ obj = bld.new_task_gen(
         includes = include_dirs,
         defines = [ '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
         uselib_local = 'avl nvpair-user umem zfs-lib zpool-user zfscommon-user uutil solcompat',
-        uselib = 'rt_lib pthread_lib dl_lib z_lib m_lib aio_lib',
+        uselib = 'rt_lib pthread_lib dl_lib z_lib m_lib aio_lib openssl',
         install_path = '${PREFIX}/usr/local/sbin/',
         name = 'zdb',
         target = 'zdb'
