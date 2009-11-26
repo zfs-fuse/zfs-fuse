@@ -23,8 +23,6 @@
  * Use is subject to license terms.
  */
 
-/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
-
 #include <sys/zfs_context.h>
 #include <sys/dnode.h>
 #include <sys/dmu_objset.h>
