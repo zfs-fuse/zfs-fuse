@@ -2219,6 +2219,9 @@ top:
 		 * vdev becoming unusable, undo it and fail the request.
 		 */
 		vd->vdev_offline = B_TRUE;
+		/* Explicitely call vdev_close before vdev_reopen because
+		 * otherwise the reopen flag forbids vdev_close */
+		vdev_close(vd);
 		vdev_reopen(tvd);
 
 		if (!tvd->vdev_islog && vd->vdev_aux == NULL &&
