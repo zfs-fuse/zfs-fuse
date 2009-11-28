@@ -707,6 +707,12 @@ again:
 			break;
 		}
 
+#if 0
+/* zfs-fuse : well there is a serious problem here.
+Using uiocopy right here sends the result to a socket which asked for an ioctl but
+never asked for anything about arc.
+There is clearly a difference here with opensolaris.
+All I can hope is that we can simply disable this code without risk */
 		/*
 		 * If dmu_assign_arcbuf() is expected to execute with minimum
 		 * overhead loan an arc buffer and copy user data to it before
@@ -729,6 +735,7 @@ again:
 			}
 			ASSERT(cbytes == max_blksz);
 		}
+#endif
 
 		/*
 		 * Start a transaction.
