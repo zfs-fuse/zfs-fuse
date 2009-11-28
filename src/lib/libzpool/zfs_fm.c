@@ -508,7 +508,7 @@ annotate_ecksum(nvlist_t *ereport, zio_bad_cksum_t *info,
     const uint8_t *goodbuf, const uint8_t *badbuf, size_t size,
     boolean_t drop_if_identical)
 {
-    syslog(LOG_WARNING,"annotate_ecksum disabled");
+    // syslog(LOG_WARNING,"annotate_ecksum disabled");
     return NULL;
 #if 0
 	const uint64_t *good = (const uint64_t *)goodbuf;
@@ -677,7 +677,7 @@ void
 zfs_ereport_post(const char *subclass, spa_t *spa, vdev_t *vd, zio_t *zio,
     uint64_t stateoroffset, uint64_t size)
 {
-    syslog(LOG_WARNING,"zfs_ereport_post disabled");
+    // syslog(LOG_WARNING,"zfs_ereport_post disabled");
 #if 0
 #ifdef _KERNEL
 	nvlist_t *ereport = NULL;
@@ -739,7 +739,7 @@ void
 zfs_ereport_finish_checksum(zio_cksum_report_t *report,
     const void *good_data, const void *bad_data, boolean_t drop_if_identical)
 {
-    syslog(LOG_WARNING,"zfs_ereport_finish_checksum disabled");
+    // syslog(LOG_WARNING,"zfs_ereport_finish_checksum disabled");
 #if 0
 #ifdef _KERNEL
 	zfs_ecksum_info_t *info = NULL;
@@ -762,7 +762,7 @@ zfs_ereport_finish_checksum(zio_cksum_report_t *report,
 void
 zfs_ereport_free_checksum(zio_cksum_report_t *rpt)
 {
-    syslog(LOG_WARNING,"zfs_ereport_free_checksum disabled");
+    // syslog(LOG_WARNING,"zfs_ereport_free_checksum disabled");
 #if 0
 #ifdef _KERNEL
 	if (rpt->zcr_ereport != NULL) {
@@ -784,7 +784,7 @@ zfs_ereport_free_checksum(zio_cksum_report_t *rpt)
 void
 zfs_ereport_send_interim_checksum(zio_cksum_report_t *report)
 {
-    syslog(LOG_WARNING,"zfs_ereport_send_interim_checksum disabled");
+    // syslog(LOG_WARNING,"zfs_ereport_send_interim_checksum disabled");
 #if 0
 #ifdef _KERNEL
 	fm_ereport_post(report->zcr_ereport, EVCH_SLEEP);
@@ -797,7 +797,7 @@ zfs_ereport_post_checksum(spa_t *spa, vdev_t *vd,
     struct zio *zio, uint64_t offset, uint64_t length,
     const void *good_data, const void *bad_data, zio_bad_cksum_t *zbc)
 {
-    syslog(LOG_WARNING,"zfs_ereport_post_checksum disabled");
+    // syslog(LOG_WARNING,"zfs_ereport_post_checksum disabled");
 #if 0
 #ifdef _KERNEL
 	nvlist_t *ereport = NULL;
