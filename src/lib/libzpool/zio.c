@@ -1798,7 +1798,7 @@ zio_ddt_read_done(zio_t *zio)
 		ddt_t *ddt = ddt_select(zio->io_spa, bp);
 		ddt_entry_t *dde = zio->io_vsd;
 		if (ddt == NULL) {
-			ASSERT(zio->io_spa->spa_load_state != SPA_LOAD_NONE);
+			ASSERT(spa_load_state(zio->io_spa) != SPA_LOAD_NONE);
 			return (ZIO_PIPELINE_CONTINUE);
 		}
 		if (dde == NULL) {
@@ -2724,7 +2724,7 @@ zio_done(zio_t *zio)
 		if ((zio->io_type == ZIO_TYPE_READ ||
 		    zio->io_type == ZIO_TYPE_FREE) &&
 		    zio->io_error == ENXIO &&
-		    spa->spa_load_state == SPA_LOAD_NONE &&
+		    spa_load_state(spa) == SPA_LOAD_NONE &&
 		    spa_get_failmode(spa) != ZIO_FAILURE_MODE_CONTINUE)
 			zio->io_reexecute |= ZIO_REEXECUTE_SUSPEND;
 
