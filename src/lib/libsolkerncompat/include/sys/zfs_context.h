@@ -71,6 +71,9 @@ extern "C" {
  * all the cpus. I prefer to return 0 for this now... */
 #define CPU_SEQID 0
 
+extern char *kmem_asprintf(const char *fmt, ...);
+#define	strfree(str) kmem_free((str), strlen(str)+1)
+
 #ifdef	__cplusplus
 }
 #endif
