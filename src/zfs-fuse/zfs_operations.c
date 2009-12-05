@@ -1823,8 +1823,11 @@ struct fuse_lowlevel_ops zfs_operations =
 	.access     = zfsfuse_access_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
+#if 0
+// xattr support disabled for now since it's not cached by fuse and slows things down incredibly !
 	.listxattr  = zfsfuse_listxattr,
 	.setxattr   = zfsfuse_setxattr,
 	.getxattr   = zfsfuse_getxattr,
 	.removexattr= zfsfuse_removexattr,
+#endif
 };
