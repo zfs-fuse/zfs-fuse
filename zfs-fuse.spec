@@ -2,11 +2,11 @@
 
 Name:          zfs-fuse
 Version:       0.6.0
-Release:       0.0.433snapshot
-Summary:       The most reliable filesystem
+Release:       1
+Summary:       The last word in filesystems
 License:       GPL
 Group:         System Environment/Daemons
-URL:           http://rudd-o.com/new-projects/zfs
+URL:           http://zfs-fuse.net/
 Source0:       %{name}-%{version}.tar.bz2
 BuildRoot:     %{_tmppath}/%{name}-%{version}-root
 BuildRequires: fuse-devel libaio-devel zlib-devel scons
@@ -92,6 +92,9 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %{_sbindir}/zfs-fuse
 
 %changelog
+* Sun Dec 06 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.6.0-1
+- Release 0.6.0 as is in preparation for 0.7.0
+
 * Wed Sep 02 2009 Lenz Grimmer <lenz@grimmer.com> 0.6.0-0.0.433snapshot
 - Added man pages to the package
 
