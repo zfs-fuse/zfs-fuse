@@ -99,7 +99,10 @@ int do_init()
 	if(ioctl_fd == -1)
 		return -1;
 
-	if(pthread_create(&listener_thread, NULL, listener_loop, (void *) &ioctl_fd) != 0) {
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
+	if(pthread_create(&listener_thread, &attr, listener_loop, (void *) &ioctl_fd) != 0) {
 		cmn_err(CE_WARN, "Error creating listener thread.");
 		return -1;
 	}
@@ -140,7 +143,6 @@ uint32_t mounted = 0;
 int do_mount(char *spec, char *dir, int mflag, char *opt)
 {
 	VERIFY(mflag == 0);
-	VERIFY(opt[0] == '\0');
 
 	vfs_t *vfs = kmem_zalloc(sizeof(vfs_t), KM_SLEEP);
 	if(vfs == NULL)
@@ -149,13 +151,30 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	VFS_INIT(vfs, zfs_vfsops, 0);
 	VFS_HOLD(vfs);
 
-	struct mounta uap = {spec, dir, mflag | MS_SYSSPACE, NULL, opt, strlen(opt)};
+	struct mounta uap = {
+	.spec = spec,
+	.dir = dir,
+	.flags = mflag | MS_SYSSPACE,
+	.fstype = "zfs-fuse",
+	.dataptr = "",
+	.datalen = 0,
+	.optptr = opt,
+	.optlen = strlen(opt)
+	};
 
 	int ret;
 	if ((ret = VFS_MOUNT(vfs, rootdir, &uap, kcred)) != 0) {
 		kmem_free(vfs, sizeof(vfs_t));
 		return ret;
 	}
+	/* Actually, optptr is totally ignored by VFS_MOUNT.
+	 * So we are going to pass this with fuse_mount_options if possible */
+	char real_opts[1024];
+	*real_opts = 0;
+	if (*fuse_mount_options)
+		strcat(real_opts,fuse_mount_options); // comes with a starting ,
+	if (*opt)
+		sprintf(&real_opts[strlen(real_opts)],",%s",opt);
 
 #ifdef DEBUG
 	atomic_inc_32(&mounted);;
@@ -165,13 +184,13 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	char *fuse_opts;
 	if (fuse_version() <= 27) {
-	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec, fuse_mount_options) == -1) {
+	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec, real_opts) == -1) {
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return ENOMEM;
 	}
 	} else {
 	  syslog(LOG_NOTICE,"enabling fuse big_writes");
-	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec, fuse_mount_options) == -1) {
+	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec, real_opts) == -1) {
 	    VERIFY(do_umount(vfs, B_FALSE) == 0);
 	    return ENOMEM;
 	  }

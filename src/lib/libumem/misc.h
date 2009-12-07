@@ -114,7 +114,7 @@ void umem_err_recoverable(const char *format, ...);
 /*
  * We define our own assertion handling since libc's assert() calls malloc()
  */
-#ifdef NDEBUG
+#if !DEBUG
 #define	ASSERT(assertion) (void)0
 #else
 #define	ASSERT(assertion) (void)((assertion) || \

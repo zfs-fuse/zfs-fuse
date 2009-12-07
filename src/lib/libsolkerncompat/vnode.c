@@ -953,9 +953,8 @@ fop_lookup(
 {
 	int ret;
 
-	VERIFY(!(flags & LOOKUP_XATTR));
-
-	ret = (*(dvp)->v_op->vop_lookup)(dvp, nm, vpp, pnp, flags, rdir, cr, ct, deflags, ppnp);
+	ret = (*(dvp)->v_op->vop_lookup)
+	    (dvp, nm, vpp, pnp, flags, rdir, cr, ct, deflags, ppnp);
 	if (ret == 0 && *vpp) {
 		VOPSTATS_UPDATE(*vpp, lookup);
 		if ((*vpp)->v_path == NULL) {

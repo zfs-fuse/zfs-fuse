@@ -1,0 +1,34 @@
+Getting files from onnv
+
+These scripts are here to get updates from onnv (opensolaris repository).
+First you need a clone of the whole onnv repository, it will create a big
+onnv-gate directory - mine currently reports 586 Mb, so it takes a long time to
+clone, and quite a lot of space (place this on a compressed zfs filesystem !) 
+
+Anyway, a good place for this is in zfs/contrib so that these scritps will be
+at the root of your onnv-gate copy. When you are ready, type :
+
+hg clone ssh://anon@hg.opensolaris.org/hg/onnv/onnv-gate
+
+and wait.
+
+After that the log script will give you the hg log for the zfs files. If you
+want to import one of the hg commits in our git repository, copy the changeset
+reference (for example 11026:e8e10df16a8f), and run :
+./export 11026:e8e10df16a8f
+It should create an export-11026 file in your zfs directory (the root of the
+zfs git repository).
+Now go to this directory and run
+perl handle_hg.pl export-11026
+The script will convert the filenames in the export file on the fly, prepare a
+git log message, extract the author, ignore all the files which are not useful
+for our zfs-fuse version, and apply the diff from the export file to the
+current git repository. If the diff applies without error, it will
+automatically commit it, using the log message and the author extracted from
+the export file. Otherwise it will print the commands to use to revert the
+patch to return to the previous state, or the command to commit once you have
+fixed the problems.
+Also the script will report if it finds any rename and will ask for manual
+intervention. The only thing to do is to type "git rename file1 file2" (the
+files to give are printed), and then remove the rename from the export file.
+

@@ -1,0 +1,29 @@
+#src/! /usr/bin/env python
+#src/ encoding: utf-8
+#src/ Sandeep S Srinivasa, 2009
+from Logs import error, debug, warn
+
+include_dirs = """
+                include 
+                #src/lib/libavl/include 
+                #src/lib/libnvpair/include 
+                #src/lib/libumem/include 
+                #src/lib/libzfscommon/include 
+                #src/lib/libzpool/include 
+                #src/lib/libuutil/include 
+                #src/lib/libsolcompat/include 
+                #src/lib/libzfs/include
+                 """.split()
+
+obj = bld.new_task_gen(
+        features = 'cc cstaticlib',
+        includes = include_dirs,
+        defines = [ '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
+        install_path = None, #prevents installation of this file
+        name = 'zfs-lib',
+        target = 'zfs'
+        )
+
+
+obj.find_sources_in_dirs('.', excludes=['libzfs_fru.c']) #src/ take the sources in the current folder
+

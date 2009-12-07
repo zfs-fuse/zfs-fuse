@@ -216,9 +216,13 @@ taskq_create(const char *name, int nthreads, pri_t pri,
 			task_free(tq, task_alloc(tq, KM_SLEEP));
 		mutex_exit(&tq->tq_lock);
 	}
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
+	pthread_attr_setscope(&attr,PTHREAD_SCOPE_PROCESS);
 
 	for (t = 0; t < nthreads; t++)
-		pthread_create(&tq->tq_threadlist[t], NULL, taskq_thread, tq);
+		pthread_create(&tq->tq_threadlist[t], &attr, taskq_thread, tq);
 
 	return (tq);
 }
@@ -280,4 +284,11 @@ system_taskq_init(void)
 {
 	system_taskq = taskq_create("system_taskq", 64, minclsyspri, 4, 512,
 	    TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
+}
+
+void
+system_taskq_fini(void)
+{
+	taskq_destroy(system_taskq);
+	system_taskq = NULL; /* defensive */
 }

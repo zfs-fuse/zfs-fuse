@@ -29,6 +29,7 @@
 #include <pthread.h>
 
 typedef pthread_t kthread_t;
+typedef kthread_t *kthread_id_t;
 
 extern kthread_t *zk_thread_create(void (*func)(), void *arg);
 

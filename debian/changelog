@@ -1,0 +1,5 @@
+zfs-fuse (0.5.0-1) UNRELEASED; urgency=low
+
+  * Initial release (Closes: #419746)
+
+ -- Mike Hommey <glandium@debian.org>  Fri, 09 Jan 2009 22:09:07 +0100

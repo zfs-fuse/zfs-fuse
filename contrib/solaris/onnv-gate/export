@@ -1,0 +1,3 @@
+#!/bin/sh
+
+hg export -g $1 -o ../../../export-%R

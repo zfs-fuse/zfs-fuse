@@ -75,7 +75,6 @@ spa_config_load(void)
 	void *buf = NULL;
 	nvlist_t *nvlist, *child;
 	nvpair_t *nvpair;
-	spa_t *spa;
 	char *pathname;
 	struct _buf *file;
 	uint64_t fsize;
@@ -119,7 +118,6 @@ spa_config_load(void)
 	mutex_enter(&spa_namespace_lock);
 	nvpair = NULL;
 	while ((nvpair = nvlist_next_nvpair(nvlist, nvpair)) != NULL) {
-
 		if (nvpair_type(nvpair) != DATA_TYPE_NVLIST)
 			continue;
 
@@ -127,13 +125,7 @@ spa_config_load(void)
 
 		if (spa_lookup(nvpair_name(nvpair)) != NULL)
 			continue;
-		spa = spa_add(nvpair_name(nvpair), NULL);
-
-		/*
-		 * We blindly duplicate the configuration here.  If it's
-		 * invalid, we will catch it when the pool is first opened.
-		 */
-		VERIFY(nvlist_dup(child, &spa->spa_config, 0) == 0);
+		(void) spa_add(nvpair_name(nvpair), child, NULL);
 	}
 	mutex_exit(&spa_namespace_lock);
 
@@ -209,7 +201,7 @@ spa_config_sync(spa_t *target, boolean_t removing, boolean_t postsysevent)
 
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 
-	if (rootdir == NULL)
+	if (rootdir == NULL || !(spa_mode_global & FWRITE))
 		return;
 
 	/*
@@ -313,6 +305,24 @@ spa_config_set(spa_t *spa, nvlist_t *config)
 	mutex_exit(&spa->spa_props_lock);
 }
 
+/* Add discovered rewind info, if any to the provided nvlist */
+void
+spa_rewind_data_to_nvlist(spa_t *spa, nvlist_t *tonvl)
+{
+	int64_t loss = 0;
+
+	if (tonvl == NULL || spa->spa_load_txg == 0)
+		return;
+
+	VERIFY(nvlist_add_uint64(tonvl, ZPOOL_CONFIG_LOAD_TIME,
+	    spa->spa_load_txg_ts) == 0);
+	if (spa->spa_last_ubsync_txg)
+		loss = spa->spa_last_ubsync_txg_ts - spa->spa_load_txg_ts;
+	VERIFY(nvlist_add_int64(tonvl, ZPOOL_CONFIG_REWIND_TIME, loss) == 0);
+	VERIFY(nvlist_add_uint64(tonvl, ZPOOL_CONFIG_LOAD_DATA_ERRORS,
+	    spa->spa_load_data_errors) == 0);
+}
+
 /*
  * Generate the pool's configuration based on the current in-core state.
  * We infer whether to generate a complete config or just one top-level config
@@ -380,9 +390,45 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 		vd = vd->vdev_top;		/* label contains top config */
 	}
 
+	/*
+	 * Add the top-level config.  We even add this on pools which
+	 * don't support holes in the namespace as older pools will
+	 * just ignore it.
+	 */
+	vdev_top_config_generate(spa, config);
+
 	nvroot = vdev_config_generate(spa, vd, getstats, B_FALSE, B_FALSE);
 	VERIFY(nvlist_add_nvlist(config, ZPOOL_CONFIG_VDEV_TREE, nvroot) == 0);
 	nvlist_free(nvroot);
+
+	if (getstats && spa_load_state(spa) == SPA_LOAD_NONE) {
+		ddt_histogram_t *ddh;
+		ddt_stat_t *dds;
+		ddt_object_t *ddo;
+
+		ddh = kmem_zalloc(sizeof (ddt_histogram_t), KM_SLEEP);
+		ddt_get_dedup_histogram(spa, ddh);
+		VERIFY(nvlist_add_uint64_array(config,
+		    ZPOOL_CONFIG_DDT_HISTOGRAM,
+		    (uint64_t *)ddh, sizeof (*ddh) / sizeof (uint64_t)) == 0);
+		kmem_free(ddh, sizeof (ddt_histogram_t));
+
+		ddo = kmem_zalloc(sizeof (ddt_object_t), KM_SLEEP);
+		ddt_get_dedup_object_stats(spa, ddo);
+		VERIFY(nvlist_add_uint64_array(config,
+		    ZPOOL_CONFIG_DDT_OBJ_STATS,
+		    (uint64_t *)ddo, sizeof (*ddo) / sizeof (uint64_t)) == 0);
+		kmem_free(ddo, sizeof (ddt_object_t));
+
+		dds = kmem_zalloc(sizeof (ddt_stat_t), KM_SLEEP);
+		ddt_get_dedup_stats(spa, dds);
+		VERIFY(nvlist_add_uint64_array(config,
+		    ZPOOL_CONFIG_DDT_STATS,
+		    (uint64_t *)dds, sizeof (*dds) / sizeof (uint64_t)) == 0);
+		kmem_free(dds, sizeof (ddt_stat_t));
+	}
+
+	spa_rewind_data_to_nvlist(spa, config);
 
 	if (locked)
 		spa_config_exit(spa, SCL_CONFIG | SCL_STATE, FTAG);
@@ -391,23 +437,12 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 }
 
 /*
- * For a pool that's not currently a booting rootpool, update all disk labels,
- * generate a fresh config based on the current in-core state, and sync the
- * global config cache.
- */
-void
-spa_config_update(spa_t *spa, int what)
-{
-	spa_config_update_common(spa, what, FALSE);
-}
-
-/*
  * Update all disk labels, generate a fresh config based on the current
  * in-core state, and sync the global config cache (do not sync the config
  * cache if this is a booting rootpool).
  */
 void
-spa_config_update_common(spa_t *spa, int what, boolean_t isroot)
+spa_config_update(spa_t *spa, int what)
 {
 	vdev_t *rvd = spa->spa_root_vdev;
 	uint64_t txg;
@@ -429,10 +464,9 @@ spa_config_update_common(spa_t *spa, int what, boolean_t isroot)
 		 */
 		for (c = 0; c < rvd->vdev_children; c++) {
 			vdev_t *tvd = rvd->vdev_child[c];
-			if (tvd->vdev_ms_array == 0) {
-				vdev_init(tvd, txg);
-				vdev_config_dirty(tvd);
-			}
+			if (tvd->vdev_ms_array == 0)
+				vdev_metaslab_set_size(tvd);
+			vdev_expand(tvd, txg);
 		}
 	}
 	spa_config_exit(spa, SCL_ALL, FTAG);
@@ -445,9 +479,9 @@ spa_config_update_common(spa_t *spa, int what, boolean_t isroot)
 	/*
 	 * Update the global config cache to reflect the new mosconfig.
 	 */
-	if (!isroot)
+	if (!spa->spa_is_root)
 		spa_config_sync(spa, B_FALSE, what != SPA_CONFIG_UPDATE_POOL);
 
 	if (what == SPA_CONFIG_UPDATE_POOL)
-		spa_config_update_common(spa, SPA_CONFIG_UPDATE_VDEVS, isroot);
+		spa_config_update(spa, SPA_CONFIG_UPDATE_VDEVS);
 }

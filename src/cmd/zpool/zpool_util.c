@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -48,22 +48,6 @@ safe_malloc(size_t size)
 	}
 
 	return (data);
-}
-
-/*
- * Same as above, but for strdup()
- */
-char *
-safe_strdup(const char *str)
-{
-	char *ret;
-
-	if ((ret = strdup(str)) == NULL) {
-		(void) fprintf(stderr, "internal error: out of memory\n");
-		exit(1);
-	}
-
-	return (ret);
 }
 
 /*

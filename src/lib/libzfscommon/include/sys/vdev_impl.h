@@ -113,6 +113,7 @@ struct vdev {
 	uint64_t	vdev_guid;	/* unique ID for this vdev	*/
 	uint64_t	vdev_guid_sum;	/* self guid + all child guids	*/
 	uint64_t	vdev_asize;	/* allocatable device capacity	*/
+	uint64_t	vdev_min_asize;	/* min acceptable asize		*/
 	uint64_t	vdev_ashift;	/* block alignment shift	*/
 	uint64_t	vdev_state;	/* see VDEV_STATE_* #defines	*/
 	uint64_t	vdev_prevstate;	/* used when reopening a vdev	*/
@@ -125,6 +126,12 @@ struct vdev {
 	uint64_t	vdev_children;	/* number of children		*/
 	space_map_t	vdev_dtl[DTL_TYPES]; /* in-core dirty time logs	*/
 	vdev_stat_t	vdev_stat;	/* virtual device statistics	*/
+	boolean_t	vdev_expanding;	/* expand the vdev?		*/
+	boolean_t	vdev_reopening;	/* reopen in progress?		*/
+
+	int		vdev_open_error; /* error on last open		*/
+	kthread_t	*vdev_open_thread; /* thread opening children	*/
+	uint64_t	vdev_crtxg;	/* txg when top-level was added */
 
 	/*
 	 * Top-level vdev state.
@@ -139,10 +146,12 @@ struct vdev {
 	txg_node_t	vdev_txg_node;	/* per-txg dirty vdev linkage	*/
 	boolean_t	vdev_remove_wanted; /* async remove wanted?	*/
 	boolean_t	vdev_probe_wanted; /* async probe wanted?	*/
+	boolean_t	vdev_removing;	/* device is being removed?	*/
 	list_node_t	vdev_config_dirty_node; /* config dirty list	*/
 	list_node_t	vdev_state_dirty_node; /* state dirty list	*/
 	uint64_t	vdev_deflate_ratio; /* deflation ratio (x512)	*/
 	uint64_t	vdev_islog;	/* is an intent log device	*/
+	uint64_t	vdev_ishole;	/* is a hole in the namespace 	*/
 
 	/*
 	 * Leaf vdev state.
@@ -176,6 +185,7 @@ struct vdev {
 	vdev_cache_t	vdev_cache;	/* physical block cache		*/
 	spa_aux_vdev_t	*vdev_aux;	/* for l2cache vdevs		*/
 	zio_t		*vdev_probe_zio; /* root of current probe	*/
+	vdev_aux_t	vdev_label_aux;	/* on-disk aux state		*/
 
 	/*
 	 * For DTrace to work in userland (libzpool) context, these fields must
@@ -188,6 +198,8 @@ struct vdev {
 	kmutex_t	vdev_stat_lock;	/* vdev_stat			*/
 	kmutex_t	vdev_probe_lock; /* protects vdev_probe_zio	*/
 };
+
+#define	VDEV_RAIDZ_MAXPARITY	3
 
 #define	VDEV_PAD_SIZE		(8 << 10)
 /* 2 padding areas (vl_pad1 and vl_pad2) to skip */
@@ -239,10 +251,13 @@ typedef struct vdev_label {
 #define	VDEV_ALLOC_ADD		1
 #define	VDEV_ALLOC_SPARE	2
 #define	VDEV_ALLOC_L2CACHE	3
+#define	VDEV_ALLOC_ROOTPOOL	4
 
 /*
  * Allocate or free a vdev
  */
+extern vdev_t *vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid,
+    vdev_ops_t *ops);
 extern int vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *config,
     vdev_t *parent, uint_t id, int alloctype);
 extern void vdev_free(vdev_t *vd);
@@ -259,7 +274,7 @@ extern void vdev_remove_parent(vdev_t *cvd);
 /*
  * vdev sync load and sync
  */
-extern void vdev_load_log_state(vdev_t *vd, nvlist_t *nv);
+extern void vdev_load_log_state(vdev_t *nvd, vdev_t *ovd);
 extern void vdev_load(vdev_t *vd);
 extern void vdev_sync(vdev_t *vd, uint64_t txg);
 extern void vdev_sync_done(vdev_t *vd, uint64_t txg);
@@ -275,13 +290,15 @@ extern vdev_ops_t vdev_raidz_ops;
 extern vdev_ops_t vdev_disk_ops;
 extern vdev_ops_t vdev_file_ops;
 extern vdev_ops_t vdev_missing_ops;
+extern vdev_ops_t vdev_hole_ops;
 extern vdev_ops_t vdev_spare_ops;
 
 /*
  * Common size functions
  */
 extern uint64_t vdev_default_asize(vdev_t *vd, uint64_t psize);
-extern uint64_t vdev_get_rsize(vdev_t *vd);
+extern uint64_t vdev_get_min_asize(vdev_t *vd);
+extern void vdev_set_min_asize(vdev_t *vd);
 
 /*
  * zdb uses this tunable, so it must be declared here to make lint happy.

@@ -28,12 +28,24 @@
 #include <sys/zfs_context.h>
 #include <sys/uberblock_impl.h>
 #include <sys/vdev_impl.h>
+#include <time.h>
+#include <syslog.h>
+#include "format.h"
+
+int arg_log_uberblocks=0, arg_min_uberblock_txg=0;
 
 int
 uberblock_verify(uberblock_t *ub)
 {
 	if (ub->ub_magic == BSWAP_64((uint64_t)UBERBLOCK_MAGIC))
 		byteswap_uint64_array(ub, sizeof (uberblock_t));
+	if (arg_log_uberblocks)
+	    syslog(LOG_NOTICE,"uberblock_verify:  txg " FU64 " time " FU64 " (%s)", ub->ub_txg, ub->ub_timestamp,ctime((const time_t *)&ub->ub_timestamp));
+
+	if (ub->ub_txg < arg_min_uberblock_txg) { 
+	    syslog(LOG_WARNING,"txg too new; skipping");
+	    return EINVAL;
+	}
 
 	if (ub->ub_magic != UBERBLOCK_MAGIC)
 		return (EINVAL);

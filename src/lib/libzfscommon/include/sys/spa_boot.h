@@ -36,7 +36,6 @@ extern "C" {
 
 extern char *spa_get_bootprop(char *prop);
 extern void spa_free_bootprop(char *prop);
-extern int spa_get_rootconf(char *devpath, char *devid, nvlist_t **bestconf_p);
 
 #ifdef	__cplusplus
 }

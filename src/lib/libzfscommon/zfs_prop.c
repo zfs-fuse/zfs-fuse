@@ -69,6 +69,18 @@ zfs_prop_init(void)
 		{ NULL }
 	};
 
+	static zprop_index_t dedup_table[] = {
+		{ "on",		ZIO_CHECKSUM_ON },
+		{ "off",	ZIO_CHECKSUM_OFF },
+		{ "verify",	ZIO_CHECKSUM_ON | ZIO_CHECKSUM_VERIFY },
+		{ "sha256",	ZIO_CHECKSUM_SHA256 },
+		{ "sha256,verify",
+				ZIO_CHECKSUM_SHA256 | ZIO_CHECKSUM_VERIFY },
+		{ "fletcher4,verify",
+				ZIO_CHECKSUM_FLETCHER_4 | ZIO_CHECKSUM_VERIFY },
+		{ NULL }
+	};
+
 	static zprop_index_t compress_table[] = {
 		{ "on",		ZIO_COMPRESS_ON },
 		{ "off",	ZIO_COMPRESS_OFF },
@@ -83,6 +95,7 @@ zfs_prop_init(void)
 		{ "gzip-7",	ZIO_COMPRESS_GZIP_7 },
 		{ "gzip-8",	ZIO_COMPRESS_GZIP_8 },
 		{ "gzip-9",	ZIO_COMPRESS_GZIP_9 },
+		{ "zle",	ZIO_COMPRESS_ZLE },
 		{ NULL }
 	};
 
@@ -152,6 +165,12 @@ zfs_prop_init(void)
 		{ NULL }
 	};
 
+	static zprop_index_t logbias_table[] = {
+		{ "latency",	ZFS_LOGBIAS_LATENCY },
+		{ "throughput",	ZFS_LOGBIAS_THROUGHPUT },
+		{ NULL }
+	};
+
 	static zprop_index_t canmount_table[] = {
 		{ "off",	ZFS_CANMOUNT_OFF },
 		{ "on",		ZFS_CANMOUNT_ON },
@@ -171,10 +190,15 @@ zfs_prop_init(void)
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "on | off | fletcher2 | fletcher4 | sha256", "CHECKSUM",
 	    checksum_table);
+	register_index(ZFS_PROP_DEDUP, "dedup", ZIO_CHECKSUM_OFF,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "on | off | verify | sha256[,verify] | fletcher4,verify", "DEDUP",
+	    dedup_table);
 	register_index(ZFS_PROP_COMPRESSION, "compression",
 	    ZIO_COMPRESS_DEFAULT, PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
-	    "on | off | lzjb | gzip | gzip-[1-9]", "COMPRESS", compress_table);
+	    "on | off | lzjb | gzip | gzip-[1-9] | zle", "COMPRESS",
+	    compress_table);
 	register_index(ZFS_PROP_SNAPDIR, "snapdir", ZFS_SNAPDIR_HIDDEN,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM,
 	    "hidden | visible", "SNAPDIR", snapdir_table);
@@ -196,6 +220,9 @@ zfs_prop_init(void)
 	    ZFS_CACHE_ALL, PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT | ZFS_TYPE_VOLUME,
 	    "all | none | metadata", "SECONDARYCACHE", cache_table);
+	register_index(ZFS_PROP_LOGBIAS, "logbias", ZFS_LOGBIAS_LATENCY,
+	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
+	    "latency | throughput", "LOGBIAS", logbias_table);
 
 	/* inherit index (boolean) properties */
 	register_index(ZFS_PROP_ATIME, "atime", 1, PROP_INHERIT,
@@ -235,6 +262,9 @@ zfs_prop_init(void)
 	/* readonly index (boolean) properties */
 	register_index(ZFS_PROP_MOUNTED, "mounted", 0, PROP_READONLY,
 	    ZFS_TYPE_FILESYSTEM, "yes | no", "MOUNTED", boolean_table);
+	register_index(ZFS_PROP_DEFER_DESTROY, "defer_destroy", 0,
+	    PROP_READONLY, ZFS_TYPE_SNAPSHOT, "yes | no", "DEFER_DESTROY",
+	    boolean_table);
 
 	/* set once index properties */
 	register_index(ZFS_PROP_NORMALIZE, "normalization", 0,
@@ -263,6 +293,8 @@ zfs_prop_init(void)
 	    ZFS_TYPE_DATASET, "filesystem | volume | snapshot", "TYPE");
 	register_string(ZFS_PROP_SHARESMB, "sharesmb", "off", PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM, "on | off | sharemgr(1M) options", "SHARESMB");
+	register_string(ZFS_PROP_MLSLABEL, "mlslabel", ZFS_MLSLABEL_DEFAULT,
+	    PROP_INHERIT, ZFS_TYPE_DATASET, "<sensitivity label>", "MLSLABEL");
 
 	/* readonly number properties */
 	register_number(ZFS_PROP_USED, "used", 0, PROP_READONLY,
@@ -286,6 +318,8 @@ zfs_prop_init(void)
 	register_number(ZFS_PROP_USEDREFRESERV, "usedbyrefreservation", 0,
 	    PROP_READONLY,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "USEDREFRESERV");
+	register_number(ZFS_PROP_USERREFS, "userrefs", 0, PROP_READONLY,
+	    ZFS_TYPE_SNAPSHOT, "<count>", "USERREFS");
 
 	/* default number properties */
 	register_number(ZFS_PROP_QUOTA, "quota", 0, PROP_DEFAULT,
@@ -307,9 +341,9 @@ zfs_prop_init(void)
 
 	/* hidden properties */
 	register_hidden(ZFS_PROP_CREATETXG, "createtxg", PROP_TYPE_NUMBER,
-	    PROP_READONLY, ZFS_TYPE_DATASET, NULL);
+	    PROP_READONLY, ZFS_TYPE_DATASET, "CREATETXG");
 	register_hidden(ZFS_PROP_NUMCLONES, "numclones", PROP_TYPE_NUMBER,
-	    PROP_READONLY, ZFS_TYPE_SNAPSHOT, NULL);
+	    PROP_READONLY, ZFS_TYPE_SNAPSHOT, "NUMCLONES");
 	register_hidden(ZFS_PROP_NAME, "name", PROP_TYPE_STRING,
 	    PROP_READONLY, ZFS_TYPE_DATASET, "NAME");
 	register_hidden(ZFS_PROP_ISCSIOPTIONS, "iscsioptions", PROP_TYPE_STRING,
@@ -320,7 +354,12 @@ zfs_prop_init(void)
 	register_hidden(ZFS_PROP_GUID, "guid", PROP_TYPE_NUMBER, PROP_READONLY,
 	    ZFS_TYPE_DATASET, "GUID");
 	register_hidden(ZFS_PROP_USERACCOUNTING, "useraccounting",
-	    PROP_TYPE_NUMBER, PROP_READONLY, ZFS_TYPE_DATASET, NULL);
+	    PROP_TYPE_NUMBER, PROP_READONLY, ZFS_TYPE_DATASET,
+	    "USERACCOUNTING");
+	register_hidden(ZFS_PROP_UNIQUE, "unique", PROP_TYPE_NUMBER,
+	    PROP_READONLY, ZFS_TYPE_DATASET, "UNIQUE");
+	register_hidden(ZFS_PROP_OBJSETID, "objsetid", PROP_TYPE_NUMBER,
+	    PROP_READONLY, ZFS_TYPE_DATASET, "OBJSETID");
 
 	/* oddball properties */
 	register_impl(ZFS_PROP_CREATION, "creation", PROP_TYPE_NUMBER, 0, NULL,
@@ -332,6 +371,11 @@ boolean_t
 zfs_prop_delegatable(zfs_prop_t prop)
 {
 	zprop_desc_t *pd = &zfs_prop_table[prop];
+
+	/* The mlslabel property is never delegatable. */
+	if (prop == ZFS_PROP_MLSLABEL)
+		return (B_FALSE);
+
 	return (pd->pd_attr != PROP_READONLY);
 }
 
@@ -414,6 +458,12 @@ int
 zfs_prop_index_to_string(zfs_prop_t prop, uint64_t index, const char **string)
 {
 	return (zprop_index_to_string(prop, index, string, ZFS_TYPE_DATASET));
+}
+
+uint64_t
+zfs_prop_random_value(zfs_prop_t prop, uint64_t seed)
+{
+	return (zprop_random_value(prop, seed, ZFS_TYPE_DATASET));
 }
 
 /*

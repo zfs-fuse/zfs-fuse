@@ -6,6 +6,7 @@ import os, sys, re
 #   debug=1 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
 
 install_dir = ARGUMENTS.get('install_dir', '/usr/local/sbin')
+man_dir = ARGUMENTS.get('man_dir', '/usr/local/share/man/man8/')
 
 env = Environment()
 
@@ -44,7 +45,7 @@ def getarch(arch):
 	if re.compile('i\d86').match(arch):
 		return 'i386'
 
-	return None
+	return 'generic'
 
 myarch = getarch(arch)
 
@@ -78,6 +79,7 @@ SConscript('lib/libsolkerncompat/SConscript')
 SConscript('cmd/zdb/SConscript')
 SConscript('cmd/ztest/SConscript')
 SConscript('cmd/zpool/SConscript')
+SConscript('cmd/zstreamdump/SConscript')
 SConscript('cmd/zfs/SConscript')
 SConscript('zfs-fuse/SConscript')
 
@@ -86,5 +88,20 @@ env.Install(install_dir, 'cmd/ztest/ztest')
 env.Install(install_dir, 'cmd/zpool/zpool')
 env.Install(install_dir, 'cmd/zfs/zfs')
 env.Install(install_dir, 'zfs-fuse/zfs-fuse')
+env.Install(install_dir, 'cmd/zstreamdump/zstreamdump')
+# The commented following commands are the way the man pages should
+# be installed, but it does not work for some obscure reason. I leave
+# them here in case some day someone finds why it doesn't work...
+# env.Install(man_dir, '../doc/zdb.8.gz')
+# env.Install(man_dir, '../doc/zfs.8.gz')
+# env.Install(man_dir, '../doc/zpool.8.gz')
+# env.Install(man_dir, '../doc/zstreamdump.8.gz')
+# meanwhile I'll use a more direct approach !
+if "install" in sys.argv:
+    os.system("mkdir -p "+ man_dir)
+    os.system("install -m 0644 ../doc/zfs.8.gz " + man_dir)
+    os.system("install -m 0644 ../doc/zpool.8.gz " + man_dir)
+    os.system("install -m 0644 ../doc/zdb.8.gz " + man_dir)
+    os.system("install -m 0644 ../doc/zstreamdump.8.gz " + man_dir)
 
 env.Alias('install', install_dir)

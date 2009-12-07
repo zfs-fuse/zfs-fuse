@@ -356,6 +356,9 @@ vfs_setfsops(int fstype, const fs_operation_def_t *template, vfsops_t **actual)
 
 int vfs_freevfsops_by_type(int t)
 {
-	cmn_err(CE_WARN, "vfs.c: vfs_freevfsops_by_type unimplemented");
+	// cmn_err(CE_WARN, "vfs.c: vfs_freevfsops_by_type unimplemented");
+	/* Apparently this is here for compatibility with the vfs layer in
+	 * opensolaris, but this function is not supposed to do anything at all
+	 * since the vfs operations are not really allocated for zfs. */
 	return 0;
 }

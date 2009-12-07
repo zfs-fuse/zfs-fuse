@@ -72,8 +72,13 @@ void libsolkerncompat_init()
 	vnode_cache = kmem_cache_create("vnode_t", sizeof(vnode_t), 0, NULL, NULL, NULL, NULL, NULL, 0);
 	VERIFY(vnode_cache != NULL);
 
-	system_taskq_init();
 	vfs_init();
+
+	/* Carefull here : umem_init is called on another core when using a multi core cpu
+	 * but it must have finished when calling taskq_init.
+	 * My tests with my dual core laptop is ok, but I am not sure it works everywhere */
+	taskq_init();
+	system_taskq_init();
 }
 
 void libsolkerncompat_exit()

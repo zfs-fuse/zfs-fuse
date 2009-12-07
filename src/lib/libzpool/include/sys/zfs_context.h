@@ -59,6 +59,7 @@ extern "C" {
 #include <atomic.h>
 #include <dirent.h>
 #include <time.h>
+// #include <libsysevent.h>
 #include <sys/note.h>
 #include <sys/types.h>
 #include <sys/cred.h>
@@ -73,6 +74,8 @@ extern "C" {
 #include <sys/kstat.h>
 #include <sys/u8_textprep.h>
 #include <sys/sysevent/eventdefs.h>
+// #include <sys/sysevent/dev.h>
+#include <sys/sunddi.h>
 
 /*
  * Debugging
@@ -87,6 +90,12 @@ extern "C" {
 #define	CE_WARN		2	/* warning		*/
 #define	CE_PANIC	3	/* panic		*/
 #define	CE_IGNORE	4	/* print nothing	*/
+
+#if DEBUG
+#define ASSERT(EX) assert(EX)
+#else
+#define	ASSERT(x)  ((void)0)
+#endif
 
 /*
  * ZFS debugging
@@ -112,8 +121,6 @@ extern void vpanic(const char *, __va_list);
         } while(0)
 
 #define VERIFY(EX) do { if(!(EX)) ASSERT_FAIL(EX); } while(0)
-
-#define	ASSERT	assert
 
 extern void __assert(const char *, const char *, int);
 
@@ -218,6 +225,7 @@ extern void mutex_enter(kmutex_t *mp);
 extern void mutex_exit(kmutex_t *mp);
 extern int mutex_tryenter(kmutex_t *mp);
 extern void *mutex_owner(kmutex_t *mp);
+extern int _mutex_held(pthread_mutex_t *a);
 
 /*
  * RW locks
@@ -321,6 +329,7 @@ extern void	taskq_destroy(taskq_t *);
 extern void	taskq_wait(taskq_t *);
 extern int	taskq_member(taskq_t *, kthread_t *);
 extern void	system_taskq_init(void);
+extern void	system_taskq_fini(void);
 
 #define	XVA_MAPSIZE	3
 #define	XVA_MAGIC	0x78766174
@@ -396,9 +405,11 @@ typedef struct vsecattr {
 
 #define	CRCREAT		0
 
+extern int fop_getattr(vnode_t *vp, vattr_t *vap);
+
 #define	VOP_CLOSE(vp, f, c, o, cr, ct)	0
 #define	VOP_PUTPAGE(vp, of, sz, fl, cr, ct)	0
-#define	VOP_GETATTR(vp, vap, fl, cr, ct)  ((vap)->va_size = (vp)->v_size, 0)
+#define	VOP_GETATTR(vp, vap, fl, cr, ct)  fop_getattr((vp), (vap));
 
 #define	VOP_FSYNC(vp, f, cr, ct)	fsync((vp)->v_fd)
 
@@ -430,6 +441,11 @@ extern vnode_t *rootdir;
 extern void delay(clock_t ticks);
 
 #define	gethrestime_sec() time(NULL)
+#define	gethrestime(t) \
+	do {\
+		(t)->tv_sec = gethrestime_sec();\
+		(t)->tv_nsec = 0;\
+	} while (0);
 
 #define	max_ncpus	64
 
@@ -479,6 +495,9 @@ typedef struct callb_cpr {
 
 #define	zone_dataset_visible(x, y)	(1)
 #define	INGLOBALZONE(z)			(1)
+
+extern char *kmem_asprintf(const char *fmt, ...);
+#define	strfree(str) kmem_free((str), strlen(str)+1)
 
 /*
  * Hostname information
@@ -532,6 +551,10 @@ typedef struct ksiddomain {
 
 ksiddomain_t *ksid_lookupdomain(const char *);
 void ksiddomain_rele(ksiddomain_t *);
+
+#define	DDI_SLEEP	KM_SLEEP
+#define	ddi_log_sysevent(_a, _b, _c, _d, _e, _f, _g) \
+	sysevent_post_event(_c, _d, _b, "libzpool", _e, _f)
 
 #ifdef	__cplusplus
 }

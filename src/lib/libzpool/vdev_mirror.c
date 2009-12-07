@@ -60,6 +60,11 @@ vdev_mirror_map_free(zio_t *zio)
 	kmem_free(mm, offsetof(mirror_map_t, mm_child[mm->mm_children]));
 }
 
+static const zio_vsd_ops_t vdev_mirror_vsd_ops = {
+	vdev_mirror_map_free,
+	zio_vsd_default_cksum_report
+};
+
 static mirror_map_t *
 vdev_mirror_map_alloc(zio_t *zio)
 {
@@ -117,28 +122,28 @@ vdev_mirror_map_alloc(zio_t *zio)
 	}
 
 	zio->io_vsd = mm;
-	zio->io_vsd_free = vdev_mirror_map_free;
+	zio->io_vsd_ops = &vdev_mirror_vsd_ops;
 	return (mm);
 }
 
 static int
 vdev_mirror_open(vdev_t *vd, uint64_t *asize, uint64_t *ashift)
 {
-	vdev_t *cvd;
-	uint64_t c;
 	int numerrors = 0;
-	int ret, lasterror = 0;
+	int lasterror = 0;
 
 	if (vd->vdev_children == 0) {
 		vd->vdev_stat.vs_aux = VDEV_AUX_BAD_LABEL;
 		return (EINVAL);
 	}
 
-	for (c = 0; c < vd->vdev_children; c++) {
-		cvd = vd->vdev_child[c];
+	vdev_open_children(vd);
 
-		if ((ret = vdev_open(cvd)) != 0) {
-			lasterror = ret;
+	for (int c = 0; c < vd->vdev_children; c++) {
+		vdev_t *cvd = vd->vdev_child[c];
+
+		if (cvd->vdev_open_error) {
+			lasterror = cvd->vdev_open_error;
 			numerrors++;
 			continue;
 		}
@@ -158,9 +163,7 @@ vdev_mirror_open(vdev_t *vd, uint64_t *asize, uint64_t *ashift)
 static void
 vdev_mirror_close(vdev_t *vd)
 {
-	uint64_t c;
-
-	for (c = 0; c < vd->vdev_children; c++)
+	for (int c = 0; c < vd->vdev_children; c++)
 		vdev_close(vd->vdev_child[c]);
 }
 
@@ -211,7 +214,7 @@ vdev_mirror_child_select(zio_t *zio)
 	uint64_t txg = zio->io_txg;
 	int i, c;
 
-	ASSERT(zio->io_bp == NULL || zio->io_bp->blk_birth == txg);
+	ASSERT(zio->io_bp == NULL || BP_PHYSICAL_BIRTH(zio->io_bp) == txg);
 
 	/*
 	 * Try to find a child whose DTL doesn't contain the block to read.

@@ -1,0 +1,4 @@
+#!/bin/sh
+
+hg log -d ">2009-06-01" usr/src/uts/common/fs/zfs usr/src/lib/libzfs usr/src/common/zfs \
+usr/src/cmd/zfs usr/src/cmd/zpool usr/src/cmd/zdb usr/src/cmd/zstreamdump

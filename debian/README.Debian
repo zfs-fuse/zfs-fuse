@@ -1,0 +1,24 @@
+zfs-fuse for Debian
+-------------------
+
+ZFS uses a very different configuration system than traditional filesystems
+in Debian. The full details may be found in zfs(1) and zpool(1); you can get
+started quickly with:
+  
+  # zpool create zfs hdx4
+
+This will create a ZFS filesystem mounted at /zfs on /dev/hdx4. For more
+details please see the relevant manpages and/or the website[1].
+
+zfs-fuse currently should not be used with system volumes such as /var or
+/usr. /home will probably work (but see below about stability).
+
+zfs-fuse requires a FUSE module for your kernel. Pre-built modules are included
+in recent debian kernels.
+
+Please note that zfs-fuse is in a very early stage of development, and should
+not be used for production data or on production systems.
+
+[1] - http://www.wizy.org/wiki/ZFS_on_FUSE
+
+ -- Bryan Donlan <bdonlan@gmail.com>  Tue, 17 Apr 2007 16:24:53 -0400

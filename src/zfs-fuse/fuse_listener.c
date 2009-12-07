@@ -33,6 +33,7 @@
 #include <sys/kmem.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/mount.h>
 
 #include "fuse.h"
 #include "fuse_listener.h"
@@ -226,7 +227,11 @@ static void *zfsfuse_listener_loop(void *arg)
 
 			fds[i].revents = 0;
 
-			ASSERT((rev & POLLNVAL) == 0);
+			if (rev & POLLNVAL) { // already closed
+			    // fuse_unmount_all triggers this
+			    fds[i].fd = -1;
+			    continue;
+			}
 
 			if(!(rev & POLLIN) && !(rev & POLLERR) && !(rev & POLLHUP))
 				continue;
@@ -299,8 +304,11 @@ static void *zfsfuse_listener_loop(void *arg)
 
 int zfsfuse_listener_start()
 {
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
 	for(int i = 0; i < NUM_THREADS; i++)
-		VERIFY(pthread_create(&fuse_threads[i], NULL, zfsfuse_listener_loop, NULL) == 0);
+		VERIFY(pthread_create(&fuse_threads[i], &attr, zfsfuse_listener_loop, NULL) == 0);
 
 	for(int i = 0; i < NUM_THREADS; i++) {
 		int ret = pthread_join(fuse_threads[i], NULL);
@@ -312,17 +320,32 @@ int zfsfuse_listener_start()
 	fprintf(stderr, "Exiting...\n");
 #endif
 
-	for(int i = 1; i < nfds; i++) {
-		if(fds[i].fd == -1)
-			continue;
+	/* Normally this loop will never be used anymore since
+	 * fuse_unmount_all is called before arriving here */
+	for(int i = nfds-1; i >= 1; i--) {
+	    if(fds[i].fd == -1)
+		continue;
 
-		fuse_session_exit(fsinfo[i].se);
-		fuse_session_reset(fsinfo[i].se);
-		fuse_unmount(mountpoints[i],fsinfo[i].ch);
-		fuse_session_destroy(fsinfo[i].se);
-
-		free(mountpoints[i]);
+	    fuse_session_remove_chan(fsinfo[i].ch);
+	    fuse_session_destroy(fsinfo[i].se);
 	}
 
 	return 1;
+}
+
+void fuse_unmount_all() {
+    int all_ok = 1;
+    for(int i = nfds-1; i >= 1; i--) {
+	if(fds[i].fd == -1)
+	    continue;
+
+	/* unmount before shuting down... */
+	fuse_session_remove_chan(fsinfo[i].ch);
+	fuse_session_destroy(fsinfo[i].se);
+	fuse_unmount(mountpoints[i],fsinfo[i].ch);
+	close(fds[i].fd);
+	fds[i].fd = -1;
+	free(mountpoints[i]);
+
+    }
 }

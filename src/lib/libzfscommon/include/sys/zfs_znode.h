@@ -57,6 +57,7 @@ extern "C" {
 #define	ZFS_OPAQUE		0x0000010000000000
 #define	ZFS_AV_QUARANTINED 	0x0000020000000000
 #define	ZFS_AV_MODIFIED 	0x0000040000000000
+#define	ZFS_REPARSE		0x0000080000000000
 
 #define	ZFS_ATTR_SET(zp, attr, value)	\
 { \
@@ -77,6 +78,7 @@ extern "C" {
 #define	ZFS_ACL_DEFAULTED	0x20		/* ACL should be defaulted */
 #define	ZFS_ACL_AUTO_INHERIT	0x40		/* ACL should be inherited */
 #define	ZFS_BONUS_SCANSTAMP	0x80		/* Scanstamp in bonus area */
+#define	ZFS_NO_EXECS_DENIED	0x100		/* exec was given to everyone */
 
 /*
  * Is ID ephemeral?
@@ -202,6 +204,7 @@ typedef struct znode {
 	uint64_t	z_gen;		/* generation (same as zp_gen) */
 	uint32_t	z_sync_cnt;	/* synchronous open count */
 	kmutex_t	z_acl_lock;	/* acl data lock */
+	zfs_acl_t	*z_acl_cached;	/* cached acl */
 	list_node_t	z_link_node;	/* all znodes in fs link */
 	/*
 	 * These are dmu managed fields.
@@ -304,7 +307,7 @@ extern void	zfs_grow_blocksize(znode_t *, uint64_t, dmu_tx_t *);
 extern int	zfs_freesp(znode_t *, uint64_t, uint64_t, int, boolean_t);
 extern void	zfs_znode_init(void);
 extern void	zfs_znode_fini(void);
-extern int	zfs_zget(zfsvfs_t *, uint64_t, znode_t **, boolean_t);
+extern int	zfs_zget(zfsvfs_t *, uint64_t, znode_t **);
 extern int	zfs_rezget(znode_t *);
 extern void	zfs_zinactive(znode_t *);
 extern void	zfs_znode_delete(znode_t *, dmu_tx_t *);
@@ -342,11 +345,10 @@ extern void zfs_xvattr_set(znode_t *zp, xvattr_t *xvap);
 extern void zfs_upgrade(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 extern int zfs_create_share_dir(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 
-/* ZFSFUSE: not needed */
-#if 0
+/* zfs-fuse : not needed
 extern caddr_t zfs_map_page(page_t *, enum seg_rw);
 extern void zfs_unmap_page(page_t *, caddr_t);
-#endif
+*/
 
 extern zil_get_data_t zfs_get_data;
 extern zil_replay_func_t *zfs_replay_vector[TX_MAX_TYPE];
