@@ -44,7 +44,7 @@
 
 #include "vmem_base.h"
 
-#define	ALLOC_PROT	PROT_READ | PROT_WRITE | PROT_EXEC
+#define	ALLOC_PROT	PROT_READ | PROT_WRITE
 #define	FREE_PROT	PROT_NONE
 
 #define	ALLOC_FLAGS	MAP_PRIVATE | MAP_ANON
