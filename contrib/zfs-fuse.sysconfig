@@ -1,1 +1,34 @@
-OPTIONS=""
+# The commented options represent the defaults in their absence
+
+# Set this option to a negative number to set ZFS-FUSE to a higher priority
+# ZFS_PRIORITY=0
+
+# Use this option to specify command-line arguments for ZFS-FUSE
+# Example: ZFS_DAEMONOPTS='-a 1 -e 1 -m 64'
+# zfs-fuse --help and possibly the man page are your friends.
+#
+# ZFS_DAEMONOPTS=
+
+# Set this option to anything other than 'yes'
+# if you don't want ZFS to mount the filesystems on service start
+# Options: yes / no
+#
+# ZFS_AUTOMOUNT=yes
+
+# Set this option to 'yes' to enable weekly scrubbing of your ZFS pools.
+# Options: yes / no
+#
+# ZFS_WEEKLY_SCRUB=no
+
+# Use this option to forcibly unmount filesystems on service stop
+# Options: yes / no / on_shutdown
+# DANGEROUS.  This WILL CAUSE malfunctions in processes with files open on your ZFS filesystems.
+#
+# ZFS_FORCE_UNMOUNT=no
+
+# Use this option to kill any processes without a valid working directory on service start
+# Options: yes / no
+# DANGEROUS.  This WILL KILL processes not related to zfs-fuse.
+#
+# ZFS_KILL_ORPHANS=no
+

@@ -1,152 +1,305 @@
-#! /bin/sh
+#! /bin/bash
+#
+# zfs-fuse - startup script for zfs-fuse daemon
+#
+# chkconfig:   - 26 74
+# description: zfs-fuse daemon
+#
+### BEGIN INIT INFO
+# Provides:           zfs-fuse
+# Required-Start:     fuse
+# Required-Stop:  
+# Should-Start: 
+# Should-Stop: 
+# Default-Start:  
+# Default-Stop: 
+# Short-Description:  Start the zfs-fuse daemon
+# Description:        zfs-fuse daemon
+### END INIT INFO
+# Conforming to http://fedoraproject.org/wiki/FCNewInit/Initscripts
+# script requires the following RPMs
+# awk
+# coreutils /usr/bin/seq /bin/cut
+# lsof
+# util-linux-ng: /usr/bin/renice
+# upstart: /sbin/runlevel
 
-# chkconfig: 12345 13 87
-# description: Starts and stops the ZFS file systems
-# author: Manuel Amador (Rudd-O)
-
-PIDFILE=/var/run/zfs-fuse.pid
-LOCKFILE=/var/lock/zfs/zfs_lock
 
 # Source function library.
-. /etc/init.d/functions
+. /etc/rc.d/init.d/functions
 
-# Source cmdline opts
-OPTIONS=
-[ -f /etc/sysconfig/zfs-fuse ] && . /etc/sysconfig/zfs-fuse
+prog="zfs-fuse"
+zfsfuse="/usr/bin/$prog"
+zfs="/usr/bin/zfs"
+zpool="/usr/bin/zfs"
+config=/etc/sysconfig/$prog
 
+[ -e $config ] && . $config
+
+PIDFILE=/var/run/$prog.pid
+LOCKFILE=/var/lock/subsys/$prog
 export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
 unset LANG
 ulimit -v unlimited
-ulimit -c unlimited
 ulimit -l unlimited
+ulimit -s unlimited
 
-do_start() {
-	PID=`cat "$PIDFILE" 2> /dev/null`
-	if [ "$PID" != "" ]
-	then
-		if kill -0 $PID 2> /dev/null
-		then
-			echo -n "ZFS-FUSE is already running"
-			failure
-			exit 3
-		else
-			# pid file is stale, we clean up shit
-			action "Cleaning up stale ZFS-FUSE PID files" rm -f "$PIDFILE"
-		fi
-	fi
 
-	export DAEMON_COREFILE_LIMIT=unlimited
-	action "Starting ZFS-FUSE process" daemon --pidfile $PIDFILE zfs-fuse -p "$PIDFILE" $OPTIONS
-	ES_TO_REPORT=$?
-	if [ 0 != $ES_TO_REPORT ] ; then
-		exit $ES_TO_REPORT
-	fi
+get_orphans() {
+	orphans=`lsof -w -n | awk '$4 == "cwd" && $5 == "unknown" {print $2}'`
+	echo "$orphans"
+}
 
-	for a in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
-	do
-		PID=`cat "$PIDFILE" 2> /dev/null`
-		 [ "$PID" != "" ] && break
-		sleep 1
+
+kill_orphans() {
+
+	orphans=`get_orphans`
+	[ "$orphans" == "" ] && return
+
+	action "Terminating processes with unknown working directory:" kill $orphans
+	echo -n "Waiting for processes to exit: "
+	for a in `seq 20` ; do
+		orphans=`get_orphans`
+		if [ "$orphans" == "" ] ; then success ; echo ; return 0 ; fi
+		echo -n .
+		sleep 0.5
 	done
+	warning ; echo
 
-	if [ "$PID" = "" ]
-	then
-		echo -n "ZFS-FUSE did not start or create $PIDFILE"
-		failure
-		exit 3
-	fi
-
-	action "Immunizing ZFS-FUSE against OOM kills and sendsigs signals" true
-	echo -17 > "/proc/$PID/oom_adj"
-	ES_TO_REPORT=$?
-	if [ 0 != $ES_TO_REPORT ] ; then
-		exit $ES_TO_REPORT
-	fi
-	
-	sleep 1
-	action "Mounting ZFS filesystems" zfs mount -a
-	ES_TO_REPORT=$?
-	if [ 0 != $ES_TO_REPORT ] ; then
-		exit $ES_TO_REPORT
-	fi
+	action "Forcefully killing stuck processes:" kill -9 $orphans
+	echo -n "Waiting for processes to die: "
+	for a in `seq 40` ; do
+		orphans=`get_orphans`
+		if [ "$orphans" == "" ] ; then success ; echo ; return 0 ; fi
+		echo -n .
+		sleep 0.25
+	done
+	failure ; echo
+	return 8
 
 }
 
-do_stop () {
-	PID=`cat "$PIDFILE" 2> /dev/null`
-	if [ "$PID" = "" ] ; then
-		# no pid file, we exit
-		exit 0
-	elif kill -0 $PID 2> /dev/null; then
-		# pid file and killable, we continue
-		true
-	else
-		# pid file is stale, we clean up shit
-		action "Cleaning up stale ZFS-FUSE PID files" rm -f "$PIDFILE"
-		exit 0
+
+start() {
+
+	# check if the zfs-fuse binary exists and can be executable
+	for a in $zfsfuse $zfs ; do if [ ! -x $a ] ; then
+		echo -n "$a not present or executable"
+		failure ; echo
+		return 127
+	fi ; done
+
+	# check if ZFS is running
+	status -p $PIDFILE -l $LOCKFILE $prog > /dev/null 2>&1
+	start_status=$?
+	case "$start_status" in
+	0)
+		# ZFS-FUSE is running.  Do nothing
+		return 0
+		;;
+	1)
+		action "Cleaning up stale ZFS-FUSE PID file:" rm -f "$PIDFILE"
+		ret=$? ; [ $ret -ne 0 ] && return $ret
+		;;
+	2)
+		action "Cleaning up stale ZFS-FUSE lock file:" rm -f "$LOCKFILE"
+		ret=$? ; [ $ret -ne 0 ] && return $ret
+		;;
+	3)
+		# not running.  awesome, we continue
+		;;
+	*)
+		echo -n "Unknown result $start_status"
+		failure ; echo
+		return $start_status
+	esac
+
+	if [ "$ZFS_KILL_ORPHANS" == "yes_really" -o "$ZFS_KILL_ORPHANS" == "yes" ] ; then
+		if [ -x /usr/sbin/lsof ] ; then
+			kill_orphans
+			ret=$? ; [ $ret -ne 0 ] && return $ret
+		else
+			echo -n "To kill orphan processes, you must have lsof installed"
+			failure ; echo
+			return 126
+		fi
 	fi
 
-	action "Syncing disks" sync
+	action "Starting the ZFS-FUSE daemon:" daemon $zfsfuse -p "$PIDFILE" $ZFS_DAEMONOPTS
+	ret=$? ; [ $ret -ne 0 ] && return $ret
 
-	action "Unmounting ZFS filesystems" zfs unmount -a
-	ES_TO_REPORT=$?
-	if [ 0 != $ES_TO_REPORT ] ; then
-		exit $ES_TO_REPORT
-	fi
+	echo -n "Waiting for ZFS-FUSE to stabilize: "
+	for a in `seq 20 -1 0` ; do
+		if [ $a == 0 ] ; then
+			failure "$prog startup"
+			echo
+			return 3
+		elif $zfs list >/dev/null 2>&1 ; then
+			success
+			echo
+			break
+		else
+			echo -n .
+			sleep 0.5
+		fi
+	done
 	
-	action "Terminating ZFS-FUSE process gracefully" kill -TERM $PID
+	PID=`pidofproc -p "$PIDFILE" $prog`
 
-	for a in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
-	do
-		kill -0 $PID 2> /dev/null
-		[ "$?" != "0" ] && break
-		sleep 1
+	echo -n "Immunizing ZFS-FUSE against the OOM killer: "
+	echo -17 > "/proc/$PID/oom_adj"
+	ret=$? ; [ $ret -ne 0 ] && warning || success
+	echo
+
+	if [ "$ZFS_PRIORITY" != "" ] ; then
+		if [ -x /usr/sbin/renice ] ; then
+			action "Setting ZFS-FUSE priority to $ZFS_PRIORITY:" renice $ZFS_PRIORITY -g $PID > /dev/null
+			ret=$? ; [ $ret -ne 0 ] && return $ret
+		else
+ 			echo -n "To re-prioritize ZFS-FUSE, you must have renice installed"
+			failure
+			echo
+			return 126
+		fi
+	fi
+
+	# automount?
+	[ "$ZFS_AUTOMOUNT" == "" ] && ZFS_AUTOMOUNT=yes
+	if [ "$ZFS_AUTOMOUNT" == "1" ] ; then
+		echo -n "Deprecated use of ZFS_AUTOMOUNT. It must be either yes or no."
+		warning
+		echo
+		ZFS_AUTOMOUNT=yes
+	fi
+
+	if [ "$ZFS_AUTOMOUNT" == "yes" ] ; then
+		action "Mounting ZFS filesystems" zfs mount -a
+		ret=$? ; [ $ret -ne 0 ] && return $ret
+	fi
+
+	touch /var/lock/subsys/$prog
+
+}
+
+stop() {
+
+	# check if the zfs-fuse binary exists and can be executable
+	for a in $zfsfuse $zfs ; do if [ ! -x $a ] ; then
+		echo -n "$a not present or executable"
+		failure ; echo
+		return 127
+	fi ; done
+
+	# check if ZFS is running
+	status -p $PIDFILE -l $LOCKFILE $prog > /dev/null 2>&1
+	start_status=$?
+	case "$start_status" in
+	0)
+		# ZFS-FUSE is running.  Awesome, we continue
+		;;
+	1)
+		action "Cleaning up stale ZFS-FUSE PID file:" rm -f "$PIDFILE"
+		return $?
+		;;
+	2)
+		action "Cleaning up stale ZFS-FUSE lock file:" rm -f "$LOCKFILE"
+		return $?
+		;;
+	3)
+		# zfs-fuse is not running.
+		return 0
+		;;
+	*)
+		echo -n "Unknown result $start_status"
+		failure
+		echo
+		return $start_status
+	esac
+
+	action "Syncing disks:" sync
+	# hehe, sync CANNOT FAIL
+
+	[ "$ZFS_FORCE_UNMOUNT" == "only_on_shutdown" ] && ZFS_FORCE_UNMOUNT=on_shutdown
+	runlevel=`runlevel | cut -d " " -f 2`
+	shuttingdown=
+	[ "$runlevel" == "6" -o "$runlevel" == "0" ] && shuttingdown=1
+	action "Unmounting ZFS filesystems:" zfs unmount -a
+	ret=$?
+	if [ $ret -ne 0 ] ; then
+		if [ "$ZFS_FORCE_UNMOUNT" == "yes" ] ; then
+			action "Forcibly unmounting ZFS filesystems:" zfs unmount -f -a
+			ret=$? ; [ $ret -ne 0 ] && return $ret
+		elif [ "$ZFS_FORCE_UNMOUNT" == "on_shutdown" -a "$shuttingdown" == "1" ] ; then
+			action "Forcibly unmounting ZFS filesystems on shutdown:" zfs unmount -f -a
+			ret=$? ; [ $ret -ne 0 ] && return $ret
+		else
+			return $ret
+		fi
+	fi
+
+	PID=`pidofproc -p "$PIDFILE" $prog`
+	echo -n "Stopping ZFS-FUSE: "
+	killproc -p "$PIDFILE"  $prog -15 >/dev/null 2>&1
+	ret=$? ; [ $ret -ne 0 ] && { failure "$prog shutdown" ; echo ; return $ret ; }
+
+	for a in `seq 20 -1 0` ; do
+		if [ $a == 0 ] ; then
+			failure "$prog shutdown"
+			echo
+			return 3
+		elif kill -0 $PID >/dev/null 2>&1 ; then
+			echo -n .
+			sleep 0.5
+		else
+			success
+			echo
+			break
+		fi
 	done
 
-	if kill -0 $PID 2> /dev/null
-	then
-		echo -n "ZFS-FUSE refused to die after 15 seconds"
-		failure
-		exit 3
-	else
-		rm -f "$PIDFILE"
-	fi
+	rm -f "$PIDFILE"
 
-	action "Syncing disks again" sync
+	action "Syncing disks again:" sync
+
+	rm -f /var/lock/subsys/$prog
+
+}
+
+restart() {
+	stop || return $?
+	start || return $?
 }
 
 case "$1" in
-  start)
-	do_start
-	;;
-  stop)
-	do_stop
-	;;
-  status)
-	PID=`cat "$PIDFILE" 2> /dev/null`
-	if [ "$PID" = "" ] ; then
-		echo "ZFS-FUSE is not running"
-		exit 3
-	else
-		if kill -0 $PID
-		then
-			echo "ZFS-FUSE is running, pid $PID"
-			zpool status
-			exit 0
-		else
-			echo "ZFS-FUSE died, PID files stale"
-			exit 3
+	start)
+		$1
+		;;
+	stop)
+		$1
+		;;
+	restart)
+		restart
+		;;
+	reload)
+		restart
+		;;
+	status)
+		status -p $PIDFILE -l $LOCKFILE $prog
+		;;
+	extendedstatus)
+		if [ ! -x $zpool ] ; then
+			echo "$zpool not present or executable"
+			return 127
 		fi
-	fi
-	;;
-  restart|reload|force-reload)
-	echo "Error: argument '$1' not supported" >&2
-	exit 3
-	;;
-  *)
-	echo "Usage: $0 start|stop|status" >&2
-	exit 3
-	;;
+		status -p $PIDFILE -l $LOCKFILE $prog && $zpool status -v
+		;;
+	condrestart|try-restart)
+		status -p $PIDFILE -l $LOCKFILE $prog > /dev/null 2>&1
+		[ $? -ne 3 ] && restart # semantics dictate we restart ONLY if the process is running or was supposed to be running
+		;;
+	*)
+		echo $"Usage: $0 {start|stop|status|extendedstatus|reload|restart|condrestart|try-restart}"
+		exit 64
 esac
-
-:
+exit $?
