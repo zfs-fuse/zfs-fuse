@@ -89,19 +89,14 @@ env.Install(install_dir, 'cmd/zpool/zpool')
 env.Install(install_dir, 'cmd/zfs/zfs')
 env.Install(install_dir, 'zfs-fuse/zfs-fuse')
 env.Install(install_dir, 'cmd/zstreamdump/zstreamdump')
-# The commented following commands are the way the man pages should
-# be installed, but it does not work for some obscure reason. I leave
-# them here in case some day someone finds why it doesn't work...
-# env.Install(man_dir, '../doc/zdb.8.gz')
-# env.Install(man_dir, '../doc/zfs.8.gz')
-# env.Install(man_dir, '../doc/zpool.8.gz')
-# env.Install(man_dir, '../doc/zstreamdump.8.gz')
-# meanwhile I'll use a more direct approach !
-if "install" in sys.argv:
-    os.system("mkdir -p "+ man_dir)
-    os.system("install -m 0644 ../doc/zfs.8.gz " + man_dir)
-    os.system("install -m 0644 ../doc/zpool.8.gz " + man_dir)
-    os.system("install -m 0644 ../doc/zdb.8.gz " + man_dir)
-    os.system("install -m 0644 ../doc/zstreamdump.8.gz " + man_dir)
 
-env.Alias('install', install_dir)
+env.Install(man_dir, '../doc/zdb.8.gz')
+env.Install(man_dir, '../doc/zfs.8.gz')
+env.Install(man_dir, '../doc/zpool.8.gz')
+env.Install(man_dir, '../doc/zstreamdump.8.gz')
+
+if "tags" in sys.argv:
+    print "updating tags..."
+    os.system("ctags --extra=+f `find -name '*.c'` `find -name '*.h'`")
+
+env.Alias('install', [install_dir, man_dir])
