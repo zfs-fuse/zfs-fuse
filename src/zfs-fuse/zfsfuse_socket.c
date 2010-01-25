@@ -46,7 +46,7 @@
 #define LOCKDIR "/var/lock/zfs"
 #define LOCKFILE LOCKDIR "/zfs_lock"
 
-int cur_fd = -1;
+__thread int cur_fd = -1;
 
 avl_tree_t fd_avl;
 pthread_mutex_t fd_avl_mtx = PTHREAD_MUTEX_INITIALIZER;
