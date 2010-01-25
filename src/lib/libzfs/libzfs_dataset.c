@@ -2330,6 +2330,8 @@ zfs_iter_filesystems(zfs_handle_t *zhp, zfs_iter_f func, void *data)
 			zcmd_free_nvlists(&zc);
 			return (ret);
 		}
+		// next child is allowed to use the full size !!!
+		zc.zc_nvlist_dst_size = 4096;
 	}
 	zcmd_free_nvlists(&zc);
 	return ((ret < 0) ? ret : 0);

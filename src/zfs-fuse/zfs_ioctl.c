@@ -834,11 +834,7 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 		  syslog(LOG_WARNING,"put_nvlist: error %s on xcopyout",strerror(error));
 	}
 
-	/* zc->zc_nvlist_dst_size = size; */
-	/* This commented allocation was probably some kind of optimization
-	since this zc is sent to the socket. Except that put_nvlist is sometimes
-	called recursively and in this case we get very fast an out of memory error
-	in this function. Simply commenting out the allocation fixes the problem */
+	zc->zc_nvlist_dst_size = size;
 	return (error);
 }
 
