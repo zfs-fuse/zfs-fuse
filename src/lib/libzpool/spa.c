@@ -4788,7 +4788,13 @@ spa_sync(spa_t *spa, uint64_t txg)
 
 		spa_config_exit(spa, SCL_STATE, FTAG);
 
-		if (error == 0)
+		/* On opensolaris in case of error here, the zio is suspended
+		 * and then it waits until it's told to resume its activity.
+		 * Except that here in zfs-fuse nothing will ever be able to
+		 * tell it to resume !
+		 * I have absolutely no idea for now how something can send
+		 * the ioctl to resume it (ZFS_IOC_CLEAR apparently) */
+		if (error == 0 || error == EIO)
 			break;
 		zio_suspend(spa, NULL);
 		zio_resume_wait(spa);
