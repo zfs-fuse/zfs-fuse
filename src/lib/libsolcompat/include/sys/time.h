@@ -47,6 +47,11 @@ typedef struct timespec timestruc_t;
 
 #define TIMESPEC_OVERFLOW(ts) ((ts)->tv_sec < TIME32_MIN || (ts)->tv_sec > TIME32_MAX)
 
+#ifdef __APPLE__
+#include <mach/mach_time.h>
+
+#define gethrtime mach_absolute_time
+#else
 static inline hrtime_t gethrtime(void) {
 	struct timespec ts;
 
@@ -59,5 +64,6 @@ static inline hrtime_t gethrtime(void) {
 
 	return (((u_int64_t)ts.tv_sec) * NANOSEC) + ts.tv_nsec;
 }
+#endif
 
 #endif

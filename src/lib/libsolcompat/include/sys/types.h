@@ -34,7 +34,9 @@
 #include <sys/param.h> /* for NBBY */
 #include <sys/types32.h>
 
+#ifndef __APPLE__
 typedef enum boolean { B_FALSE, B_TRUE } boolean_t;
+#endif
 
 typedef unsigned char uchar_t;
 typedef unsigned short ushort_t;

@@ -42,7 +42,9 @@
  * Note that the blocked devices are assumed to have DEV_BSIZE
  * "sectors" and that fragments must be some multiple of this size.
  */
+#ifndef __APPLE__
 #define MAXBSIZE   8192
+#endif
 #define DEV_BSIZE  512
 #define DEV_BSHIFT 9     /* log2(DEV_BSIZE) */
 

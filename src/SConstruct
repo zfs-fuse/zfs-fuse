@@ -10,9 +10,16 @@ man_dir = ARGUMENTS.get('man_dir', '/usr/local/share/man/man8/')
 
 env = Environment()
 
+f = os.popen('uname')
+osname = f.readline().strip()
+f.close()
+
 env['CC'] = 'gcc'
 env['LINKFLAGS'] = Split('-pipe -Wall')
-env['CCFLAGS'] = Split('-pipe -Wall -std=c99 -Wno-switch -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\" -DLINUX_AIO')
+env['CCFLAGS'] = Split('-pipe -Wall -std=c99 -Wno-switch -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\" ')
+
+if osname == "Linux":
+  env.Append(CPPFLAGS = " -DLINUX_AIO")
 
 debug = int(ARGUMENTS.get('debug', '1'))
 
