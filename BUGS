@@ -3,7 +3,8 @@ ZFS on FUSE/Linux
 Reporting bugs
 --------------
 If you find a bug, please report it in the following page:
-https://developer.berlios.de/bugs/?group_id=6836
+
+	http://zfs-fuse.net/issues
 
 You should provide the following info in order to help me track down the bug:
 
