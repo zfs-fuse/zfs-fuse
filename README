@@ -4,7 +4,7 @@ ZFS on FUSE/Linux README
 This project is a port of the ZFS filesystem to FUSE/Linux, done as part
 of the Google Summer of Code 2006 initiative.
 
-The project homepage is at http://www.wizy.org/wiki/ZFS_on_FUSE
+The project homepage is at http://zfs-fuse.net/
 
 Status
 ------
