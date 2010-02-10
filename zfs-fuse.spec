@@ -10,6 +10,7 @@ URL:           http://zfs-fuse.net/
 Source0:       %{name}-%{version}.tar.bz2
 BuildRoot:     %{_tmppath}/%{name}-%{version}-root
 BuildRequires: fuse-devel libaio-devel zlib-devel scons
+BuildRequires: openssl-devel libattr-devel
 
 %description
 ZFS (formerly the Zettabyte File System), is a filesystem invented by
@@ -73,7 +74,7 @@ ln -s %{_sysconfdir}/init.d/%{name} $RPM_BUILD_ROOT%_sbindir/rc%{name}
 mkdir -p $RPM_BUILD_ROOT%{_mandir}/man8
 install -m 644 doc/*.8.gz $RPM_BUILD_ROOT%{_mandir}/man8
 cd src
-scons install install_dir=$RPM_BUILD_ROOT%_sbindir
+scons install install_dir=$RPM_BUILD_ROOT%_sbindir man_dir=$RPM_BUILD_ROOT%_mandir/man8/
 
 %clean
 [ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] && rm -rf $RPM_BUILD_ROOT;
