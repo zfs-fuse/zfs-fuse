@@ -1238,6 +1238,10 @@ vdev_open(vdev_t *vd)
 	 * then we've experienced dynamic LUN growth.  If automatic
 	 * expansion is enabled then use the additional space.
 	 */
+	/* Force spa_autoexpand = 1 here - it's not initialised at this
+	 * point in linux, and we want it initialised to be able to update
+	 * the vdev size here while importing a pool */
+	spa->spa_autoexpand = 1;
 	if (vd->vdev_state == VDEV_STATE_HEALTHY && asize > vd->vdev_asize &&
 	    (vd->vdev_expanding || spa->spa_autoexpand))
 		vd->vdev_asize = asize;
