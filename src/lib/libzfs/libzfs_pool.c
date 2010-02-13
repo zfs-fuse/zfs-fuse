@@ -96,8 +96,8 @@ const char *hist_event_table[LOG_END] = {
 #define	BOOTCMD	"installboot(1M)"
 #endif
 
-#define	DISK_ROOT	"/dev/dsk"
-#define	RDISK_ROOT	"/dev/rdsk"
+#define	DISK_ROOT	"/dev"
+#define	RDISK_ROOT	"/dev"
 #define	BACKUP_SLICE	"s2"
 
 /*
