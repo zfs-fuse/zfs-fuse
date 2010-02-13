@@ -787,7 +787,9 @@ taskq_init(void)
 	    0, taskq_constructor, taskq_destructor, NULL, NULL, NULL, 0);
 	taskq_id_arena = vmem_create("taskq_id_arena",
 	    (void *)1, INT32_MAX, 1, NULL, NULL, NULL, 0,
-	    VM_SLEEP | VMC_IDENTIFIER);
+	    VM_NOSLEEP | VMC_IDENTIFIER);
+	    /* zfs-fuse : replaced VM_SLEEP by VM_NOSLEEP to pass the assertion
+	     * in umem while it's initialising... */
 
 	list_create(&taskq_cpupct_list, sizeof (taskq_cpupct_ent_t),
 	    offsetof(taskq_cpupct_ent_t, tp_link));
