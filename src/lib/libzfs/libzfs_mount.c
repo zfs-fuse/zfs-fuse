@@ -163,12 +163,18 @@ is_shared(libzfs_handle_t *hdl, const char *mountpoint, zfs_share_proto_t proto)
 	char buf[MAXPATHLEN], *tab;
 	char *ptr;
 
+	/* zfs-fuse :
+	 * Keeping the same file opened seems to produce weird cache results
+	 * with fgets : after unmounting a share the 1st fgets returns the old
+	 * line. So we just close the file a reopen it to clear the cache */
+
+	if (hdl->libzfs_sharetab)
+	    fclose(hdl->libzfs_sharetab);
+	hdl->libzfs_sharetab = fopen("/var/lib/nfs/etab", "r");
 	if (hdl->libzfs_sharetab == NULL)
 		return (SHARED_NOT_SHARED);
 	if (proto != PROTO_NFS)
 	    return SHARED_NOT_SHARED;
-
-	(void) fseek(hdl->libzfs_sharetab, 0, SEEK_SET);
 
 	while (fgets(buf, sizeof (buf), hdl->libzfs_sharetab) != NULL) {
 
@@ -567,12 +573,42 @@ static int zfsfuse_share(
 	char  *prot, zprop_source_t sourcetype,
 	char *shareopts, char *sourcestr, char *zfs_name) {
     if (!strcmp(prot,"nfs")) {
-	char buff[1024];
-	if (strcmp(shareopts,"on")) 
-	    sprintf(buff,"exportfs %s",shareopts);
-	else
-	    sprintf(buff,"exportfs -o fsid=100,ro,no_subtree_check '*:%s'",mountpoint);
-
+	char buff[2048];
+	if (strcmp(shareopts,"on")) {
+	    /* handle shareopts
+	     * the new syntax should be
+	     * host1:options host2:options ... */
+	    char *s = shareopts-1;
+	    int ret = SA_OK;
+	    while (s = strchr(s+1,':')) {
+		*s = 0;
+		char *hostname = shareopts;
+		char opts[1024];
+		char *e = strchr(s+1,' ');
+		if (e) *e = 0;
+		strcpy(opts,s+1);
+		if (*opts == 0)
+		    strcpy(opts,"ro");
+		if (!strstr(opts,"fsid="))
+		    strcat(opts,",fsid=100");
+		if (!strstr(opts,"subtree_check"))
+		    strcat(opts,",no_subtree_check");
+		sprintf(buff,"exportfs -o %s '%s:%s'",opts,hostname,mountpoint);
+		if (system(buff) != 0) {
+		    printf("%s returned an error\n",buff);
+		    ret = SA_CONFIG_ERR;
+		}
+		if (e) {
+		    do {
+			e++;
+		    } while (*e == ' ');
+		    s = shareopts = e;
+		} else
+		    break;
+	    }
+	    return ret;
+	} 
+	sprintf(buff,"exportfs -o fsid=100,no_subtree_check '*:%s'",mountpoint);
 	int ret = system(buff);
 	if (ret == 0) return SA_OK;
 	printf("%s -> %d\n",buff,ret);
@@ -617,13 +653,17 @@ static int zfsfuse_disable_share(sa_share_t share, char *proto) {
 	char *s = strchr(share,9);
 	if (!s) return SA_CONFIG_ERR;
 	*s = 0; // 1st field = mountpoint
+	char *hostname = s+1;
+	char *p = strchr(hostname,'(');
+	if (!p) return SA_CONFIG_ERR;
+	*p = 0;
 	s = share-1;
-	while (strstr(s+1,"\\040")) { // deocde spaces
+	while (strstr(s+1,"\\040")) { // decode spaces
 	    *s = ' ';
 	    strcpy(s+1,s+4);
 	}
 	char buff[1024];
-	sprintf(buff,"exportfs -u '*:%s'",(char*)share);
+	sprintf(buff,"exportfs -u '%s:%s'",hostname,(char*)share);
 
 	int ret = system(buff);
 	if (ret == 0) return SA_OK;
@@ -1023,12 +1063,13 @@ zfs_unshare_proto(zfs_handle_t *zhp, const char *mountpoint,
 		for (curr_proto = proto; *curr_proto != PROTO_END;
 		    curr_proto++) {
 
-			if (is_shared(hdl, mntpt, *curr_proto) &&
-			    unshare_one(hdl, zhp->zfs_name,
-			    mntpt, *curr_proto) != 0) {
+			while (is_shared(hdl, mntpt, *curr_proto)) {
+			    if (unshare_one(hdl, zhp->zfs_name,
+					mntpt, *curr_proto) != 0) {
 				if (mntpt != NULL)
 					free(mntpt);
 				return (-1);
+			    }
 			}
 		}
 	}

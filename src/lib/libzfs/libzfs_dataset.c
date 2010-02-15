@@ -1105,6 +1105,10 @@ badlabel:
 				else
 					proto = PROTO_NFS;
 
+#if 0
+				/* zfs-fuse : no options checking
+				 * to check that I would have to call exportfs
+				 * which will be done later anyway */
 				/*
 				 * Must be an valid sharing protocol
 				 * option string so init the libshare
@@ -1148,6 +1152,7 @@ badlabel:
 					goto error;
 				}
 				zfs_uninit_libshare(hdl);
+#endif
 			}
 
 			break;
