@@ -165,6 +165,8 @@ is_shared(libzfs_handle_t *hdl, const char *mountpoint, zfs_share_proto_t proto)
 
 	if (hdl->libzfs_sharetab == NULL)
 		return (SHARED_NOT_SHARED);
+	if (proto != PROTO_NFS)
+	    return SHARED_NOT_SHARED;
 
 	(void) fseek(hdl->libzfs_sharetab, 0, SEEK_SET);
 
@@ -180,6 +182,8 @@ is_shared(libzfs_handle_t *hdl, const char *mountpoint, zfs_share_proto_t proto)
 			 * the protocol field is the third field
 			 * skip over second field
 			 */
+		    return SHARED_NFS;
+#if 0
 			ptr = ++tab;
 			if ((tab = strchr(ptr, '\t')) == NULL)
 				continue;
@@ -198,6 +202,7 @@ is_shared(libzfs_handle_t *hdl, const char *mountpoint, zfs_share_proto_t proto)
 					return (0);
 				}
 			}
+#endif
 		}
 	}
 
@@ -556,17 +561,93 @@ zfs_is_shared_smb(zfs_handle_t *zhp, char **where)
  * initialized in _zfs_init_libshare() are actually present.
  */
 
+static int zfsfuse_share(
+	sa_handle_t libzfs_sharehdl,
+	sa_group_t group, sa_share_t share, char *mountpoint,
+	char  *prot, zprop_source_t sourcetype,
+	char *shareopts, char *sourcestr, char *zfs_name) {
+    if (!strcmp(prot,"nfs")) {
+	char buff[1024];
+	if (strcmp(shareopts,"on")) 
+	    sprintf(buff,"exportfs %s",shareopts);
+	else
+	    sprintf(buff,"exportfs -o fsid=100,ro,no_subtree_check '*:%s'",mountpoint);
+
+	int ret = system(buff);
+	if (ret == 0) return SA_OK;
+	printf("%s -> %d\n",buff,ret);
+	return SA_CONFIG_ERR;
+    }
+    printf("protocol %s not supported yet\n",prot);
+    return SA_CONFIG_ERR;
+}
+
+static sa_share_t zfsfuse_findshare(sa_handle_t h, char *mshare) {
+    FILE *f = fopen("/var/lib/nfs/etab","r");
+    if (!f) return NULL;
+    static char buff[1024];
+    char share[1024];
+    strcpy(share,mshare);
+    char *s = share-1;
+    while (s = strchr(s+1,' ')) {
+	memmove(s+4,s+1,strlen(s+1)+1); // moves what's after the space
+	strncpy(s,"\\040",4); // replaces the space with \040 (encoded space)
+    }
+    int l = strlen(share);
+    while (!feof(f)) {
+	fgets(buff,1024,f);
+	if (!strncmp(buff,share,l)) {
+	    // we return the 1st share found on this mountpoint
+	    fclose(f);
+	    return buff;
+	}
+    }
+    fclose(f);
+    return NULL;
+}
+
+static int zfsfuse_enable_share(sa_share_t share, char *proto) {
+    if (!strcmp(proto,"nfs")) return SA_OK;
+    return SA_CONFIG_ERR;
+}
+
+static int zfsfuse_disable_share(sa_share_t share, char *proto) {
+    if (!strcmp(proto,"nfs")) {
+	// unshare command just calls this, so we have to call exportfs here
+	char *s = strchr(share,9);
+	if (!s) return SA_CONFIG_ERR;
+	*s = 0; // 1st field = mountpoint
+	s = share-1;
+	while (strstr(s+1,"\\040")) { // deocde spaces
+	    *s = ' ';
+	    strcpy(s+1,s+4);
+	}
+	char buff[1024];
+	sprintf(buff,"exportfs -u '*:%s'",(char*)share);
+
+	int ret = system(buff);
+	if (ret == 0) return SA_OK;
+    }
+    return SA_CONFIG_ERR;
+}
+
+static char *zfsfuse_errorstr(int error) {
+    static char buff[80];
+    sprintf(buff,"share error %d",error);
+    return buff;
+}
+
 static sa_handle_t (*_sa_init)(int);
 static void (*_sa_fini)(sa_handle_t);
-static sa_share_t (*_sa_find_share)(sa_handle_t, char *);
-static int (*_sa_enable_share)(sa_share_t, char *);
-static int (*_sa_disable_share)(sa_share_t, char *);
-static char *(*_sa_errorstr)(int);
+static sa_share_t (*_sa_find_share)(sa_handle_t, char *) = &zfsfuse_findshare;
+static int (*_sa_enable_share)(sa_share_t, char *) = &zfsfuse_enable_share;
+static int (*_sa_disable_share)(sa_share_t, char *) = &zfsfuse_disable_share;
+static char *(*_sa_errorstr)(int) = &zfsfuse_errorstr;
 static int (*_sa_parse_legacy_options)(sa_group_t, char *, char *);
 static boolean_t (*_sa_needs_refresh)(sa_handle_t *);
 static libzfs_handle_t *(*_sa_get_zfs_handle)(sa_handle_t);
 static int (*_sa_zfs_process_share)(sa_handle_t, sa_group_t, sa_share_t,
-    char *, char *, zprop_source_t, char *, char *, char *);
+    char *, char *, zprop_source_t, char *, char *, char *) = &zfsfuse_share;
 static void (*_sa_update_sharetab_ts)(sa_handle_t);
 
 /*
@@ -763,9 +844,6 @@ zfs_sa_disable_share(sa_share_t share, char *proto)
 static int
 zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 {
-	/* ZFSFUSE: not implemented */
-	return 0;
-#if 0
 	char mountpoint[ZFS_MAXPROPLEN];
 	char shareopts[ZFS_MAXPROPLEN];
 	char sourcestr[ZFS_MAXPROPLEN];
@@ -778,6 +856,7 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint), NULL))
 		return (0);
 
+#if 0
 	if ((ret = zfs_init_libshare(hdl, SA_INIT_SHARE_API)) != SA_OK) {
 		(void) zfs_error_fmt(hdl, EZFS_SHARENFSFAILED,
 		    dgettext(TEXT_DOMAIN, "cannot share '%s': %s"),
@@ -785,6 +864,7 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 		    _sa_errorstr(ret) : "");
 		return (-1);
 	}
+#endif
 
 	for (curr_proto = proto; *curr_proto != PROTO_END; curr_proto++) {
 		/*
@@ -851,7 +931,6 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 
 	}
 	return (0);
-#endif
 }
 
 
@@ -891,12 +970,14 @@ unshare_one(libzfs_handle_t *hdl, const char *name, const char *mountpoint,
 	mntpt = zfs_strdup(hdl, mountpoint);
 
 	/* make sure libshare initialized */
+#if 0
 	if ((err = zfs_init_libshare(hdl, SA_INIT_SHARE_API)) != SA_OK) {
 		free(mntpt);	/* don't need the copy anymore */
 		return (zfs_error_fmt(hdl, EZFS_SHARENFSFAILED,
 		    dgettext(TEXT_DOMAIN, "cannot unshare '%s': %s"),
 		    name, _sa_errorstr(err)));
 	}
+#endif
 
 	share = zfs_sa_find_share(hdl->libzfs_sharehdl, mntpt);
 	free(mntpt);	/* don't need the copy anymore */
