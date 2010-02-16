@@ -629,10 +629,14 @@ static sa_share_t zfsfuse_findshare(sa_handle_t h, char *mshare) {
 	memmove(s+4,s+1,strlen(s+1)+1); // moves what's after the space
 	strncpy(s,"\\040",4); // replaces the space with \040 (encoded space)
     }
-    int l = strlen(share);
     while (!feof(f)) {
 	fgets(buff,1024,f);
-	if (!strncmp(buff,share,l)) {
+	char *s = strchr(buff,9);
+	if (!s) continue;
+	*s = 0; // keep only the 1st field, path
+
+	if (!strcmp(buff,share)) {
+	    *s = 9; // restore the tab
 	    // we return the 1st share found on this mountpoint
 	    fclose(f);
 	    return buff;
@@ -926,7 +930,11 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 			continue;
 
 		share = zfs_sa_find_share(hdl->libzfs_sharehdl, mountpoint);
-		if (share == NULL) {
+		/* In linux it's not because we have a share on this directory
+		 * that it's the one corresponding to this property value.
+		 * The only question is should we first disable entierly the
+		 * shares for this directory before adding the new ones ? */
+//		if (share == NULL) {
 			/*
 			 * This may be a new file system that was just
 			 * created so isn't in the internal cache
@@ -949,7 +957,7 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 			hdl->libzfs_shareflags |= ZFSSHARE_MISS;
 			share = zfs_sa_find_share(hdl->libzfs_sharehdl,
 			    mountpoint);
-		}
+//		}
 		if (share != NULL) {
 			int err;
 			err = zfs_sa_enable_share(share,
