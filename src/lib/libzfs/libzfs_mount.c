@@ -567,6 +567,41 @@ zfs_is_shared_smb(zfs_handle_t *zhp, char **where)
  * initialized in _zfs_init_libshare() are actually present.
  */
 
+static int get_fsid(char *mountpoint) {
+    /* The zfs command is launched for any sharenfs command
+     * which means that we can store no fsid info here.
+     * So the simplest solution is to open the nfs share file
+     * look for all the fsid codes inside and take the next
+     * available one */
+    FILE *f = fopen("/var/lib/nfs/etab","r");
+    if (!f) return 100; // should never happen
+    int fsid = 0;
+    while (!feof(f)) {
+	char buff[2048];
+	fgets(buff,2048,f);
+	char *s = strstr(buff,"fsid=");
+	if (s) {
+	    int t = atoi(s+5);
+	    if (t > fsid) fsid = t;
+	    // maybe it's the fsid for the current mount point...
+	    s = strchr(buff,9); // field separator
+	    if (!s) {
+		fclose(f);
+		return 100; // should never happen
+	    }
+	    *s = 0;
+	    if (!strcmp(mountpoint,buff)) {
+		fclose(f);
+		return t;
+	    }
+	}
+    }
+    fclose(f);
+    // that's a new fsid then...
+    return fsid+1;
+}
+   
+
 static int zfsfuse_share(
 	sa_handle_t libzfs_sharehdl,
 	sa_group_t group, sa_share_t share, char *mountpoint,
@@ -574,6 +609,7 @@ static int zfsfuse_share(
 	char *shareopts, char *sourcestr, char *zfs_name) {
     if (!strcmp(prot,"nfs")) {
 	char buff[2048];
+	int fsid = get_fsid(mountpoint);
 	if (strcmp(shareopts,"on")) {
 	    /* handle shareopts
 	     * the new syntax should be
@@ -590,7 +626,7 @@ static int zfsfuse_share(
 		if (*opts == 0)
 		    strcpy(opts,"ro");
 		if (!strstr(opts,"fsid="))
-		    strcat(opts,",fsid=100");
+		    sprintf(&opts[strlen(opts)],",fsid=%d",fsid);
 		if (!strstr(opts,"subtree_check"))
 		    strcat(opts,",no_subtree_check");
 		sprintf(buff,"exportfs -o %s '%s:%s'",opts,hostname,mountpoint);
@@ -608,7 +644,7 @@ static int zfsfuse_share(
 	    }
 	    return ret;
 	} 
-	sprintf(buff,"exportfs -o fsid=100,no_subtree_check '*:%s'",mountpoint);
+	sprintf(buff,"exportfs -o fsid=%d,no_subtree_check '*:%s'",fsid,mountpoint);
 	int ret = system(buff);
 	if (ret == 0) return SA_OK;
 	printf("%s -> %d\n",buff,ret);
