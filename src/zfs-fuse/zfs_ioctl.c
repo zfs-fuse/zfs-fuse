@@ -2865,25 +2865,20 @@ out:
 }
 
 int
-zfs_unmount_snap(char *name, void *arg)
+zfs_unmount_snap(const char *name, void *arg)
 {
 	/* ZFSFUSE: TODO */
 #if 0
-	vfs_t *vfsp = NULL;
-
-	if (arg) {
-		char *snapname = arg;
-		int len = strlen(name) + strlen(snapname) + 2;
-		char *buf = kmem_alloc(len, KM_SLEEP);
-
-		(void) strcpy(buf, name);
-		(void) strcat(buf, "@");
-		(void) strcat(buf, snapname);
-		vfsp = zfs_get_vfs(buf);
-		kmem_free(buf, len);
-	} else if (strchr(name, '@')) {
-		vfsp = zfs_get_vfs(name);
-	}
+  	vfs_t *vfsp = NULL;
+  
+  	if (arg) {
+  		char *snapname = arg;
+		char *fullname = kmem_asprintf("%s@%s", name, snapname);
+		vfsp = zfs_get_vfs(fullname);
+		strfree(fullname);
+  	} else if (strchr(name, '@')) {
+  		vfsp = zfs_get_vfs(name);
+  	}
 
 	if (vfsp) {
 		/*
