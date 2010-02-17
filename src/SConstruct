@@ -21,7 +21,7 @@ env['CCFLAGS'] = Split('-pipe -Wall -std=c99 -Wno-switch -Wno-unused -Wno-missin
 if osname == "Linux":
   env.Append(CPPFLAGS = " -DLINUX_AIO")
 
-debug = int(ARGUMENTS.get('debug', '1'))
+debug = int(ARGUMENTS.get('debug', '0'))
 
 if not debug:
 	env.Append(LINKFLAGS = ['-s'])
