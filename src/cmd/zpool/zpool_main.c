@@ -1612,7 +1612,7 @@ zpool_do_import(int argc, char **argv)
 	char **searchdirs = NULL;
 	int nsearch = 0;
 	int c;
-	int err;
+	int err = 0;
 	nvlist_t *pools = NULL;
 	boolean_t do_all = B_FALSE;
 	boolean_t do_destroyed = B_FALSE;
@@ -1634,10 +1634,10 @@ zpool_do_import(int argc, char **argv)
 	boolean_t xtreme_rewind = B_FALSE;
 	uint64_t pool_state;
 	char *cachefile = NULL;
-	boolean_t verbose = B_FALSE;
+	importargs_t idata = { 0 };
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":aCc:d:DEfFno:rR:vVX")) != -1) {
+	while ((c = getopt(argc, argv, ":aCc:d:DEfFno:rR:VX")) != -1) {
 		switch (c) {
 		case 'a':
 			do_all = B_TRUE;
@@ -1692,9 +1692,6 @@ zpool_do_import(int argc, char **argv)
 			if (add_prop_list(zpool_prop_to_name(
 			    ZPOOL_PROP_CACHEFILE), "none", &props, B_TRUE))
 				goto error;
-			break;
-		case 'v':
-			verbose = B_TRUE;
 			break;
 		case 'V':
 			do_verbatim = B_TRUE;
@@ -1792,27 +1789,47 @@ zpool_do_import(int argc, char **argv)
 		if (errno != 0 || *endptr != '\0')
 			searchname = argv[0];
 		found_config = NULL;
-	}
 
-	if (cachefile) {
-		pools = zpool_find_import_cached(g_zfs, cachefile, searchname,
-		    searchguid);
-	} else if (searchname != NULL) {
-		pools = zpool_find_import_byname(g_zfs, nsearch, searchdirs,
-		    searchname);
-	} else {
 		/*
-		 * It's OK to search by guid even if searchguid is 0.
+		 * User specified a name or guid.  Ensure it's unique.
 		 */
-		pools = zpool_find_import_byguid(g_zfs, nsearch, searchdirs,
-		    searchguid, verbose);
+		idata.unique = B_TRUE;
 	}
 
-	if (pools == NULL) {
+
+	idata.path = searchdirs;
+	idata.paths = nsearch;
+	idata.poolname = searchname;
+	idata.guid = searchguid;
+	idata.cachefile = cachefile;
+
+	pools = zpool_search_import(g_zfs, &idata);
+
+	if (pools != NULL && idata.exists &&
+	    (argc == 1 || strcmp(argv[0], argv[1]) == 0)) {
+		(void) fprintf(stderr, gettext("cannot import '%s': "
+		    "a pool with that name already exists\n"),
+		    argv[0]);
+		(void) fprintf(stderr, gettext("use the form '%s "
+		    "<pool | id> <newpool>' to give it a new name\n"),
+		    "zpool import");
+		err = 1;
+	} else if (pools == NULL && idata.exists) {
+		(void) fprintf(stderr, gettext("cannot import '%s': "
+		    "a pool with that name is already created/imported,\n"),
+		    argv[0]);
+		(void) fprintf(stderr, gettext("and no additional pools "
+		    "with that name were found\n"));
+		err = 1;
+	} else if (pools == NULL) {
 		if (argc != 0) {
 			(void) fprintf(stderr, gettext("cannot import '%s': "
 			    "no such pool available\n"), argv[0]);
 		}
+		err = 1;
+	}
+
+	if (err == 1) {
 		free(searchdirs);
 		nvlist_free(policy);
 		return (1);
