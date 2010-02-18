@@ -1593,6 +1593,7 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 	int error = 0;
 	objset_t *os = zv->zv_objset;
 	nvlist_t *nv = NULL;
+	uint64_t version = spa_version(dmu_objset_spa(zv->zv_objset));
 
 	ASSERT(MUTEX_HELD(&zvol_state_lock));
 	error = dmu_free_long_range(zv->zv_objset, ZVOL_OBJ, 0,
@@ -1630,8 +1631,11 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 		    zfs_prop_to_name(ZFS_PROP_REFRESERVATION), &refresrv, NULL);
 		error = error ? error : dsl_prop_get_integer(zv->zv_name,
 		    zfs_prop_to_name(ZFS_PROP_VOLBLOCKSIZE), &vbs, NULL);
-		error = error ? error : dsl_prop_get_integer(zv->zv_name,
-		    zfs_prop_to_name(ZFS_PROP_DEDUP), &dedup, NULL);
+		if (version >= SPA_VERSION_DEDUP) {
+			error = error ? error :
+			    dsl_prop_get_integer(zv->zv_name,
+			    zfs_prop_to_name(ZFS_PROP_DEDUP), &dedup, NULL);
+		}
 
 		error = error ? error : zap_update(os, ZVOL_ZAP_OBJ,
 		    zfs_prop_to_name(ZFS_PROP_COMPRESSION), 8, 1,
@@ -1646,9 +1650,11 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 		    &vbs, tx);
 		error = error ? error : dmu_object_set_blocksize(
 		    os, ZVOL_OBJ, SPA_MAXBLOCKSIZE, 0, tx);
-		error = error ? error : zap_update(os, ZVOL_ZAP_OBJ,
-		    zfs_prop_to_name(ZFS_PROP_DEDUP), 8, 1,
-		    &dedup, tx);
+		if (version >= SPA_VERSION_DEDUP) {
+			error = error ? error : zap_update(os, ZVOL_ZAP_OBJ,
+			    zfs_prop_to_name(ZFS_PROP_DEDUP), 8, 1,
+			    &dedup, tx);
+		}
 		if (error == 0)
 			zv->zv_volblocksize = SPA_MAXBLOCKSIZE;
 	}
@@ -1668,9 +1674,11 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 		VERIFY(nvlist_add_uint64(nv,
 		    zfs_prop_to_name(ZFS_PROP_CHECKSUM),
 		    ZIO_CHECKSUM_OFF) == 0);
-		VERIFY(nvlist_add_uint64(nv,
-		    zfs_prop_to_name(ZFS_PROP_DEDUP),
-		    ZIO_CHECKSUM_OFF) == 0);
+		if (version >= SPA_VERSION_DEDUP) {
+			VERIFY(nvlist_add_uint64(nv,
+			    zfs_prop_to_name(ZFS_PROP_DEDUP),
+			    ZIO_CHECKSUM_OFF) == 0);
+		}
 
 		error = zfs_set_prop_nvlist(zv->zv_name, ZPROP_SRC_LOCAL,
 		    nv, NULL);
@@ -1746,6 +1754,7 @@ zvol_dump_fini(zvol_state_t *zv)
 	nvlist_t *nv;
 	int error = 0;
 	uint64_t checksum, compress, refresrv, vbs, dedup;
+	uint64_t version = spa_version(dmu_objset_spa(zv->zv_objset));
 
 	/*
 	 * Attempt to restore the zvol back to its pre-dumpified state.
@@ -1772,8 +1781,6 @@ zvol_dump_fini(zvol_state_t *zv)
 	    zfs_prop_to_name(ZFS_PROP_REFRESERVATION), 8, 1, &refresrv);
 	(void) zap_lookup(zv->zv_objset, ZVOL_ZAP_OBJ,
 	    zfs_prop_to_name(ZFS_PROP_VOLBLOCKSIZE), 8, 1, &vbs);
-	(void) zap_lookup(zv->zv_objset, ZVOL_ZAP_OBJ,
-	    zfs_prop_to_name(ZFS_PROP_DEDUP), 8, 1, &dedup);
 
 	VERIFY(nvlist_alloc(&nv, NV_UNIQUE_NAME, KM_SLEEP) == 0);
 	(void) nvlist_add_uint64(nv,
@@ -1782,8 +1789,12 @@ zvol_dump_fini(zvol_state_t *zv)
 	    zfs_prop_to_name(ZFS_PROP_COMPRESSION), compress);
 	(void) nvlist_add_uint64(nv,
 	    zfs_prop_to_name(ZFS_PROP_REFRESERVATION), refresrv);
-	(void) nvlist_add_uint64(nv,
-	    zfs_prop_to_name(ZFS_PROP_DEDUP), dedup);
+	if (version >= SPA_VERSION_DEDUP &&
+	    zap_lookup(zv->zv_objset, ZVOL_ZAP_OBJ,
+	    zfs_prop_to_name(ZFS_PROP_DEDUP), 8, 1, &dedup) == 0) {
+		(void) nvlist_add_uint64(nv,
+		    zfs_prop_to_name(ZFS_PROP_DEDUP), dedup);
+	}
 	(void) zfs_set_prop_nvlist(zv->zv_name, ZPROP_SRC_LOCAL,
 	    nv, NULL);
 	nvlist_free(nv);
