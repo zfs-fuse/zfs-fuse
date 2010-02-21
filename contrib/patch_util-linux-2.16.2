@@ -1,0 +1,152 @@
+diff -u -B -w -r -N util-linux-2.16.2/shlibs/blkid/src/probe.c util-linux-2.16.2.new/shlibs/blkid/src/probe.c
+--- util-linux-2.16.2/shlibs/blkid/src/probe.c	2009-11-30 12:37:08.000000000 +0100
++++ util-linux-2.16.2.new/shlibs/blkid/src/probe.c	2010-02-21 09:51:44.000000000 +0100
+@@ -59,6 +59,7 @@
+ 	&luks_idinfo,
+ 
+ 	/* Filesystems */
++	&zfs_idinfo,
+ 	&vfat_idinfo,
+ 	&swsuspend_idinfo,
+ 	&swap_idinfo,
+@@ -73,7 +74,6 @@
+ 	&jfs_idinfo,
+ 	&udf_idinfo,
+ 	&iso9660_idinfo,
+-	&zfs_idinfo,
+ 	&hfsplus_idinfo,
+ 	&hfs_idinfo,
+ 	&ufs_idinfo,
+diff -u -B -w -r -N util-linux-2.16.2/shlibs/blkid/src/probers/zfs.c util-linux-2.16.2.new/shlibs/blkid/src/probers/zfs.c
+--- util-linux-2.16.2/shlibs/blkid/src/probers/zfs.c	2009-11-30 12:43:13.000000000 +0100
++++ util-linux-2.16.2.new/shlibs/blkid/src/probers/zfs.c	2010-02-21 01:55:12.000000000 +0100
+@@ -26,11 +26,52 @@
+ 	/*blkptr_t	ub_rootbp;*/	/* MOS objset_phys_t		*/
+ } __attribute__((packed));
+ 
++static int swab_endian;
++
++static int64_t zfs_get_int64(char *buff, int *offset) {
++    int64_t len;
++#if __BYTE_ORDER != __BIG_ENDIAN
++    char *dest = (char*)&len;
++    char *src = &buff[*offset];
++    int n;
++    for (n=0; n<sizeof(int64_t); n++)
++	dest[sizeof(int64_t)-1-n] = src[n];
++#else
++    memcpy(&len,&buff[*offset],sizeof(int64_t));
++#endif
++    *offset += sizeof(int64_t);
++    return len;
++}
++
++static int zfs_get_int(char *buff, int *offset) {
++    int len;
++#if __BYTE_ORDER != __BIG_ENDIAN
++    char *dest = (char*)&len;
++    char *src = &buff[*offset];
++    int n;
++    for (n=0; n<sizeof(int); n++)
++	dest[sizeof(int)-1-n] = src[n];
++#else
++    memcpy(&len,&buff[*offset],sizeof(int));
++#endif
++    *offset += sizeof(int);
++    return len;
++}
++
++static char *zfs_get_string(char *buff, int *offset) {
++    int len = zfs_get_int(buff,offset);
++    char *s = &buff[*offset];
++    *offset = ((*offset + len + 3) / 4) * 4; // round to next int offset
++    return s;
++}
++
+ static int probe_zfs(blkid_probe pr, const struct blkid_idmag *mag)
+ {
+ 	struct zfs_uberblock *ub;
+-	int swab_endian;
+ 	uint64_t spa_version;
++	char vdev_label[256];
++	uint64_t uuid = 0;
++	vdev_label[0] = 0;
+ 
+ 	ub = blkid_probe_get_sb(pr, mag, struct zfs_uberblock);
+ 	if (!ub)
+@@ -40,6 +81,47 @@
+ 	spa_version = swab_endian ? swab64(ub->ub_version) : ub->ub_version;
+ 
+ 	blkid_probe_sprintf_version(pr, "%" PRIu64, spa_version);
++
++	char *buff = blkid_probe_get_buffer(pr,0x4000,0x400);
++	int offset = 0x14;
++	char *name, *value;
++	int type, nr_field;
++	int64_t val;
++	do {
++	    name = zfs_get_string(buff,&offset);
++	    type = zfs_get_int(buff, &offset);
++	    nr_field = zfs_get_int(buff,&offset);
++	    switch (type) {
++		case 8: // int64_t
++		    val = zfs_get_int64(buff,&offset);
++		    if (!strcmp(name,"guid"))
++			uuid =val;
++		    break;
++		case 9: // string
++		    value = zfs_get_string(buff,&offset);
++		    if (!strcmp(name,"name")) {
++			strncpy(vdev_label,value,256);
++			vdev_label[255] = 0;
++		    }
++		    break;
++		default:
++		    printf("unknown type: %d\n",type);
++	    }
++	    zfs_get_int(buff,&offset);
++	    zfs_get_int(buff,&offset);
++	} while (offset < 0x400 && (uuid == 0 || vdev_label[0] == 0));
++
++	/* read nvpair data for pool name, pool GUID (complex) */
++	blkid_probe_set_label(pr, vdev_label, strlen(vdev_label));
++	/* 
++	unsigned char uuid_str[17];
++	sprintf(uuid_str, "%016llX", uuid);
++	blkid_probe_set_uuid(pr, (unsigned char *)&uuid); */
++	blkid_probe_sprintf_uuid(pr,
++			(unsigned char *) &uuid,
++			sizeof(uuid),
++			"%016" PRIX64, le64_to_cpu(uuid));
++	return 0;
+ #if 0
+ 	/* read nvpair data for pool name, pool GUID from the MOS, but
+ 	 * unfortunately this is more complex than it could be */
+@@ -56,6 +138,8 @@
+ 	.probefunc	= probe_zfs,
+ 	.magics		=
+ 	{
++		{ .magic = "\0\xba\xb1\x0c", .len = 4, .kboff = 128 },
++		{ .magic = "\x0c\xb1\xba\0", .len = 4, .kboff = 128 },
+ 		{ .magic = "\0\0\x02\xf5\xb0\x07\xb1\x0c", .len = 8, .kboff = 8 },
+ 		{ .magic = "\x1c\xb1\x07\xb0\xf5\x02\0\0", .len = 8, .kboff = 8 },
+ 		{ .magic = "\0\0\x02\xf5\xb0\x07\xb1\x0c", .len = 8, .kboff = 264 },
+diff -u -B -w -r -N util-linux-2.16.2/shlibs/blkid/src/verify.c util-linux-2.16.2.new/shlibs/blkid/src/verify.c
+--- util-linux-2.16.2/shlibs/blkid/src/verify.c	2009-11-30 12:37:08.000000000 +0100
++++ util-linux-2.16.2.new/shlibs/blkid/src/verify.c	2010-02-21 09:48:15.000000000 +0100
+@@ -117,6 +117,7 @@
+ 	/*
+ 	 * If we already know the type, then try that first.
+ 	 */
++#if 0
+ 	if (dev->bid_type) {
+ 		blkid_tag_iterate iter;
+ 		const char *type, *value;
+@@ -142,6 +143,7 @@
+ 			blkid_set_tag(dev, type, 0, 0);
+ 		blkid_tag_iterate_end(iter);
+ 	}
++#endif
+ 
+ 	/*
+ 	 * Probe for all types.
