@@ -1992,7 +1992,9 @@ spa_load_best(spa_t *spa, spa_load_state_t state, int mosconfig,
 	safe_rollback_txg = spa->spa_uberblock.ub_txg - TXG_DEFER_SIZE;
 
 	min_txg = extreme ? TXG_INITIAL : safe_rollback_txg;
-	while (rewind_error && (spa->spa_uberblock.ub_txg >= min_txg)) {
+	// Don't try to recover from ENOENT errors !
+	while (rewind_error && rewind_error != ENOENT &&
+		(spa->spa_uberblock.ub_txg >= min_txg)) {
 		if (spa->spa_load_max_txg < safe_rollback_txg)
 			spa->spa_extreme_rewind = B_TRUE;
 		rewind_error = spa_load_retry(spa, state, mosconfig);
