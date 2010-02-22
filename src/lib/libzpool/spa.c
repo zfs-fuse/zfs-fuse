@@ -1261,7 +1261,7 @@ spa_claim_notify(zio_t *zio)
 }
 
 typedef struct spa_load_error {
-	uint64_t	sle_metadata_count;
+	uint64_t	sle_meta_count;
 	uint64_t	sle_data_count;
 } spa_load_error_t;
 
@@ -1276,7 +1276,7 @@ spa_load_verify_done(zio_t *zio)
 	if (error) {
 		if ((BP_GET_LEVEL(bp) != 0 || dmu_ot[type].ot_metadata) &&
 		    type != DMU_OT_INTENT_LOG)
-			atomic_add_64(&sle->sle_metadata_count, 1);
+			atomic_add_64(&sle->sle_meta_count, 1);
 		else
 			atomic_add_64(&sle->sle_data_count, 1);
 	}
@@ -1310,6 +1310,11 @@ spa_load_verify(spa_t *spa)
 	boolean_t verify_ok = B_FALSE;
 	int error;
 
+	zpool_get_rewind_policy(spa->spa_config, &policy);
+
+	if (policy.zrp_request & ZPOOL_NEVER_REWIND)
+		return (0);
+
 	rio = zio_root(spa, NULL, &sle,
 	    ZIO_FLAG_CANFAIL | ZIO_FLAG_SPECULATIVE);
 
@@ -1318,12 +1323,10 @@ spa_load_verify(spa_t *spa)
 
 	(void) zio_wait(rio);
 
-	zpool_get_rewind_policy(spa->spa_config, &policy);
-
-	spa->spa_load_meta_errors = sle.sle_metadata_count;
+	spa->spa_load_meta_errors = sle.sle_meta_count;
 	spa->spa_load_data_errors = sle.sle_data_count;
 
-	if (!error && sle.sle_metadata_count <= policy.zrp_maxmeta &&
+	if (!error && sle.sle_meta_count <= policy.zrp_maxmeta &&
 	    sle.sle_data_count <= policy.zrp_maxdata) {
 		verify_ok = B_TRUE;
 		spa->spa_load_txg = spa->spa_uberblock.ub_txg;
@@ -1630,7 +1633,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	spa->spa_state = POOL_STATE_ACTIVE;
 	spa->spa_ubsync = spa->spa_uberblock;
 	spa->spa_verify_min_txg = spa->spa_extreme_rewind ?
-	    TXG_INITIAL : spa_last_synced_txg(spa) - TXG_DEFER_SIZE;
+	    TXG_INITIAL - 1 : spa_last_synced_txg(spa) - TXG_DEFER_SIZE - 1;
 	spa->spa_first_txg = spa->spa_last_ubsync_txg ?
 	    spa->spa_last_ubsync_txg : spa_last_synced_txg(spa) + 1;
 	spa->spa_claim_max_txg = spa->spa_first_txg;
@@ -1648,6 +1651,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 
 	if (!mosconfig) {
 		uint64_t hostid;
+		nvlist_t *policy = NULL;
 
 		if (!spa_is_root(spa) && nvlist_lookup_uint64(nvconfig,
 		    ZPOOL_CONFIG_HOSTID, &hostid) == 0) {
@@ -1677,6 +1681,10 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 				return (EBADF);
 			}
 		}
+		if (nvlist_lookup_nvlist(spa->spa_config,
+		    ZPOOL_REWIND_POLICY, &policy) == 0)
+			VERIFY(nvlist_add_nvlist(nvconfig,
+			    ZPOOL_REWIND_POLICY, policy) == 0);
 
 		spa_config_set(spa, nvconfig);
 		spa_unload(spa);
@@ -1953,11 +1961,11 @@ spa_load_retry(spa_t *spa, spa_load_state_t state, int mosconfig)
 
 static int
 spa_load_best(spa_t *spa, spa_load_state_t state, int mosconfig,
-    uint64_t max_request, boolean_t extreme)
+    uint64_t max_request, int rewind_flags)
 {
 	nvlist_t *config = NULL;
 	int load_error, rewind_error;
-	uint64_t safe_rollback_txg;
+	uint64_t safe_rewind_txg;
 	uint64_t min_txg;
 
 	if (spa->spa_load_txg && state == SPA_LOAD_RECOVER) {
@@ -1978,8 +1986,7 @@ spa_load_best(spa_t *spa, spa_load_state_t state, int mosconfig,
 	spa->spa_last_ubsync_txg = spa->spa_uberblock.ub_txg;
 	spa->spa_last_ubsync_txg_ts = spa->spa_uberblock.ub_timestamp;
 
-	/* specific txg requested */
-	if (spa->spa_load_max_txg != UINT64_MAX && !extreme) {
+	if (rewind_flags & ZPOOL_NEVER_REWIND) {
 		nvlist_free(config);
 		return (load_error);
 	}
@@ -1988,14 +1995,20 @@ spa_load_best(spa_t *spa, spa_load_state_t state, int mosconfig,
 	if (state == SPA_LOAD_RECOVER)
 		spa_set_log_state(spa, SPA_LOG_CLEAR);
 
-	spa->spa_load_max_txg = spa->spa_uberblock.ub_txg;
-	safe_rollback_txg = spa->spa_uberblock.ub_txg - TXG_DEFER_SIZE;
+	spa->spa_load_max_txg = spa->spa_last_ubsync_txg;
+	safe_rewind_txg = spa->spa_last_ubsync_txg - TXG_DEFER_SIZE;
+	min_txg = (rewind_flags & ZPOOL_EXTREME_REWIND) ?
+	    TXG_INITIAL : safe_rewind_txg;
 
-	min_txg = extreme ? TXG_INITIAL : safe_rollback_txg;
+	/*
+	 * Continue as long as we're finding errors, we're still within
+	 * the acceptable rewind range, and we're still finding uberblocks
+	 */
 	// Don't try to recover from ENOENT errors !
 	while (rewind_error && rewind_error != ENOENT &&
-		(spa->spa_uberblock.ub_txg >= min_txg)) {
-		if (spa->spa_load_max_txg < safe_rollback_txg)
+		spa->spa_uberblock.ub_txg >= min_txg &&
+		spa->spa_uberblock.ub_txg <= spa->spa_load_max_txg) {
+		if (spa->spa_load_max_txg < safe_rewind_txg)
 			spa->spa_extreme_rewind = B_TRUE;
 		rewind_error = spa_load_retry(spa, state, mosconfig);
 	}
@@ -2029,20 +2042,12 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
     nvlist_t **config)
 {
 	spa_t *spa;
-	boolean_t norewind;
-	boolean_t extreme;
 	zpool_rewind_policy_t policy;
 	spa_load_state_t state = SPA_LOAD_OPEN;
 	int error;
 	int locked = B_FALSE;
 
 	*spapp = NULL;
-
-	zpool_get_rewind_policy(nvpolicy, &policy);
-	if (policy.zrp_request & ZPOOL_DO_REWIND)
-		state = SPA_LOAD_RECOVER;
-	norewind = (policy.zrp_request == ZPOOL_NO_REWIND);
-	extreme = ((policy.zrp_request & ZPOOL_EXTREME_REWIND) != 0);
 
 	/*
 	 * As disgusting as this is, we need to support recursive calls to this
@@ -2061,11 +2066,16 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
 		return (ENOENT);
 	}
 
+	zpool_get_rewind_policy(nvpolicy ? nvpolicy : spa->spa_config, &policy);
+	if (policy.zrp_request & ZPOOL_DO_REWIND)
+		state = SPA_LOAD_RECOVER;
+
 	if (spa->spa_state == POOL_STATE_UNINITIALIZED) {
 
 		spa_activate(spa, spa_mode_global);
 
-		if (spa->spa_last_open_failed && norewind) {
+		if (spa->spa_last_open_failed && (policy.zrp_request &
+		    (ZPOOL_NO_REWIND | ZPOOL_NEVER_REWIND))) {
 			if (config != NULL && spa->spa_config)
 				VERIFY(nvlist_dup(spa->spa_config,
 				    config, KM_SLEEP) == 0);
@@ -2079,7 +2089,7 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
 			spa->spa_last_ubsync_txg = spa->spa_load_txg = 0;
 
 		error = spa_load_best(spa, state, B_FALSE, policy.zrp_txg,
-		    extreme);
+		    policy.zrp_request);
 
 		if (error == EBADF) {
 			/*
@@ -2932,7 +2942,6 @@ int
 spa_import_verbatim(const char *pool, nvlist_t *config, nvlist_t *props)
 {
 	spa_t *spa;
-	zpool_rewind_policy_t policy;
 	char *altroot = NULL;
 
 	mutex_enter(&spa_namespace_lock);
@@ -2944,9 +2953,6 @@ spa_import_verbatim(const char *pool, nvlist_t *config, nvlist_t *props)
 	(void) nvlist_lookup_string(props,
 	    zpool_prop_to_name(ZPOOL_PROP_ALTROOT), &altroot);
 	spa = spa_add(pool, config, altroot);
-
-	zpool_get_rewind_policy(config, &policy);
-	spa->spa_load_max_txg = policy.zrp_txg;
 
 	spa->spa_load_verbatim = B_TRUE;
 
@@ -3010,7 +3016,7 @@ spa_import(const char *pool, nvlist_t *config, nvlist_t *props)
 	if (state != SPA_LOAD_RECOVER)
 		spa->spa_last_ubsync_txg = spa->spa_load_txg = 0;
 	error = spa_load_best(spa, state, B_TRUE, policy.zrp_txg,
-	    ((policy.zrp_request & ZPOOL_EXTREME_REWIND) != 0));
+	    policy.zrp_request);
 
 	/*
 	 * Propagate anything learned about failing or best txgs
