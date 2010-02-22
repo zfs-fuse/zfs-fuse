@@ -127,9 +127,15 @@ extern int aok;
 
 
 #define	VERIFY	zverify
+#if DEBUG
 #define	ASSERT	zverify
 #undef	assert
 #define	assert	zverify
+#else
+#define	ASSERT(x)  ((void)0)
+#undef assert
+#define	assert(x)  ((void)0)
+#endif
 
 extern void __assert(const char *, const char *, int);
 
