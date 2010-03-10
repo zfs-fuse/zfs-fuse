@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006 OmniTI, Inc. All rights reserved
+ * Copyright (c) 2006-2008 Message Systems, Inc. All rights reserved
  * This header file distributed under the terms of the CDDL.
  * Portions Copyright 2004 Sun Microsystems, Inc. All Rights reserved.
  */
@@ -80,7 +80,6 @@ static INLINE int thr_create(void *stack_base,
   if (flags & THR_DETACHED) {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
   }
-  pthread_attr_setstacksize(&attr,16384);
   ret = pthread_create(new_thread_ID, &attr, start_func, arg);
   pthread_attr_destroy(&attr);
   return ret;
@@ -119,19 +118,11 @@ static INLINE int thr_create(void *stack_base,
 static INLINE uint_t ec_atomic_cas(uint_t *mem, uint_t with, uint_t cmp)
 {
   uint_t prev;
-  __asm volatile ("lock; cmpxchgl %1, %2"
+  asm volatile ("lock; cmpxchgl %1, %2"
         : "=a" (prev)
         : "r"    (with), "m" (*(mem)), "0" (cmp)
         : "memory");
   return prev;
-}
-# elif defined(__sparc__) && defined(__GNUC__)
-static INLINE uint_t ec_atomic_cas(uint_t *mem, uint_t with, uint_t cmp)
-{
-  __asm volatile ("cas [%3],%2,%0"
-        : "+r"(with), "=m"(*(mem))
-        : "r"(cmp), "r"(mem), "m"(*(mem)) );
-  return with;
 }
 # endif
 
@@ -165,14 +156,8 @@ static INLINE uint_t ec_atomic_inc(uint_t *mem)
 #define ISP2(x)    (((x) & ((x) - 1)) == 0)
 
 /* beware! umem only uses these atomic adds for incrementing by 1 */
-#if defined(_WIN32) || (defined(__GNUC__) && \
-   (defined(__i386__) || defined(__x86_64__) || defined(__sparc__)))
 #define atomic_add_64(lvalptr, delta) ec_atomic_inc64(lvalptr)
 #define atomic_add_32_nv(a, b)  	  ec_atomic_inc(a) 
-#else
-extern uint32_t atomic_add_32_nv(volatile uint32_t *, int32_t);
-extern void atomic_add_64(volatile uint64_t *, int64_t);
-#endif
 
 #ifndef NANOSEC
 #define NANOSEC 1000000000
@@ -180,7 +165,7 @@ extern void atomic_add_64(volatile uint64_t *, int64_t);
 
 #ifdef _WIN32
 #define issetugid()		  0
-#elif !defined(__FreeBSD__)
+#elif !HAVE_ISSETUGID
 #define issetugid()       (geteuid() == 0)
 #endif
 

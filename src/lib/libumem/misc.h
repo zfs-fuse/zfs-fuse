@@ -24,7 +24,7 @@
  * Use is subject to license terms.
  */
 /*
- * Portions Copyright 2006 OmniTI, Inc.
+ * Portions Copyright 2006-2008 Message Systems, Inc.
  */
 
 #ifndef	_MISC_H
@@ -114,7 +114,7 @@ void umem_err_recoverable(const char *format, ...);
 /*
  * We define our own assertion handling since libc's assert() calls malloc()
  */
-#if !DEBUG
+#ifdef NDEBUG
 #define	ASSERT(assertion) (void)0
 #else
 #define	ASSERT(assertion) (void)((assertion) || \

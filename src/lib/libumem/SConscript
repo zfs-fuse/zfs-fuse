@@ -1,6 +1,5 @@
 Import('env')
 
-objects = Split('init_lib.c umem_agent_support.c umem_fail.c umem_fork.c umem_update_thread.c vmem_mmap.c vmem_sbrk.c envvar.c getpcstack.c misc.c vmem_base.c umem.c vmem.c')
-cpppath = Split('. ./include')
+Command("Makefile", [], ["cd lib/libumem && ./configure"])
+Command("libumem.a", ['Makefile',Glob('*.c *.h')], ["cd lib/libumem && make && ln -s .libs/libumem.a"])
 
-env.StaticLibrary('libumem', objects, CPPPATH = env['CPPPATH'] + cpppath)

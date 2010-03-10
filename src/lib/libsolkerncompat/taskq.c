@@ -787,9 +787,7 @@ taskq_init(void)
 	    0, taskq_constructor, taskq_destructor, NULL, NULL, NULL, 0);
 	taskq_id_arena = vmem_create("taskq_id_arena",
 	    (void *)1, INT32_MAX, 1, NULL, NULL, NULL, 0,
-	    VM_NOSLEEP | VMC_IDENTIFIER);
-	    /* zfs-fuse : replaced VM_SLEEP by VM_NOSLEEP to pass the assertion
-	     * in umem while it's initialising... */
+	    VM_SLEEP | VMC_IDENTIFIER);
 
 	list_create(&taskq_cpupct_list, sizeof (taskq_cpupct_ent_t),
 	    offsetof(taskq_cpupct_ent_t, tp_link));
@@ -1705,13 +1703,7 @@ taskq_create_common(const char *name, int instance, int nthreads, pri_t pri,
 	 */
 	if (flags & TASKQ_NOINSTANCE) {
 		instance = tq->tq_instance =
-		    (int)(uintptr_t)vmem_alloc(taskq_id_arena, 1, VM_NOSLEEP /* VM_SLEEP */);
-		/* zfs-fuse : this allocation can't be done in VM_SLEEP while
-		 * umem is initialising and that's the case if you call a zpool
-		 * command without mounting any fs because of the new thread
-		 * handling in libsolkerncompat. Maybe there was not just a
-		 * taskq_init followed by a system_taskq_init to initialize
-		 * this, but for now that's all I found. */
+		    (int)(uintptr_t)vmem_alloc(taskq_id_arena, 1, VM_SLEEP);
 	}
 
 	if (flags & TASKQ_DYNAMIC) {
