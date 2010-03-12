@@ -787,7 +787,7 @@ taskq_init(void)
 	    0, taskq_constructor, taskq_destructor, NULL, NULL, NULL, 0);
 	taskq_id_arena = vmem_create("taskq_id_arena",
 	    (void *)1, INT32_MAX, 1, NULL, NULL, NULL, 0,
-	    VM_SLEEP | VMC_IDENTIFIER);
+	    VM_NOSLEEP | VMC_IDENTIFIER);
 
 	list_create(&taskq_cpupct_list, sizeof (taskq_cpupct_ent_t),
 	    offsetof(taskq_cpupct_ent_t, tp_link));
@@ -1703,7 +1703,7 @@ taskq_create_common(const char *name, int instance, int nthreads, pri_t pri,
 	 */
 	if (flags & TASKQ_NOINSTANCE) {
 		instance = tq->tq_instance =
-		    (int)(uintptr_t)vmem_alloc(taskq_id_arena, 1, VM_SLEEP);
+		    (int)(uintptr_t)vmem_alloc(taskq_id_arena, 1, VM_NOSLEEP);
 	}
 
 	if (flags & TASKQ_DYNAMIC) {
