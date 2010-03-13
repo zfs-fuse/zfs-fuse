@@ -2,7 +2,7 @@
 
 Name:          zfs-fuse
 Version:       0.6.0
-Release:       1
+Release:       8
 Summary:       The last word in filesystems
 License:       GPL
 Group:         System Environment/Daemons
@@ -62,13 +62,13 @@ Google Summer of Code 2006 initiative.
 
 %build
 cd src
-scons
+scons debug=0
 
 %install
 [ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] && rm -rf $RPM_BUILD_ROOT;
 mkdir -p $RPM_BUILD_ROOT%_sbindir
-mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/init.d $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig
-install -m755 contrib/%{name}.initd.fedora $RPM_BUILD_ROOT%{_sysconfdir}/init.d/%{name}
+mkdir -p $RPM_BUILD_ROOT%{_initrddir} $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig
+install -m755 contrib/%{name}.initd.fedora $RPM_BUILD_ROOT%{_initrddir}/%{name}
 install -m644 contrib/%{name}.sysconfig $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig/%{name}
 ln -s %{_sysconfdir}/init.d/%{name} $RPM_BUILD_ROOT%_sbindir/rc%{name}
 mkdir -p $RPM_BUILD_ROOT%{_mandir}/man8
@@ -83,7 +83,7 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir man_dir=$RPM_BUILD_ROOT%_mand
 %defattr(-,root,root)
 %doc BUGS CHANGES HACKING INSTALL LICENSE README README.NFS STATUS TESTING TODO
 %doc %{_mandir}/man8/*
-%{_sysconfdir}/init.d/%{name}
+%{_initrddir}/%{name}
 %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
 %_sbindir/rc%{name}
 %{_sbindir}/zdb
