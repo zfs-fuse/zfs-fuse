@@ -29,9 +29,9 @@
 . /etc/rc.d/init.d/functions
 
 prog="zfs-fuse"
-zfsfuse="/usr/bin/$prog"
-zfs="/usr/bin/zfs"
-zpool="/usr/bin/zfs"
+zfsfuse="/usr/sbin/$prog"
+zfs="/usr/sbin/zfs"
+zpool="/usr/sbin/zfs"
 config=/etc/sysconfig/$prog
 
 [ -e $config ] && . $config
