@@ -978,8 +978,8 @@ static int
 put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 {
 	char *packed = NULL;
+	int error = 0;
 	size_t size;
-	int error;
 
 	VERIFY(nvlist_size(nvl, &size, NV_ENCODE_NATIVE) == 0);
 
@@ -992,6 +992,7 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 		VERIFY(nvlist_pack(nvl, &packed, &size, NV_ENCODE_NATIVE,
 		    KM_SLEEP) == 0);
 		error = xcopyout(packed, (void *)(uintptr_t)zc->zc_nvlist_dst, size);
+		if (error != 0) error = EFAULT;
 		kmem_free(packed, size);
 		if (error)
 		  syslog(LOG_WARNING,"put_nvlist: error %s on xcopyout",strerror(error));
@@ -4475,6 +4476,8 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 	zc = kmem_zalloc(sizeof (zfs_cmd_t), KM_SLEEP);
 
 	error = xcopyin((void *)arg, zc, sizeof (zfs_cmd_t));
+	if (error != 0)
+		error = EFAULT;
 
 	if ((error == 0) && !(flag & FKIOCTL))
 		error = zfs_ioc_vec[vec].zvec_secpolicy(zc, cr);
@@ -4513,7 +4516,8 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 
 	rc = xcopyout(zc, (void *)arg, sizeof (zfs_cmd_t));
 	if (error == 0) {
-		error = rc;
+		if (rc != 0)
+			error = EFAULT;
 		if (zfs_ioc_vec[vec].zvec_his_log)
 			zfs_log_history(zc);
 	}
