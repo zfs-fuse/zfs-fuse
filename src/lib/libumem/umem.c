@@ -397,6 +397,7 @@
 #if HAVE_ATOMIC_H
 #include <atomic.h>
 #endif
+#include <syslog.h>
 
 #include "misc.h"
 
@@ -1020,7 +1021,7 @@ umem_alloc_retry(umem_cache_t *cp, int umflag)
 
 		(void) mutex_lock(&umem_nofail_exit_lock);
 		umem_nofail_exit_thr = thr_self();
-		printf("umem exiting from umem_alloc_retry\n");
+		syslog(LOG_ERR,"umem exiting from umem_alloc_retry\n");
 		exit(result & 0xFF);
 		/*NOTREACHED*/
 	}
