@@ -31,7 +31,7 @@ my @files = ();
 while (1) {
     / a\/(.+) /;  # /
     my $f1 = $1;
-    if ($f1 =~ /(\.py$|grub|mapfile-vers$|cmd\/[a-y]|lib\/libc\/|\/fs\/[a-y]|\/vdev_disk.c$|libdiskmgt\/|dumpsubr.c$|zinject|Makefile\.(com|files|lint)$|pkgdefs\/|llib-lzfs$|fsreparse\/|\/xattr\/|libreparse\/|lib(secdb|topo)|zut\/|io\/|smbsrv|common\/syscall)|(llib-lzpool|spa_boot.c)$|zoneadmd\/|tsol\/|src\/(head|Target)|uts\/common\/(disp|brand|os|sys\/class.h)|Makefile/) {
+    if ($f1 =~ /(\.py$|grub|mapfile-vers$|cmd\/[a-y]|lib\/libc\/|\/fs\/[a-y]|\/vdev_disk.c$|libdiskmgt\/|dumpsubr.c$|zinject|Makefile\.(com|files|lint)$|pkgdefs\/|llib-lzfs$|fsreparse\/|\/xattr\/|libreparse\/|lib(secdb|topo)|zut\/|io\/|smbsrv|common\/syscall)|(llib-lzpool|spa_boot.c)$|zoneadmd\/|tsol\/|src\/(head|Target)|uts\/common\/(disp|brand|os|sys\/class.h)|Makefile|sysdc.*h|startup.c|fth$/) {
 	print "skipping diff for $f1\n";
 	while (<>) {
 	    last if (/^diff/); # skip this diff
