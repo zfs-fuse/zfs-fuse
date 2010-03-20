@@ -29,8 +29,9 @@ if not debug:
 else:
 	env.Append(LINKFLAGS = ['-ggdb'])
 	env.Append(CCFLAGS = ['-ggdb'])
+# Be careful here, one of DEBUG or NDEBUG must be defined, if you undef both, you'll get unexpected results
 	if debug == 1:
-		env.Append(CCFLAGS = ['-O2'])
+		env.Append(CCFLAGS = Split('-O2 -DDEBUG'))
 	elif debug == 2:
 		env.Append(CCFLAGS = ['-DDEBUG'])
 	elif debug == 3:
