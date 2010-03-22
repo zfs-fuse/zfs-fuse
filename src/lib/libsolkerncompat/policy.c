@@ -47,7 +47,7 @@ int ngroups_max = 0;
 
 uid_t crgetuid(const cred_t *cr)
 {
-	return cr->cr_uid;
+	return (cr ? 0 : cr->cr_uid);
 }
 
 gid_t crgetgid(const cred_t *cr)
