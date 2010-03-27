@@ -140,6 +140,8 @@ typedef struct {
 
 		int32_t getf_req_fd;
 	} cmd_u __attribute__ ((aligned(8)));
+	uid_t uid;
+	gid_t gid;
 } zfsfuse_cmd_t __attribute__ ((aligned(8)));
 
 /*

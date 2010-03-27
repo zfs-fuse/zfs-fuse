@@ -40,14 +40,14 @@
 long pwd_buflen = 0;
 long grp_buflen = 0;
 
-cred_t st_kcred = { 0 };
+cred_t st_kcred = { 0,0 };
 cred_t *kcred = &st_kcred;
 
 int ngroups_max = 0;
 
 uid_t crgetuid(const cred_t *cr)
 {
-	return (cr ? cr->cr_uid : 0);
+	return cr->cr_uid;
 }
 
 gid_t crgetgid(const cred_t *cr)

@@ -144,6 +144,8 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 	cmd.cmd_type = IOCTL_REQ;
 	cmd.cmd_u.ioctl_req.cmd = request;
 	cmd.cmd_u.ioctl_req.arg = (uint64_t)(uintptr_t) arg;
+	cmd.uid = getuid();
+	cmd.gid = getgid();
 
 	if((ret=write(fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t)))
 		return -1;
