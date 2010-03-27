@@ -131,7 +131,9 @@ dsl_sync_task_group_nowait(dsl_sync_task_group_t *dstg, dmu_tx_t *tx)
 	uint64_t txg;
 
 	dstg->dstg_nowaiter = B_TRUE;
-	dstg->dstg_cr = NULL; /* it won't be valid by the time we sync */
+/* zfs-fuse : there is a thread difference here, we get this NULL pointer is crgetuid if
+we leave it here, so I will just prevent this from happening here ! */
+	/* dstg->dstg_cr = NULL; */ /* it won't be valid by the time we sync */
 	txg = dmu_tx_get_txg(tx);
 	VERIFY(0 == txg_list_add(&dstg->dstg_pool->dp_sync_tasks, dstg, txg));
 }
