@@ -1625,6 +1625,10 @@ dump_label(const char *dev)
 		exit(1);
 	}
 
+#if 0
+	/* zfs-fuse : zdb -l block-device is very convenient for zfs-fuse
+	 * and I don't know any other equivalent for now, so I'll keep this
+	 * for now */
 	if (S_ISBLK(statbuf.st_mode)) {
 		(void) printf("cannot use '%s': character device required\n",
 		    path);
@@ -1632,6 +1636,7 @@ dump_label(const char *dev)
 		(void) close(fd);
 		exit(1);
 	}
+#endif
 
 	psize = statbuf.st_size;
 	psize = P2ALIGN(psize, (uint64_t)sizeof (vdev_label_t));
