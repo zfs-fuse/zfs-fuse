@@ -3368,7 +3368,8 @@ share_mount(int op, int argc, char **argv)
 		rewind(mnttab_file);
 		while (getmntent(mnttab_file, &entry) == 0) {
 			if (strcmp(entry.mnt_fstype, MNTTYPE_ZFS) != 0 ||
-			    strchr(entry.mnt_special, '@') != NULL)
+			    strchr(entry.mnt_special, '@') != NULL ||
+			    strcmp(entry.mnt_special, "kstat") == 0) // avoid kstat
 				continue;
 
 			(void) printf("%-30s  %s\n", entry.mnt_special,
@@ -3497,6 +3498,8 @@ unshare_unmount_path(int op, char *path, int flags, boolean_t is_manual)
 		return (1);
 	}
 
+	if (!strcmp(entry.mnt_special,"kstat"))
+		return 1;
 	if ((zhp = zfs_open(g_zfs, entry.mnt_special,
 	    ZFS_TYPE_FILESYSTEM)) == NULL)
 		return (1);
@@ -3639,6 +3642,10 @@ unshare_unmount(int op, int argc, char **argv)
 
 			/* ignore non-ZFS entries */
 			if (strcmp(entry.mnt_fstype, MNTTYPE_ZFS) != 0)
+				continue;
+
+			/* Ignore kstat */
+			if (!strcmp(entry.mnt_special,"kstat"))
 				continue;
 
 			/* ignore snapshots */

@@ -43,6 +43,7 @@ static int cf_disable_block_cache = 0;
 static int cf_disable_page_cache = 0;
 extern void fuse_unmount_all(); // in fuse_listener.c
 static int cf_daemonize = 1;
+extern int no_kstat_mount; // kstat.c
 
 static void exit_handler(int sig)
 {
@@ -80,6 +81,11 @@ static struct option longopts[] = {
 	  0, /* has-arg */
 	  &cf_daemonize, /* flag */
 	  0 /* val */
+	},
+	{ "no-kstat-mount",
+	    0,
+	    &no_kstat_mount,
+	    1
 	},
 	{ "log-uberblocks",
 	    0,
@@ -155,8 +161,10 @@ void print_usage(int argc, char *argv[]) {
 		"Options:\n"
 		"  -p FILE, --pidfile FILE\n"
 		"			Store the process ID of ZFS in the specified file.\n"
-		"  --no-daemon -n\n"
+		"  --no-daemon, -n\n"
 		"			Do not daemonize ZFS.\n"
+		"  --no-kstat-mount\n"
+		"			Do not mount kstats in /zfs-kstat\n"
 		"  --disable-block-cache\n"
 		"			Enable direct I/O for disk operations. Completely\n"
 		"			disables caching reads and writes in the kernel\n"

@@ -86,4 +86,5 @@ void libsolkerncompat_exit()
 	kmem_cache_destroy(vnode_cache);
 
 	vfs_exit();
+	taskq_destroy(system_taskq);
 }
