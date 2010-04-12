@@ -220,6 +220,9 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		return EIO;
 	}
 
+	if (strstr(fuse_opts,"default_permissions"))
+	    vfs->fuse_attribute = FUSE_VFS_HAS_DEFAULT_PERM;
+
 	struct fuse_session *se = fuse_lowlevel_new(&args, &zfs_operations, sizeof(zfs_operations), vfs);
 	fuse_opt_free_args(&args);
 
