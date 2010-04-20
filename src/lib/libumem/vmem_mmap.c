@@ -41,6 +41,8 @@
 #endif
 
 #include <unistd.h>
+#include <syslog.h>
+#include <stdio.h>
 
 #include "vmem_base.h"
 
@@ -58,6 +60,35 @@ static size_t CHUNKSIZE;
 
 static vmem_t *mmap_heap;
 
+static int nb_mmap;
+
+void init_mmap() {
+    char buf[80];
+    FILE *f = fopen("/proc/sys/vm/max_map_count","r");
+    if (!f) {
+	syslog(LOG_WARNING,"/proc/sys/vm/max_map_count unreadable - no /proc ?");
+	return;
+    }
+    fgets(buf,80,f);
+    fclose(f);
+    nb_mmap = atoi(buf);
+    syslog(LOG_WARNING,"initial max_map_count %d",nb_mmap);
+}
+
+static void raise_mmap() {
+    if (!nb_mmap) return;
+    nb_mmap += 10000;
+    syslog(LOG_WARNING,"raising max_map_count to %d\n",nb_mmap);
+    FILE *f = fopen("/proc/sys/vm/max_map_count","w");
+    if (!f) {
+	syslog(LOG_WARNING,"could not write to /proc/sys/vm/max_map_count");
+	nb_mmap -= 10000;
+	return;
+    }
+    fprintf(f,"%d\n",nb_mmap);
+    fclose(f);
+}
+
 static void *
 vmem_mmap_alloc(vmem_t *src, size_t size, int vmflags)
 {
@@ -66,17 +97,22 @@ vmem_mmap_alloc(vmem_t *src, size_t size, int vmflags)
 
 	ret = vmem_alloc(src, size, vmflags);
 #ifndef _WIN32
-	if (ret != NULL
-		&&
-	    mmap(ret, size, ALLOC_PROT, ALLOC_FLAGS | MAP_FIXED, -1, 0) ==
-	    MAP_FAILED
-		) {
-		vmem_free(src, ret, size);
-		vmem_reap();
+	if (ret != NULL) {
+	    if (mmap(ret, size, ALLOC_PROT, ALLOC_FLAGS | MAP_FIXED, -1, 0) ==
+		    MAP_FAILED) {
+		raise_mmap();
+		if (mmap(ret, size, ALLOC_PROT, ALLOC_FLAGS | MAP_FIXED, -1, 0) ==
+			MAP_FAILED) {
+		    syslog(LOG_WARNING,
+			    "vmem_mmap_alloc: mmap still failing after raise_mmap");
+		    vmem_free(src, ret, size);
+		    vmem_reap();
 
-		ASSERT((vmflags & VM_NOSLEEP) == VM_NOSLEEP);
-		errno = old_errno;
-		return (NULL);
+		    ASSERT((vmflags & VM_NOSLEEP) == VM_NOSLEEP);
+		    errno = old_errno;
+		    return (NULL);
+		}
+	    }
 	}
 #endif
 
@@ -117,18 +153,29 @@ vmem_mmap_top_alloc(vmem_t *src, size_t size, int vmflags)
 	buf = VirtualAlloc(NULL, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 	if (buf == NULL) buf = MAP_FAILED;
 #else
-	buf = mmap(
+	int tries = 0;
+	do {
+	    tries++;
+	    buf = mmap(
 #ifdef MAP_ALIGN
-			(void *)CHUNKSIZE,
+		    (void *)CHUNKSIZE,
 #else
-			0,
+		    0,
 #endif
-			size, FREE_PROT, FREE_FLAGS
+		    size, FREE_PROT, FREE_FLAGS
 #ifdef MAP_ALIGN
-			| MAP_ALIGN
+		    | MAP_ALIGN
 #endif
-			, -1, 0);
+		    , -1, 0);
 #endif
+	    if (buf == MAP_FAILED) {
+		if (tries == 1)
+		    raise_mmap();
+		else
+		    syslog(LOG_WARNING,
+			    "vmem_mmap_top_alloc: mmap failed again after raising mmaps");
+	    }
+	} while (buf == MAP_FAILED && tries < 2);
 
 	if (buf != MAP_FAILED) {
 		ret = _vmem_extend_alloc(src, buf, size, size, vmflags);

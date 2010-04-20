@@ -357,6 +357,7 @@ static void read_cfg() {
 
 int main(int argc, char *argv[])
 {
+    init_mmap();
 	/* one sane default a day keeps GDB away - Rudd-O */
 	fuse_attr_timeout = 0.0;
 	fuse_entry_timeout = 0.0;

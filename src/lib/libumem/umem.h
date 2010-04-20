@@ -80,6 +80,8 @@ extern void *umem_cache_alloc(umem_cache_t *, int);
 extern void umem_cache_free(umem_cache_t *, void *);
 
 extern void umem_reap(void);
+// in vmem_mmap.c
+extern void init_mmap();
 
 #ifdef	__cplusplus
 }
