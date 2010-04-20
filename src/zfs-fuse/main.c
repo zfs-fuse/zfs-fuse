@@ -369,26 +369,12 @@ int main(int argc, char *argv[])
 	block_cache = cf_disable_block_cache ? 0 : 1;
 	page_cache = cf_disable_page_cache ? 0 : 1;
 
-	/* notice about caching mechanisms */
-	syslog(LOG_NOTICE,"caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
-
 	/* notice about ARC size */
 	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: " FU64 " MiB", max_arc_size>>20);
 	else 			syslog(LOG_NOTICE,"ARC caching: maximum ARC size: compiled-in default");
 
-	/* notice about FUSE caching tunables */
-	syslog(LOG_NOTICE, "FUSE caching: attribute timeout %f, entry timeout %f", fuse_attr_timeout, fuse_entry_timeout);
-
-	 /* notice about extra FUSE mount options */
-	if (strcmp(fuse_mount_options,"") != 0)
-		syslog(LOG_NOTICE,"FUSE mount options (appended to compiled-in options): %s", fuse_mount_options);
-	
 	if (!block_cache) /* direct IO enabled */
 		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
-	if (!page_cache) /* page cache defeated */
-		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
-	if (fuse_entry_timeout > 0.0) /* security bug! */
-		syslog(LOG_WARNING,"FUSE entry timeout > 0 -- expect insecure directory traversal");
 	if (cf_daemonize) {
 		do_daemon(cf_pidfile);
 	}

@@ -189,17 +189,11 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		return ENOMEM;
 	}
 	} else {
-	  syslog(LOG_NOTICE,"enabling fuse big_writes");
 	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec, real_opts) == -1) {
 	    VERIFY(do_umount(vfs, B_FALSE) == 0);
 	    return ENOMEM;
 	  }
 	}
-	
-	char *syslogbuf;
-	asprintf(&syslogbuf,"mount options: %s",fuse_opts);
-	syslog(LOG_NOTICE,syslogbuf);
-	free(syslogbuf);
 	
 	struct fuse_args args = FUSE_ARGS_INIT(0, NULL);
 

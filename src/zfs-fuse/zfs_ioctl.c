@@ -26,7 +26,6 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/errno.h>
-#include <syslog.h>
 #include <sys/uio.h>
 #include <sys/buf.h>
 #include <sys/modctl.h>
@@ -975,8 +974,6 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 
 	if (size > zc->zc_nvlist_dst_size) {
 		error = ENOMEM;
-		syslog(LOG_WARNING,"put_nvlist: out of memory %d > %d",(unsigned int)size,
-			 (unsigned int)zc->zc_nvlist_dst_size);
 	} else {
 		packed = kmem_alloc(size, KM_SLEEP);
 		VERIFY(nvlist_pack(nvl, &packed, &size, NV_ENCODE_NATIVE,
@@ -984,8 +981,6 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 		error = xcopyout(packed, (void *)(uintptr_t)zc->zc_nvlist_dst, size);
 		if (error != 0) error = EFAULT;
 		kmem_free(packed, size);
-		if (error)
-		  syslog(LOG_WARNING,"put_nvlist: error %s on xcopyout",strerror(error));
 	}
 
 	zc->zc_nvlist_dst_size = size;
