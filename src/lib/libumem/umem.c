@@ -1022,8 +1022,10 @@ umem_alloc_retry(umem_cache_t *cp, int umflag)
 		(void) mutex_lock(&umem_nofail_exit_lock);
 		umem_nofail_exit_thr = thr_self();
 		syslog(LOG_ERR,"umem exiting from umem_alloc_retry\n");
-		exit(result & 0xFF);
+		kill(getpid(),SIGTERM);
+		sleep(1); // in case the signal takes some time to execute...
 		/*NOTREACHED*/
+		exit(result & 0xFF);
 	}
 	return (0);
 }
