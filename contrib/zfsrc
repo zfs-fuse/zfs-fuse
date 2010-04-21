@@ -5,13 +5,13 @@ vdev-cache-size = 10
 
 # Maximum arc size : this is the main cache for zfs in Mb
 # default size : 128 Mb, minimum size : 16 Mb
-max-arc-size = 100
+# Notice that arc is also used for the hash tables if you use the dedup option
+max-arc-size = 300
 
 # zfs-prefetch-disable : disable zfs high level prefetch cache.
-# Since enabling the cache can eat as much as 150 Mb of ram, it's probably
-# better to leave it disabled for now. You will loose some speed while reading
-# big files, but you will save a lot of ram
-zfs-prefetch-disable
+# This setting can eat as much as 150 Mb of ram, so uncomment if you want
+# to save some ram and are ready to loose a little speed.
+# zfs-prefetch-disable
 
 # disable-block-cache : uncomment this to enable direct i/o and disable the
 # kernel block cache. It's not adviced to do this unless you want to test
@@ -25,22 +25,22 @@ zfs-prefetch-disable
 
 # fuse-*-timeout : sets timeout for caching fuse attributes in kernel (in
 # seconds)
-# Default is 0 (safe). Setting this to higher values can lead to a slightly
-# better speed to access attributes but it could also create problems when
-# checking file attributes (security). Test at your own risk
-# Having a value > 0 gives a huge performance boost for things like compilation
-# which does a lot of lookups. So setting these to 1 is a reasonable compromise
-# you will fail some conformance tests with this value, but will gain some
-# very significant performance.
-fuse-attr-timeout = 1
-fuse-entry-timeout = 1
+# These 2 values have a big impact on performance for small io operations
+# There are 3 possibilities :
+# 1)	if you use fuese-mount-options=default_permissions then you can set these
+#	2 as high as you want (that's the case here). It's probably the best option.
+# 2)	Otherwise if you still want to keep posix file permissions without loosing too
+#	much speed, set these 2 to at least 1s.
+# 3)	Last case : you want perfect posix conformance, wihtout default_permissions, in
+#	this case set these to 0, but be ready to loose quite some speed !
+# Default is to use default_permissions, so these as high as you want.
+fuse-attr-timeout = 3600
+fuse-entry-timeout = 3600
 
 # fuse-mount-options : supplemental fuse mount options for the zfs volumes.
 # fuse mount options which are always passed include :
 # allow_other,suid,dev
 # and big_writes if you are using fuse >= 2.8.
-# See fuse documentation if you want to pass more options (passing a bad
-# option here might make mounting of zfs volumes impossible while the
-# option stays here).
-# fuse-mount-options =
+# Now default_permissions has a special handling and is adviced as a default option.
+fuse-mount-options = default_permissions
 
