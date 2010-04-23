@@ -729,6 +729,7 @@ dmu_objset_destroy(const char *name, boolean_t defer)
 	 * structure.  Only the ZIL knows how to free them, so we have
 	 * to call into it here.
 	 */
+	sync();
 	error = dsl_dataset_own(name, B_TRUE, FTAG, &ds);
 	if (error == 0) {
 		objset_t *os;
