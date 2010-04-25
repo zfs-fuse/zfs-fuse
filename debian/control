@@ -1,0 +1,20 @@
+Source: zfs-fuse
+Section: otherosfs
+Priority: optional
+Maintainer: Sebastien Delafond <seb@debian.org>
+Uploaders: Mike Hommey <glandium@debian.org>
+Build-Depends: debhelper (>= 6), scons, libfuse-dev (>= 2.8.1), zlib1g-dev, xsltproc, docbook-xsl, libaio-dev
+Standards-Version: 3.8.4
+Homepage: http://zfs-fuse.net
+
+Package: zfs-fuse
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, fuse-utils, lsb-base
+Description: ZFS on FUSE
+ ZFS is an advanced filesystem from Sun Microsystems, originally developed
+ for solaris. It provides a number of advanced features, such as live
+ integrity checks, atomic updates, atomic snapshots and clones, compression,
+ and much more.
+ .
+ This package provides an implementation of Sun's ZFS filesystem in userspace,
+ using FUSE.
