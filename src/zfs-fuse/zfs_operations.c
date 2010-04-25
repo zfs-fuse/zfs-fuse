@@ -72,12 +72,8 @@ static void zfsfuse_destroy(void *userdata)
 {
 	vfs_t *vfs = (vfs_t *) userdata;
 
-	struct timespec req;
-	req.tv_sec = 0;
-	req.tv_nsec = 100000000; /* 100 ms */
-
 #ifdef DEBUG
-	fprintf(stderr, "Calling do_umount()...\n");
+	fprintf(stderr, "Calling do_umount()... force %d\n",exit_fuse_listener);
 #endif
 	/*
 	 * If exit_fuse_listener is true, then we received a signal
