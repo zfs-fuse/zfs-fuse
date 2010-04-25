@@ -461,9 +461,85 @@ extern "C" {
 #error	"unknown SPARC version"
 #endif
 
+#elif defined(__powerpc) || defined(__powerpc__) ||\
+      defined(__powerpc64) || defined(__powerpc64__)
+
+#if defined(__powerpc__) && !defined(__powerpc)
+#define __powerpc
+#endif
+
+#if defined(__powerpc64__) && !defined(__powerpc64)
+#define __powerpc64
+#endif
+
+/*
+ * Next defines common features between 32 and 64 bit PowerPC
+ */
+#ifndef _BIG_ENDIAN
+#define _BIG_ENDIAN
+#endif
+#define _STACK_GROWS_DOWNWARD
+#define _LONG_LONG_HTOL
+#define _BIT_FIELDS_HTOL
+#define _IEEE_754
+#define _CHAR_IS_UNSIGNED
+#define _BOOL_ALIGNMENT                        1
+#define _CHAR_ALIGNMENT                        1
+#define _SHORT_ALIGNMENT               2
+#define _INT_ALIGNMENT                 4
+#define _FLOAT_ALIGNMENT               4
+#define _FLOAT_COMPLEX_ALIGNMENT       4
+#define _LONG_LONG_ALIGNMENT           8
+#define _DOUBLE_ALIGNMENT              8
+#define _LONG_DOUBLE_ALIGNMENT         16
+#define _DOUBLE_COMPLEX_ALIGNMENT      8
+#define _ALIGNMENT_REQUIRED            1
+
+/*
+ * Define the appropriate "implementation choices".
+ */
+#define _SUNOS_VTOC_8
+#define _DMA_USES_PHYSADDR
+#define _FIRMWARE_NEEDS_FDISK
+#define _CONSOLE_OUTPUT_VIA_FIRMWARE
+
+#if defined(__powerpc64)
+/*
+ * Define the appropriate "processor characteristics" for PowerPC 64 bit
+ */
+#define _LONG_ALIGNMENT                        8
+#define _POINTER_ALIGNMENT             8
+
+/*
+ * Define the appropriate "implementation choices" for PowerPC 64 bit
+ */
+#define _LP64
+#if !defined(_I32LPx)
+#define _I32LPx
+#endif
+#define _MULTI_DATAMODEL
+
+#else
+/*
+ * Define the appropriate "processor characteristics" for PowerPC 32 bit
+ */
+#define _LONG_ALIGNMENT                 4
+#define _POINTER_ALIGNMENT             4
+
+/*
+ * Define the appropriate "implementation choices" for PowerPC 32 bit
+ */
+
+#define _ILP32
+#if !defined(_I32LPx) && defined(_KERNEL)
+#define _I32LPx
+#endif
+
+#endif
+
 /*
  * #error is strictly ansi-C, but works as well as anything for K&R systems.
- */
+ *  */
 #else
 #error "ISA not supported"
 #endif

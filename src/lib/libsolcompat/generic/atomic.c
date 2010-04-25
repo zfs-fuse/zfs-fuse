@@ -121,6 +121,17 @@ atomic_inc_32_nv(volatile uint32_t *target)
 	return (newval);
 }
 
+uint32_t
+atomic_dec_32_nv(volatile uint32_t *target)
+{
+	uint32_t newval;
+
+	pthread_mutex_lock(&atomic_mtx);
+	newval = (*target -= 1);
+	pthread_mutex_unlock(&atomic_mtx);
+	return (newval);
+}
+
 void *
 atomic_cas_ptr(volatile void *target, void *cmp,  void *newval)
 {

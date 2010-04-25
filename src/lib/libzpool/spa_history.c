@@ -33,6 +33,15 @@
 #include <sys/utsname.h>
 #include <sys/cmn_err.h>
 #include <sys/sunddi.h>
+
+#if (__powerpc) || defined(__powerpc__) ||\
+      defined(__powerpc64) || defined(__powerpc64__)
+/* There is a bug somewhere in spa_log_history on powerpc.
+ * Don't have the time to investigate the problem for now, this is a work
+ * around (disable history) */
+#undef _KERNEL
+#endif
+
 #ifdef _KERNEL
 #include <sys/zone.h>
 #endif

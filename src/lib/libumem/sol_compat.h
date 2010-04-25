@@ -114,6 +114,58 @@ static INLINE int thr_create(void *stack_base,
 # ifdef _WIN32
 #  define ec_atomic_inc(a)		InterlockedIncrement(a)
 #  define ec_atomic_inc64(a)    InterlockedIncrement64(a)
+#elif defined(__powerpc) || defined(__powerpc__) ||\
+      defined(__powerpc64) || defined(__powerpc64__)
+
+/* This code comes from
+ *  http://www.mulle-kybernetik.com/artikel/Optimization/opti-4-atomic.html
+ */
+//
+// This increments atomically. It will return the value
+// after increment
+//
+static inline int   MulleAtomicIncrement( int *p)
+{
+   int    tmp;
+
+   // code lifted from linux
+   asm volatile(
+                "1:     lwarx   %0,0,%1\n"
+                " addic   %0,%0,1\n"
+                " stwcx.  %0,0,%1\n"
+                " bne-    1b"
+                : "=&r" (tmp)
+                : "r" (p)
+                : "cc", "memory");
+
+   return( tmp);
+}
+
+#define ec_atomic_inc(a) MulleAtomicIncrement(a)
+
+//
+// This decrements atomically. It will return the value
+// after decrement
+//
+static inline int   MulleAtomicDecrement( int *p)
+{
+   int    tmp;
+
+   // code lifted from linux
+   asm volatile(
+                "1:     lwarx   %0,0,%1\n"
+                " addic   %0,%0,-1\n"  // addic allows r0, addi doesn't 
+                " stwcx.  %0,0,%1\n"
+                " bne-    1b"
+                : "=&r" (tmp)
+                : "r" (p)
+                : "cc", "memory");
+
+   return( tmp);
+}
+
+#define atomic_dec_32_nv(a) MulleAtomicDecrement(a)
+
 # elif (defined(__i386__) || defined(__x86_64__)) && defined(__GNUC__)
 static INLINE uint_t ec_atomic_cas(uint_t *mem, uint_t with, uint_t cmp)
 {
