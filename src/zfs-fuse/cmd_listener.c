@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fuse/fuse.h>
+#include <syslog.h>
 
 #include "zfs_ioctl.h"
 #include "zfsfuse_socket.h"
@@ -40,6 +41,7 @@
 #define MAX_CONNECTIONS 100
 
 boolean_t exit_listener = B_FALSE;
+static int nthreads;
 
 typedef struct {
     int socket;
@@ -90,11 +92,12 @@ static void * cmd_ioctl_thread(void *arg)
     dev_t dev = {0};
 
     cred_t cr;
+    cr.cr_uid = cmd->uid;
+    cr.cr_gid = cmd->gid;
+    cr.req = NULL;
+    nthreads++;
     int ret;
     do {
-	cr.cr_uid = cmd->uid;
-	cr.cr_gid = cmd->gid;
-	cr.req = NULL;
 	if (cmd->cmd_type == MOUNT_REQ) {
 	    if(cmd_mount_req(cur_fd, cmd) != 0)
 		break;
@@ -108,6 +111,7 @@ static void * cmd_ioctl_thread(void *arg)
     free(cmd);
     close(cur_fd);
     cur_fd = -1;
+    nthreads--;
     return NULL;
 }
 
@@ -223,6 +227,11 @@ void *listener_loop(void *arg)
 			write_ptr++;
 		}
 		nfds = write_ptr;
+	}
+
+	while (nthreads) {
+	    syslog(LOG_WARNING,"cmd_listener: waiting for threads to exit");
+	    sleep(1);
 	}
 
 	return NULL;
