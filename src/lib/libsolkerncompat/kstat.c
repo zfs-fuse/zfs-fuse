@@ -39,6 +39,8 @@
 #include <fuse/fuse_lowlevel.h>
 #include "format.h"
 #include <errno.h>
+#include <syslog.h>
+#include <sys/mount.h>
 
 int no_kstat_mount; // used in main.c as argument for zfs-fuse
 struct dir_s;
@@ -403,26 +405,35 @@ static void mount_kstat() {
 	    fuse_opt_add_arg(&args, "-o") == -1 ||
 	    fuse_opt_add_arg(&args, my_arg) == -1) {
 	fuse_opt_free_args(&args);
+	syslog(LOG_WARNING,"kstat: problem in passing arguments to fuse!");
 	return;
     }
 
-    ch = fuse_mount(mntdir, &args);
-    if (ch != NULL) {
-	struct fuse_session *se;
+    int tries = 0;
+    do {
+	tries++;
+	ch = fuse_mount(mntdir, &args);
+	if (ch != NULL) {
+	    struct fuse_session *se;
 
-	se = fuse_lowlevel_new(&args, &kstat_ll_oper,
-		sizeof(kstat_ll_oper), NULL);
-	if (se != NULL) {
-	    fuse_session_add_chan(se, ch);
-	    if(zfsfuse_newfs(mntdir, ch) != 0) {
-		fuse_session_destroy(se);
-		fuse_unmount(mntdir,ch);
-		fuse_opt_free_args(&args);
-		return;
-	    }
-	    mounted = 1;
+	    se = fuse_lowlevel_new(&args, &kstat_ll_oper,
+		    sizeof(kstat_ll_oper), NULL);
+	    if (se != NULL) {
+		fuse_session_add_chan(se, ch);
+		if(zfsfuse_newfs(mntdir, ch) != 0) {
+		    fuse_session_destroy(se);
+		    fuse_unmount(mntdir,ch);
+		    fuse_opt_free_args(&args);
+		    return;
+		}
+		mounted = 1;
+	    } else
+		syslog(LOG_WARNING,"kstat: session creation error");
+	} else {
+	    syslog(LOG_WARNING,"kstat: fuse_mount error - trying to umount");
+	    umount(mntdir);
 	}
-    }
+    } while (ch == NULL && tries < 3);
     fuse_opt_free_args(&args);
 
     return;
