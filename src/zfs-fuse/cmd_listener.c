@@ -41,20 +41,10 @@
 
 boolean_t exit_listener = B_FALSE;
 
-static int cmd_ioctl_req(int sock, zfsfuse_cmd_t *cmd)
-{
-	dev_t dev = {0};
-
-	cur_fd = sock;
-	cred_t cr;
-	cr.cr_uid = cmd->uid;
-	cr.cr_gid = cmd->gid;
-	cr.req = NULL;
-	int ioctl_ret = zfsdev_ioctl(dev, cmd->cmd_u.ioctl_req.cmd, (uintptr_t) cmd->cmd_u.ioctl_req.arg, 0, &cr, NULL);
-	cur_fd = -1;
-
-	return zfsfuse_socket_ioctl_write(sock, ioctl_ret);
-}
+typedef struct {
+    int socket;
+    zfsfuse_cmd_t *cmd;
+} thread_init_t;
 
 int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 {
@@ -92,11 +82,53 @@ int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 	return error ? -1 : 0;
 }
 
+static void * cmd_ioctl_thread(void *arg)
+{
+    thread_init_t *init = (thread_init_t *)arg;
+    cur_fd = init->socket;
+    zfsfuse_cmd_t *cmd = init->cmd;
+    dev_t dev = {0};
+
+    cred_t cr;
+    int ret;
+    do {
+	cr.cr_uid = cmd->uid;
+	cr.cr_gid = cmd->gid;
+	cr.req = NULL;
+	if (cmd->cmd_type == MOUNT_REQ) {
+	    if(cmd_mount_req(cur_fd, cmd) != 0)
+		break;
+	} else {
+	    int ioctl_ret = zfsdev_ioctl(dev, cmd->cmd_u.ioctl_req.cmd, (uintptr_t) cmd->cmd_u.ioctl_req.arg, 0, &cr, NULL);
+
+	    zfsfuse_socket_ioctl_write(cur_fd, ioctl_ret);
+	}
+	ret = zfsfuse_socket_read_loop(cur_fd, cmd, sizeof(zfsfuse_cmd_t));
+    } while (ret != -1);
+    free(cmd);
+    close(cur_fd);
+    cur_fd = -1;
+    return NULL;
+}
+
+static void start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
+    static thread_init_t init;
+    init.socket = sock;
+    init.cmd = malloc(sizeof(zfsfuse_cmd_t));
+    memcpy(init.cmd,cmd,sizeof(zfsfuse_cmd_t));
+    pthread_t ioctl_thread;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
+    if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) &init) != 0) 
+	cmn_err(CE_WARN, "Error creating ioctl thread.");
+}
+
 void *listener_loop(void *arg)
 {
 	int *ioctl_fd = (int *) arg;
-
 	struct pollfd fds[MAX_CONNECTIONS];
+
 
 	fds[0].fd = *ioctl_fd;
 	fds[0].events = POLLIN;
@@ -161,12 +193,12 @@ void *listener_loop(void *arg)
 
 				switch(cmd.cmd_type) {
 					case IOCTL_REQ:
-						if(cmd_ioctl_req(sock, &cmd) != 0) {
-							close(sock);
-							fds[i].fd = -1;
-							continue;
-						}
-						break;
+						start_ioctl_thread(sock, &cmd);
+						/* socket is now handled by
+						 * thread and can be removed
+						 * from the list */
+						fds[i].fd = -1;
+						continue;
 					case MOUNT_REQ:
 						if(cmd_mount_req(sock, &cmd) != 0) {
 							close(sock);
