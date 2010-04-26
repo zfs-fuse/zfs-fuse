@@ -312,11 +312,14 @@ static void *zfsfuse_listener_loop(void *arg)
 	return NULL;
 }
 
+extern size_t stack_size;
+
 int zfsfuse_listener_start()
 {
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
-	pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
+	if (stack_size)
+	    pthread_attr_setstacksize(&attr,stack_size);
 	for(int i = 0; i < NUM_THREADS; i++)
 		VERIFY(pthread_create(&fuse_threads[i], &attr, zfsfuse_listener_loop, NULL) == 0);
 

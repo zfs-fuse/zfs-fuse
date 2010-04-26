@@ -75,6 +75,7 @@ extern int optind, opterr, optopt;
 extern int zfs_vdev_cache_size; // in lib/libzpool/vdev_cache.c
 extern int zfs_prefetch_disable; // lib/libzpool/dmu_zfetch.c
 extern int arg_log_uberblocks, arg_min_uberblock_txg; // uberblock.c
+size_t stack_size = 0;
 
 static struct option longopts[] = {
 	{ "no-daemon",
@@ -147,6 +148,11 @@ static struct option longopts[] = {
 	  NULL,
 	  'h'
 	},
+	{ "stack-size",
+	    1,
+	    NULL,
+	    's'
+	},
 	{ 0, 0, 0, 0 }
 };
 
@@ -197,6 +203,9 @@ void print_usage(int argc, char *argv[]) {
 		"  --zfs-prefetch-disable\n"
 		"			Disable the high level prefetch cache in zfs.\n"
 		"			This thing can eat up to 150 Mb of ram, maybe more\n"
+		"  --stack-size=size\n"
+		"			Limit the stack size of threads (in kb).\n"
+		"			default : no limit (8 Mb for linux)\n"
 		"  -h, --help\n"
 		"			Show this usage summary.\n"
 		, progname);
@@ -220,7 +229,7 @@ static void parse_args(int argc, char *argv[])
 
 	optind = 0;
 	optarg = NULL;
-	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:no:u:v:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:no:u:v:s:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -288,6 +297,11 @@ static void parse_args(int argc, char *argv[])
 			case 'v':
 				check_opt(progname,"-v");
 				zfs_vdev_cache_size = strtol(optarg,&detecterror,10)<<20;
+				break;
+			case 's':
+				check_opt(progname,"-s");
+				stack_size=strtoul(optarg,&detecterror,10)<<10;
+				syslog(LOG_WARNING,"stack size for threads %d",stack_size);
 				break;
 			case 0:
 				break; /* flag is not NULL */

@@ -115,6 +115,8 @@ static void * cmd_ioctl_thread(void *arg)
     return NULL;
 }
 
+extern size_t stack_size;
+
 static void start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
     static thread_init_t init;
     init.socket = sock;
@@ -123,7 +125,8 @@ static void start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
     pthread_t ioctl_thread;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
+    if (stack_size)
+	pthread_attr_setstacksize(&attr,stack_size);
     if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) &init) != 0) 
 	cmn_err(CE_WARN, "Error creating ioctl thread.");
 }

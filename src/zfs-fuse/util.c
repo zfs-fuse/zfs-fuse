@@ -87,6 +87,8 @@ void do_daemon(const char *pidfile)
 	}
 }
 
+extern size_t stack_size;
+
 int do_init()
 {
 	libsolkerncompat_init();
@@ -101,7 +103,8 @@ int do_init()
 
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
-	pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
+	if (stack_size)
+	    pthread_attr_setstacksize(&attr,stack_size);
 	if(pthread_create(&listener_thread, &attr, listener_loop, (void *) &ioctl_fd) != 0) {
 		cmn_err(CE_WARN, "Error creating listener thread.");
 		return -1;
