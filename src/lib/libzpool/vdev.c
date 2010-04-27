@@ -2845,6 +2845,10 @@ vdev_propagate_state(vdev_t *vd)
 		vdev_propagate_state(vd->vdev_parent);
 }
 
+static char old_name[MAXNAMELEN];
+static time_t old_time;
+static vdev_state_t old_state;
+
 /*
  * Set a vdev's state.  If this is during an open, we don't update the parent
  * state, because we're in the process of opening children depth-first.
@@ -2977,6 +2981,29 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 
 	if (!isopen && vd->vdev_parent)
 		vdev_propagate_state(vd->vdev_parent);
+	if ((state == VDEV_STATE_HEALTHY && save_state == VDEV_STATE_DEGRADED)
+		|| (state == VDEV_STATE_DEGRADED &&
+		    save_state == VDEV_STATE_HEALTHY)) {
+	    char cmd[2048];
+	    spa_t *top;
+	    if (vd->vdev_top)
+		top = vd->vdev_top->vdev_spa;
+	    else
+		top = vd->vdev_spa;
+	    time_t mytime = time(NULL);
+	    if (mytime - old_time < 30 && !strcmp(top->spa_name,old_name) &&
+		    old_state == state) {
+		/* Already got the same alert for this pool less than 30s ago */
+		return;
+	    }
+	    if (strcasecmp(top->spa_name,"$import")) {
+		snprintf(cmd,2048,"zfs_pool_alert %s &",top->spa_name);
+		system(cmd);
+	    }
+	    old_time = mytime;
+	    strcpy(old_name,top->spa_name);
+	    old_state = state;
+	}
 }
 
 /*

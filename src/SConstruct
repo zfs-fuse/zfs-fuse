@@ -97,6 +97,7 @@ env.Install(install_dir, 'cmd/zpool/zpool')
 env.Install(install_dir, 'cmd/zfs/zfs')
 env.Install(install_dir, 'zfs-fuse/zfs-fuse')
 env.Install(install_dir, 'cmd/zstreamdump/zstreamdump')
+env.Install(install_dir, '../contrib/zfs_pool_alert')
 
 env.Install(man_dir, '../doc/zdb.8.gz')
 env.Install(man_dir, '../doc/zfs.8.gz')
