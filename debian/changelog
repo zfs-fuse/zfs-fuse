@@ -1,3 +1,9 @@
+zfs-fuse (0.6.0+critical20100301-3) unstable; urgency=low
+
+  * Disable debug mode, per http://zfs-fuse.net/issues/33 (LP: #538847).
+
+ -- Sebastien Delafond <seb@debian.org>  Tue, 27 Apr 2010 13:59:45 +0200
+
 zfs-fuse (0.6.0+critical20100301-2) unstable; urgency=low
 
   * Updated Homepage: field, and removed incorrect Vcs-*: info, from

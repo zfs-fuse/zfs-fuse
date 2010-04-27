@@ -17,7 +17,7 @@ build-stamp:
 	dh_testdir
 
 	# Add here commands to compile the package.
-	scons -C src
+	scons -C src debug=0
 	xsltproc --nonet /usr/share/sgml/docbook/stylesheet/xsl/nwalsh/manpages/docbook.xsl debian/zfs-fuse.man.xml
 
 	touch $@
@@ -42,7 +42,7 @@ install: build
 	dh_installdirs
 
 	# Add here commands to install the package into debian/zfs-fuse.
-	scons -C src install_dir=$(CURDIR)/debian/zfs-fuse/sbin install
+	scons -C src debug=0 install_dir=$(CURDIR)/debian/zfs-fuse/sbin install
 
 # Build architecture-independent files here.
 binary-indep: build install
