@@ -2881,6 +2881,28 @@ zpool_state_to_name(vdev_state_t state, vdev_aux_t aux)
 	return (gettext("UNKNOWN"));
 }
 
+static int vdev_check_children(vdev_t *vd) {
+    /* Check 1st that it's not just because of an offline vdev :
+     * browse the children looking for 1 which in a state !=
+     * online && offline, check recursively */
+    int n;
+    int found = 0;
+    for (n=0; n<vd->vdev_children; n++) {
+	if (vd->vdev_child[n]->vdev_children) {
+	    found = vdev_check_children(vd->vdev_child[n]);
+	    if (found)
+		break;
+	} else {
+	    vdev_state_t st = vd->vdev_child[n]->vdev_state;
+	    if (st != VDEV_STATE_HEALTHY && st != VDEV_STATE_OFFLINE) {
+		found = 1;
+		break;
+	    }
+	}
+    }
+    return found;
+}
+
 /*
  * Set a vdev's state.  If this is during an open, we don't update the parent
  * state, because we're in the process of opening children depth-first.
@@ -3027,6 +3049,11 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 		    old_state == state) {
 		/* Already got the same alert for this pool less than 30s ago */
 		return;
+	    }
+	    if (state == VDEV_STATE_DEGRADED) {
+		int found = vdev_check_children(vd);
+		if (!found)
+		    return; // nothing of interest here
 	    }
 	    if (strcasecmp(top->spa_name,"$import")) {
 		snprintf(cmd,2048,"/etc/zfs/zfs_pool_alert %s &",top->spa_name);
