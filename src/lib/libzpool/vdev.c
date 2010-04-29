@@ -40,6 +40,8 @@
 #include <sys/fs/zfs.h>
 #include <sys/arc.h>
 #include <sys/zil.h>
+#include <syslog.h>
+#include <libintl.h>
 
 /*
  * Virtual device management.
@@ -2849,6 +2851,36 @@ static char old_name[MAXNAMELEN];
 static time_t old_time;
 static vdev_state_t old_state;
 
+/* This zpool_state_to_name is a copy of the one from libzfs.
+ * taken from user land, in zfs-fuse we don't have all these problems to
+ * communicate between the 2... ! */
+static char *
+zpool_state_to_name(vdev_state_t state, vdev_aux_t aux)
+{
+	switch (state) {
+	case VDEV_STATE_CLOSED:
+	case VDEV_STATE_OFFLINE:
+		return (gettext("OFFLINE"));
+	case VDEV_STATE_REMOVED:
+		return (gettext("REMOVED"));
+	case VDEV_STATE_CANT_OPEN:
+		if (aux == VDEV_AUX_CORRUPT_DATA || aux == VDEV_AUX_BAD_LOG)
+			return (gettext("FAULTED"));
+		else if (aux == VDEV_AUX_SPLIT_POOL)
+			return (gettext("SPLIT"));
+		else
+			return (gettext("UNAVAIL"));
+	case VDEV_STATE_FAULTED:
+		return (gettext("FAULTED"));
+	case VDEV_STATE_DEGRADED:
+		return (gettext("DEGRADED"));
+	case VDEV_STATE_HEALTHY:
+		return (gettext("ONLINE"));
+	}
+
+	return (gettext("UNKNOWN"));
+}
+
 /*
  * Set a vdev's state.  If this is during an open, we don't update the parent
  * state, because we're in the process of opening children depth-first.
@@ -2860,7 +2892,7 @@ static vdev_state_t old_state;
 void
 vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 {
-	uint64_t save_state;
+	vdev_state_t save_state;
 	spa_t *spa = vd->vdev_spa;
 
 	if (state == vd->vdev_state) {
@@ -2997,8 +3029,16 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 		return;
 	    }
 	    if (strcasecmp(top->spa_name,"$import")) {
-		snprintf(cmd,2048,"zfs_pool_alert %s &",top->spa_name);
-		system(cmd);
+		snprintf(cmd,2048,"/etc/zfs/zfs_pool_alert %s &",top->spa_name);
+		syslog(LOG_WARNING,"running zfs_pool_alert for pool %s, status %s prev status %s",top->spa_name,zpool_state_to_name(state,save_state),
+			zpool_state_to_name(save_state,state));
+		int ret = system(cmd);
+		if (ret == -1) 
+		    syslog(LOG_WARNING,"fork failed for zfs_pool_alert");
+		/* We won't get the return code of the actual command since
+		 * it's executed in the background. So if the fork worked
+		 * then this is the job of the zfs_pool_alert to track
+		 * error conditions */
 	    }
 	    old_time = mytime;
 	    strcpy(old_name,top->spa_name);

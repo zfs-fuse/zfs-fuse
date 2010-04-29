@@ -7,6 +7,7 @@ import os, sys, re
 
 install_dir = ARGUMENTS.get('install_dir', '/usr/local/sbin')
 man_dir = ARGUMENTS.get('man_dir', '/usr/local/share/man/man8/')
+cfg_dir = ARGUMENTS.get('cfg_dir', '/etc/zfs')
 
 env = Environment()
 
@@ -97,7 +98,7 @@ env.Install(install_dir, 'cmd/zpool/zpool')
 env.Install(install_dir, 'cmd/zfs/zfs')
 env.Install(install_dir, 'zfs-fuse/zfs-fuse')
 env.Install(install_dir, 'cmd/zstreamdump/zstreamdump')
-env.Install(install_dir, '../contrib/zfs_pool_alert')
+env.Install(cfg_dir, '../contrib/zfs_pool_alert')
 
 env.Install(man_dir, '../doc/zdb.8.gz')
 env.Install(man_dir, '../doc/zfs.8.gz')
@@ -108,4 +109,4 @@ if "tags" in sys.argv:
     print "updating tags..."
     os.system("ctags --extra=+f `find -name '*.c'` `find -name '*.h'`")
 
-env.Alias('install', [install_dir, man_dir])
+env.Alias('install', [install_dir, man_dir, cfg_dir])
