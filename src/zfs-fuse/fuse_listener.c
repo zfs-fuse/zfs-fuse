@@ -155,11 +155,7 @@ static void new_fs()
 	 */
 	VERIFY(fd_read_loop(fds[0].fd, &fs, sizeof(fuse_fs_info_t)) == 0);
 
-	char *mntpoint = malloc(fs.mntlen + 1);
-	if(mntpoint == NULL) {
-		fprintf(stderr, "Warning: out of memory!\n");
-		return;
-	}
+	char *mntpoint = kmem_alloc(fs.mntlen + 1,KM_SLEEP);
 
 	VERIFY(fd_read_loop(fds[0].fd, mntpoint, fs.mntlen) == 0);
 
@@ -168,7 +164,7 @@ static void new_fs()
 	if(nfds == MAX_FDS) {
 		fprintf(stderr, "Warning: filesystem limit (%i) reached, unmounting..\n", MAX_FILESYSTEMS);
 		fuse_unmount(mntpoint,fs.ch);
-		free(mntpoint);
+		kmem_free(mntpoint,fs.mntlen+1);
 		return;
 	}
 
@@ -201,7 +197,7 @@ static void destroy_fs(int i)
 	fsinfo[i].se = NULL;
 	close(fds[i].fd);
 	fds[i].fd = -1;
-	free(mountpoints[i]);
+	kmem_free(mountpoints[i],fsinfo[i].mntlen+1);
     }
     VERIFY(pthread_mutex_unlock(&des_mtx) == 0);
 }
@@ -350,7 +346,7 @@ void fuse_unmount_all() {
 	fuse_unmount(mountpoints[i],fsinfo[i].ch);
 	close(fds[i].fd);
 	fds[i].fd = -1;
-	free(mountpoints[i]);
+	kmem_free(mountpoints[i],fsinfo[i].mntlen+1);
 
     }
     VERIFY(pthread_mutex_unlock(&des_mtx) == 0);

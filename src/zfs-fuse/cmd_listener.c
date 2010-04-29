@@ -54,34 +54,31 @@ int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 	uint32_t dirlen = cmd->cmd_u.mount_req.dirlen;
 	int32_t optlen = cmd->cmd_u.mount_req.optlen;
 
-	char *spec = malloc(speclen + 1);
-	char *dir = malloc(dirlen + 1);
-	char *opt = malloc(optlen + 1);
+	char *spec = kmem_alloc(speclen + 1,KM_SLEEP);
+	char *dir = kmem_alloc(dirlen + 1,KM_SLEEP);
+	char *opt = kmem_alloc(optlen + 1,KM_SLEEP);
 
-	boolean_t error = spec == NULL || dir == NULL || opt == NULL;
+	int ret = 0; // no error
 
-	if(!error && zfsfuse_socket_read_loop(sock, spec, speclen) == -1)
-		error = B_TRUE;
-	if(!error && zfsfuse_socket_read_loop(sock, dir, dirlen) == -1)
-		error = B_TRUE;
-	if(!error && zfsfuse_socket_read_loop(sock, opt, optlen) == -1)
-		error = B_TRUE;
-	if(!error) {
+	if(zfsfuse_socket_read_loop(sock, spec, speclen) == 0 &&
+		zfsfuse_socket_read_loop(sock, dir, dirlen) == 0 &&
+		zfsfuse_socket_read_loop(sock, opt, optlen) == 0) {
 		spec[speclen] = '\0';
 		dir[dirlen] = '\0';
 		opt[optlen] = '\0';
 #ifdef DEBUG
 		fprintf(stderr, "mount request: \"%s\", \"%s\", \"%i\", \"%s\"\n", spec, dir, cmd->cmd_u.mount_req.mflag, opt);
 #endif
-		uint32_t ret = do_mount(spec, dir, cmd->cmd_u.mount_req.mflag, opt);
-		if(write(sock, &ret, sizeof(uint32_t)) != sizeof(uint32_t))
-			error = B_TRUE;
-	}
-	if(opt != NULL) free(opt);
-	if(dir != NULL) free(dir);
-	if(spec != NULL) free(spec);
+		uint32_t ret_m = do_mount(spec, dir, cmd->cmd_u.mount_req.mflag, opt);
+		if(write(sock, &ret_m, sizeof(uint32_t)) != sizeof(uint32_t))
+			ret = -1;;
+	} else
+	    ret = -1;
+	kmem_free(opt,optlen+1);
+	kmem_free(dir,dirlen+1);
+	kmem_free(spec,speclen+1);
 
-	return error ? -1 : 0;
+	return ret;
 }
 
 static void * cmd_ioctl_thread(void *arg)
@@ -108,7 +105,7 @@ static void * cmd_ioctl_thread(void *arg)
 	}
 	ret = zfsfuse_socket_read_loop(cur_fd, cmd, sizeof(zfsfuse_cmd_t));
     } while (ret != -1);
-    free(cmd);
+    kmem_free(cmd,sizeof(zfsfuse_cmd_t));
     close(cur_fd);
     cur_fd = -1;
     nthreads--;
@@ -120,7 +117,7 @@ extern size_t stack_size;
 static void start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
     static thread_init_t init;
     init.socket = sock;
-    init.cmd = malloc(sizeof(zfsfuse_cmd_t));
+    init.cmd = kmem_alloc(sizeof(zfsfuse_cmd_t),KM_SLEEP);
     memcpy(init.cmd,cmd,sizeof(zfsfuse_cmd_t));
     pthread_t ioctl_thread;
     pthread_attr_t attr;
