@@ -301,7 +301,7 @@ static void parse_args(int argc, char *argv[])
 			case 's':
 				check_opt(progname,"-s");
 				stack_size=strtoul(optarg,&detecterror,10)<<10;
-				syslog(LOG_WARNING,"stack size for threads %d",stack_size);
+				syslog(LOG_WARNING,"stack size for threads %zd",stack_size);
 				break;
 			case 0:
 				break; /* flag is not NULL */
