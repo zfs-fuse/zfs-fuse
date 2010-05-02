@@ -34,14 +34,6 @@
 #include <sys/cmn_err.h>
 #include <sys/sunddi.h>
 
-#if (__powerpc) || defined(__powerpc__) ||\
-      defined(__powerpc64) || defined(__powerpc64__)
-/* There is a bug somewhere in spa_log_history on powerpc.
- * Don't have the time to investigate the problem for now, this is a work
- * around (disable history) */
-#undef _KERNEL
-#endif
-
 #ifdef _KERNEL
 #include <sys/zone.h>
 #endif
@@ -466,7 +458,7 @@ spa_history_log_version(spa_t *spa, history_internal_events_t event)
 
 	if (current_vers >= SPA_VERSION_ZPOOL_HISTORY) {
 		spa_history_internal_log(event, spa, NULL, CRED(),
-		    "pool spa %llu; zfs spa %llu; zpl %d; uts %s %s %s %s",
+		    "pool spa %llu; zfs spa %llu; zpl %lld; uts %s %s %s %s",
 		    (u_longlong_t)current_vers, SPA_VERSION, ZPL_VERSION,
 		    utsname.nodename, utsname.release, utsname.version,
 		    utsname.machine);
