@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -304,6 +304,7 @@ zvol_free_extents(zvol_state_t *zv)
 static int
 zvol_get_lbas(zvol_state_t *zv)
 {
+	objset_t *os = zv->zv_objset;
 	struct maparg	ma;
 	int		err;
 
@@ -311,7 +312,9 @@ zvol_get_lbas(zvol_state_t *zv)
 	ma.ma_blks = 0;
 	zvol_free_extents(zv);
 
-	err = traverse_dataset(dmu_objset_ds(zv->zv_objset), 0,
+	/* commit any in-flight changes before traversing the dataset */
+	txg_wait_synced(dmu_objset_pool(os), 0);
+	err = traverse_dataset(dmu_objset_ds(os), 0,
 	    TRAVERSE_PRE | TRAVERSE_PREFETCH_METADATA, zvol_map_block, &ma);
 	if (err || ma.ma_blks != (zv->zv_volsize / zv->zv_volblocksize)) {
 		zvol_free_extents(zv);
@@ -460,7 +463,7 @@ zvol_create_minor(const char *name)
 
 	mutex_enter(&zvol_state_lock);
 
-	if ((zv = zvol_minor_lookup(name)) != NULL) {
+	if (zvol_minor_lookup(name) != NULL) {
 		mutex_exit(&zvol_state_lock);
 		return (EEXIST);
 	}
@@ -1112,11 +1115,17 @@ zvol_dumpio(zvol_state_t *zv, void *addr, uint64_t offset, uint64_t size,
 		offset -= ze->ze_nblks * zv->zv_volblocksize;
 		ze = list_next(&zv->zv_extents, ze);
 	}
-	spa_config_enter(spa, SCL_STATE, FTAG, RW_READER);
+
+	if (!ddi_in_panic())
+		spa_config_enter(spa, SCL_STATE, FTAG, RW_READER);
+
 	vd = vdev_lookup_top(spa, DVA_GET_VDEV(&ze->ze_dva));
 	offset += DVA_GET_OFFSET(&ze->ze_dva);
 	error = zvol_dumpio_vdev(vd, addr, offset, size, doread, isdump);
-	spa_config_exit(spa, SCL_STATE, FTAG);
+
+	if (!ddi_in_panic())
+		spa_config_exit(spa, SCL_STATE, FTAG);
+
 	return (error);
 }
 
@@ -1469,6 +1478,7 @@ zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 		(void) strcpy(dki.dki_cname, "zvol");
 		(void) strcpy(dki.dki_dname, "zvol");
 		dki.dki_ctype = DKC_UNKNOWN;
+		dki.dki_unit = getminor(dev);
 		dki.dki_maxtransfer = 1 << (SPA_MAXBLOCKSHIFT - zv->zv_min_bs);
 		mutex_exit(&zvol_state_lock);
 		if (ddi_copyout(&dki, (void *)arg, sizeof (dki), flag))
@@ -1593,6 +1603,7 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 	int error = 0;
 	objset_t *os = zv->zv_objset;
 	nvlist_t *nv = NULL;
+	uint64_t version = spa_version(dmu_objset_spa(zv->zv_objset));
 
 	ASSERT(MUTEX_HELD(&zvol_state_lock));
 	error = dmu_free_long_range(zv->zv_objset, ZVOL_OBJ, 0,
@@ -1620,7 +1631,7 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 		    zfs_prop_to_name(ZFS_PROP_REFRESERVATION), 8, 1,
 		    &zv->zv_volsize, tx);
 	} else {
-		uint64_t checksum, compress, refresrv, vbs;
+		uint64_t checksum, compress, refresrv, vbs, dedup;
 
 		error = dsl_prop_get_integer(zv->zv_name,
 		    zfs_prop_to_name(ZFS_PROP_COMPRESSION), &compress, NULL);
@@ -1630,6 +1641,11 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 		    zfs_prop_to_name(ZFS_PROP_REFRESERVATION), &refresrv, NULL);
 		error = error ? error : dsl_prop_get_integer(zv->zv_name,
 		    zfs_prop_to_name(ZFS_PROP_VOLBLOCKSIZE), &vbs, NULL);
+		if (version >= SPA_VERSION_DEDUP) {
+			error = error ? error :
+			    dsl_prop_get_integer(zv->zv_name,
+			    zfs_prop_to_name(ZFS_PROP_DEDUP), &dedup, NULL);
+		}
 
 		error = error ? error : zap_update(os, ZVOL_ZAP_OBJ,
 		    zfs_prop_to_name(ZFS_PROP_COMPRESSION), 8, 1,
@@ -1644,6 +1660,11 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 		    &vbs, tx);
 		error = error ? error : dmu_object_set_blocksize(
 		    os, ZVOL_OBJ, SPA_MAXBLOCKSIZE, 0, tx);
+		if (version >= SPA_VERSION_DEDUP) {
+			error = error ? error : zap_update(os, ZVOL_ZAP_OBJ,
+			    zfs_prop_to_name(ZFS_PROP_DEDUP), 8, 1,
+			    &dedup, tx);
+		}
 		if (error == 0)
 			zv->zv_volblocksize = SPA_MAXBLOCKSIZE;
 	}
@@ -1663,6 +1684,11 @@ zvol_dump_init(zvol_state_t *zv, boolean_t resize)
 		VERIFY(nvlist_add_uint64(nv,
 		    zfs_prop_to_name(ZFS_PROP_CHECKSUM),
 		    ZIO_CHECKSUM_OFF) == 0);
+		if (version >= SPA_VERSION_DEDUP) {
+			VERIFY(nvlist_add_uint64(nv,
+			    zfs_prop_to_name(ZFS_PROP_DEDUP),
+			    ZIO_CHECKSUM_OFF) == 0);
+		}
 
 		error = zfs_set_prop_nvlist(zv->zv_name, ZPROP_SRC_LOCAL,
 		    nv, NULL);
@@ -1737,7 +1763,8 @@ zvol_dump_fini(zvol_state_t *zv)
 	objset_t *os = zv->zv_objset;
 	nvlist_t *nv;
 	int error = 0;
-	uint64_t checksum, compress, refresrv, vbs;
+	uint64_t checksum, compress, refresrv, vbs, dedup;
+	uint64_t version = spa_version(dmu_objset_spa(zv->zv_objset));
 
 	/*
 	 * Attempt to restore the zvol back to its pre-dumpified state.
@@ -1772,6 +1799,12 @@ zvol_dump_fini(zvol_state_t *zv)
 	    zfs_prop_to_name(ZFS_PROP_COMPRESSION), compress);
 	(void) nvlist_add_uint64(nv,
 	    zfs_prop_to_name(ZFS_PROP_REFRESERVATION), refresrv);
+	if (version >= SPA_VERSION_DEDUP &&
+	    zap_lookup(zv->zv_objset, ZVOL_ZAP_OBJ,
+	    zfs_prop_to_name(ZFS_PROP_DEDUP), 8, 1, &dedup) == 0) {
+		(void) nvlist_add_uint64(nv,
+		    zfs_prop_to_name(ZFS_PROP_DEDUP), dedup);
+	}
 	(void) zfs_set_prop_nvlist(zv->zv_name, ZPROP_SRC_LOCAL,
 	    nv, NULL);
 	nvlist_free(nv);

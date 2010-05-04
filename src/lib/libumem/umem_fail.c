@@ -24,7 +24,7 @@
  * Use is subject to license terms.
  */
 /*
- * Portions Copyright 2006 OmniTI, Inc.
+ * Portions Copyright 2006-2008 Message Systems, Inc.
  */
 
 /* #pragma ident	"@(#)umem_fail.c	1.4	05/06/08 SMI" */
@@ -173,4 +173,5 @@ __umem_assert_failed(const char *assertion, const char *file, int line)
 	    assertion, file, line);
 	umem_do_abort();
 	/*NOTREACHED*/
+	return (0);
 }

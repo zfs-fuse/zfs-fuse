@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -65,6 +65,12 @@
     dmu_ot[(idx)].ot_name : "UNKNOWN")
 #define	ZDB_OT_TYPE(idx) ((idx) < DMU_OT_NUMTYPES ? (idx) : DMU_OT_NUMTYPES)
 
+#ifndef lint
+extern int zfs_recover;
+#else
+int zfs_recover;
+#endif
+
 const char cmdname[] = "zdb";
 uint8_t dump_opt[256];
 
@@ -95,13 +101,12 @@ static void
 usage(void)
 {
 	(void) fprintf(stderr,
-	    "Usage: %s [-CumdibcsvhL] "
-	    "poolname [object...]\n"
+	    "Usage: %s [-CumdibcsDvhL] poolname [object...]\n"
 	    "       %s [-div] dataset [object...]\n"
 	    "       %s -m [-L] poolname [vdev [metaslab...]]\n"
 	    "       %s -R poolname vdev:offset:size[:flags]\n"
 	    "       %s -S poolname\n"
-	    "       %s -l device\n"
+	    "       %s -l [-u] device\n"
 	    "       %s -C\n\n",
 	    cmdname, cmdname, cmdname, cmdname, cmdname, cmdname, cmdname);
 
@@ -122,6 +127,7 @@ usage(void)
 	(void) fprintf(stderr, "        -c checksum all metadata (twice for "
 	    "all data) blocks\n");
 	(void) fprintf(stderr, "        -s report stats on zdb's I/O\n");
+	(void) fprintf(stderr, "        -D dedup statistics\n");
 	(void) fprintf(stderr, "        -S simulate dedup to measure effect\n");
 	(void) fprintf(stderr, "        -v verbose (applies to all others)\n");
 	(void) fprintf(stderr, "        -l dump label contents\n");
@@ -131,8 +137,14 @@ usage(void)
 	    "device\n\n");
 	(void) fprintf(stderr, "    Below options are intended for use "
 	    "with other options (except -l):\n");
+	(void) fprintf(stderr, "        -A ignore assertions (-A), enable "
+	    "panic recovery (-AA) or both (-AAA)\n");
+	(void) fprintf(stderr, "        -F attempt automatic rewind within "
+	    "safe range of transaction groups\n");
 	(void) fprintf(stderr, "        -U <cachefile_path> -- use alternate "
 	    "cachefile\n");
+	(void) fprintf(stderr, "        -X attempt extreme rewind (does not "
+	    "work with dataset)\n");
 	(void) fprintf(stderr, "        -e pool is exported/destroyed/"
 	    "has altroot/not in a cachefile\n");
 	(void) fprintf(stderr, "        -p <path> -- use one or more with "
@@ -478,13 +490,11 @@ dump_metaslab(metaslab_t *msp)
 	if (dump_opt['m'] > 1 && !dump_opt['L']) {
 		mutex_enter(&msp->ms_lock);
 		space_map_load_wait(sm);
-		if (!sm->sm_loaded &&
-		    (smo->smo_object != 0 || dump_opt['m'] > 2)) {
+		if (!sm->sm_loaded)
 			VERIFY(space_map_load(sm, zfs_metaslab_ops,
 			    SM_FREE, smo, spa->spa_meta_objset) == 0);
-			dump_metaslab_stats(msp);
-			space_map_unload(sm);
-		}
+		dump_metaslab_stats(msp);
+		space_map_unload(sm);
 		mutex_exit(&msp->ms_lock);
 	}
 
@@ -1469,11 +1479,11 @@ dump_dir(objset_t *os)
 }
 
 static void
-dump_uberblock(uberblock_t *ub)
+dump_uberblock(uberblock_t *ub, const char *header, const char *footer)
 {
 	time_t timestamp = ub->ub_timestamp;
 
-	(void) printf("\nUberblock:\n");
+	(void) printf(header ? header : "");
 	(void) printf("\tmagic = %016llx\n", (u_longlong_t)ub->ub_magic);
 	(void) printf("\tversion = %llu\n", (u_longlong_t)ub->ub_version);
 	(void) printf("\ttxg = %llu\n", (u_longlong_t)ub->ub_txg);
@@ -1485,7 +1495,7 @@ dump_uberblock(uberblock_t *ub)
 		sprintf_blkptr(blkbuf, &ub->ub_rootbp);
 		(void) printf("\trootbp = %s\n", blkbuf);
 	}
-	(void) printf("\n");
+	(void) printf(footer ? footer : "");
 }
 
 static void
@@ -1558,33 +1568,80 @@ dump_cachefile(const char *cachefile)
 	nvlist_free(config);
 }
 
+#define	ZDB_MAX_UB_HEADER_SIZE 32
+
+static void
+dump_label_uberblocks(vdev_label_t *lbl, uint64_t ashift)
+{
+	vdev_t vd;
+	vdev_t *vdp = &vd;
+	char header[ZDB_MAX_UB_HEADER_SIZE];
+
+	vd.vdev_ashift = ashift;
+	vdp->vdev_top = vdp;
+
+	for (int i = 0; i < VDEV_UBERBLOCK_COUNT(vdp); i++) {
+		uint64_t uoff = VDEV_UBERBLOCK_OFFSET(vdp, i);
+		uberblock_t *ub = (void *)((char *)lbl + uoff);
+
+		if (uberblock_verify(ub))
+			continue;
+		(void) snprintf(header, ZDB_MAX_UB_HEADER_SIZE,
+		    "Uberblock[%d]\n", i);
+		dump_uberblock(ub, header, "");
+	}
+}
+
 static void
 dump_label(const char *dev)
 {
 	int fd;
 	vdev_label_t label;
-	char *buf = label.vl_vdev_phys.vp_nvlist;
+	char *path, *buf = label.vl_vdev_phys.vp_nvlist;
 	size_t buflen = sizeof (label.vl_vdev_phys.vp_nvlist);
 	struct stat64 statbuf;
-	uint64_t psize;
-	int l;
+	uint64_t psize, ashift;
+	int len = strlen(dev) + 1;
 
-	if ((fd = open64(dev, O_RDONLY)) < 0) {
-		(void) printf("cannot open '%s': %s\n", dev, strerror(errno));
+	if (strncmp(dev, "/dev/dsk/", 9) == 0) {
+		len++;
+		path = malloc(len);
+		(void) snprintf(path, len, "%s%s", "/dev/rdsk/", dev + 9);
+	} else {
+		path = strdup(dev);
+	}
+
+	if ((fd = open64(path, O_RDONLY)) < 0) {
+		(void) printf("cannot open '%s': %s\n", path, strerror(errno));
+		free(path);
 		exit(1);
 	}
 
 	if (fstat64(fd, &statbuf) != 0) {
-		(void) printf("failed to stat '%s': %s\n", dev,
+		(void) printf("failed to stat '%s': %s\n", path,
 		    strerror(errno));
+		free(path);
+		(void) close(fd);
 		exit(1);
 	}
+
+#if 0
+	/* zfs-fuse : zdb -l block-device is very convenient for zfs-fuse
+	 * and I don't know any other equivalent for now, so I'll keep this
+	 * for now */
+	if (S_ISBLK(statbuf.st_mode)) {
+		(void) printf("cannot use '%s': character device required\n",
+		    path);
+		free(path);
+		(void) close(fd);
+		exit(1);
+	}
+#endif
 
 	psize = statbuf.st_size;
 	psize = P2ALIGN(psize, (uint64_t)sizeof (vdev_label_t));
 
-	for (l = 0; l < VDEV_LABELS; l++) {
-
+	for (int l = 0; l < VDEV_LABELS; l++) {
 		nvlist_t *config = NULL;
 
 		(void) printf("--------------------------------------------\n");
@@ -1599,16 +1656,29 @@ dump_label(const char *dev)
 
 		if (nvlist_unpack(buf, buflen, &config, 0) != 0) {
 			(void) printf("failed to unpack label %d\n", l);
-			continue;
+			ashift = SPA_MINBLOCKSHIFT;
+		} else {
+			nvlist_t *vdev_tree = NULL;
+
+			dump_nvlist(config, 4);
+			if ((nvlist_lookup_nvlist(config,
+			    ZPOOL_CONFIG_VDEV_TREE, &vdev_tree) != 0) ||
+			    (nvlist_lookup_uint64(vdev_tree,
+			    ZPOOL_CONFIG_ASHIFT, &ashift) != 0))
+				ashift = SPA_MINBLOCKSHIFT;
+			nvlist_free(config);
 		}
-		dump_nvlist(config, 4);
-		nvlist_free(config);
+		if (dump_opt['u'])
+			dump_label_uberblocks(&label, ashift);
 	}
+
+	free(path);
+	(void) close(fd);
 }
 
 /*ARGSUSED*/
 static int
-dump_one_dir(char *dsname, void *arg)
+dump_one_dir(const char *dsname, void *arg)
 {
 	int error;
 	objset_t *os;
@@ -1905,7 +1975,7 @@ dump_block_stats(spa_t *spa)
 	zdb_cb_t zcb = { 0 };
 	zdb_blkstats_t *zb, *tzb;
 	uint64_t norm_alloc, norm_space, total_alloc, total_found;
-	int flags = TRAVERSE_PRE | TRAVERSE_PREFETCH_METADATA;
+	int flags = TRAVERSE_PRE | TRAVERSE_PREFETCH_METADATA | TRAVERSE_HARD;
 	int leaks = 0;
 
 	(void) printf("\nTraversing all blocks %s%s%s%s%s...\n",
@@ -2214,7 +2284,7 @@ dump_zpool(spa_t *spa)
 		dump_config(spa);
 
 	if (dump_opt['u'])
-		dump_uberblock(&spa->spa_uberblock);
+		dump_uberblock(&spa->spa_uberblock, "\nUberblock:\n", "\n");
 
 	if (dump_opt['D'])
 		dump_all_ddts(spa);
@@ -2620,13 +2690,18 @@ find_zpool(char **target, nvlist_t **configp, int dirc, char **dirv)
 	char *sepp = NULL;
 	char sep;
 	int count = 0;
+	importargs_t args = { 0 };
+
+	args.paths = dirc;
+	args.path = dirv;
+	args.can_be_active = B_TRUE;
 
 	if ((sepp = strpbrk(*target, "/@")) != NULL) {
 		sep = *sepp;
 		*sepp = '\0';
 	}
 
-	pools = zpool_find_import_activeok(g_zfs, dirc, dirv);
+	pools = zpool_search_import(g_zfs, &args);
 
 	if (pools != NULL) {
 		nvpair_t *elem = NULL;
@@ -2682,19 +2757,20 @@ main(int argc, char **argv)
 	objset_t *os = NULL;
 	int dump_all = 1;
 	int verbose = 0;
-	int error;
+	int error = 0;
 	char **searchdirs = NULL;
 	int nsearch = 0;
 	char *target;
 	nvlist_t *policy = NULL;
 	uint64_t max_txg = UINT64_MAX;
+	int rewind = ZPOOL_NEVER_REWIND;
 
 	(void) setrlimit(RLIMIT_NOFILE, &rl);
 	(void) enable_extended_FILE_stdio(-1, -1);
 
 	dprintf_setup(&argc, argv);
 
-	while ((c = getopt(argc, argv, "bcdhilmsuCDRSLevp:t:U:")) != -1) {
+	while ((c = getopt(argc, argv, "bcdhilmsuCDRSAFLXevp:t:U:")) != -1) {
 		switch (c) {
 		case 'b':
 		case 'c':
@@ -2712,7 +2788,10 @@ main(int argc, char **argv)
 			dump_opt[c]++;
 			dump_all = 0;
 			break;
+		case 'A':
+		case 'F':
 		case 'L':
+		case 'X':
 		case 'e':
 			dump_opt[c]++;
 			break;
@@ -2765,11 +2844,14 @@ main(int argc, char **argv)
 		verbose = MAX(verbose, 1);
 
 	for (c = 0; c < 256; c++) {
-		if (dump_all && !strchr("elLRS", c))
+		if (dump_all && !strchr("elAFLRSX", c))
 			dump_opt[c] = 1;
 		if (dump_opt[c])
 			dump_opt[c] += verbose;
 	}
+
+	aok = (dump_opt['A'] == 1) || (dump_opt['A'] > 2);
+	zfs_recover = (dump_opt['A'] > 1);
 
 	argc -= optind;
 	argv += optind;
@@ -2789,10 +2871,17 @@ main(int argc, char **argv)
 		return (0);
 	}
 
+	if (dump_opt['X'] || dump_opt['F'])
+		rewind = ZPOOL_DO_REWIND |
+		    (dump_opt['X'] ? ZPOOL_EXTREME_REWIND : 0);
+
+	if (nvlist_alloc(&policy, NV_UNIQUE_NAME_TYPE, 0) != 0 ||
+	    nvlist_add_uint64(policy, ZPOOL_REWIND_REQUEST_TXG, max_txg) != 0 ||
+	    nvlist_add_uint32(policy, ZPOOL_REWIND_REQUEST, rewind) != 0)
+		fatal("internal error: %s", strerror(ENOMEM));
+
 	error = 0;
 	target = argv[0];
-
-	VERIFY(nvlist_alloc(&policy, NV_UNIQUE_NAME, 0) == 0);
 
 	if (dump_opt['e']) {
 		nvlist_t *cfg = NULL;
@@ -2804,9 +2893,7 @@ main(int argc, char **argv)
 				(void) printf("\nConfiguration for import:\n");
 				dump_nvlist(cfg, 8);
 			}
-			if (nvlist_add_uint64(policy,
-			    ZPOOL_REWIND_REQUEST_TXG, max_txg) != 0 ||
-			    nvlist_add_nvlist(cfg,
+			if (nvlist_add_nvlist(cfg,
 			    ZPOOL_REWIND_POLICY, policy) != 0) {
 				fatal("can't open '%s': %s",
 				    target, strerror(ENOMEM));
@@ -2814,9 +2901,6 @@ main(int argc, char **argv)
 			if ((error = spa_import(name, cfg, NULL)) != 0)
 				error = spa_import_verbatim(name, cfg, NULL);
 		}
-	} else {
-		VERIFY(nvlist_add_uint64(policy, ZPOOL_REWIND_META_THRESH,
-		    UINT64_MAX) == 0);
 	}
 
 	if (error == 0) {

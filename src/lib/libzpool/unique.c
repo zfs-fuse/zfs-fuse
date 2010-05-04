@@ -29,6 +29,10 @@
 #include <sys/avl.h>
 #include <sys/unique.h>
 
+// aok definition for libzpool.
+// it's defined in kernel.c by opensolaris, but since we want it in
+// libzpool-user.a too in zfs-fuse, here is a better place (and in libzfs.a too)
+int aok;
 static avl_tree_t unique_avl;
 static kmutex_t unique_mtx;
 

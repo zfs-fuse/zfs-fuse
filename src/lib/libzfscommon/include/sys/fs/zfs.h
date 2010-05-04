@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -91,7 +91,6 @@ typedef enum {
 	ZFS_PROP_CREATETXG,		/* not exposed to the user */
 	ZFS_PROP_NAME,			/* not exposed to the user */
 	ZFS_PROP_CANMOUNT,
-	ZFS_PROP_SHAREISCSI,
 	ZFS_PROP_ISCSIOPTIONS,		/* not exposed to the user */
 	ZFS_PROP_XATTR,
 	ZFS_PROP_NUMCLONES,		/* not exposed to the user */
@@ -324,14 +323,15 @@ typedef enum zfs_cache_type {
 #define	SPA_VERSION_20			20ULL
 #define	SPA_VERSION_21			21ULL
 #define	SPA_VERSION_22			22ULL
+#define	SPA_VERSION_23			23ULL
 /*
  * When bumping up SPA_VERSION, make sure GRUB ZFS understands the on-disk
  * format change. Go to usr/src/grub/grub-0.97/stage2/{zfs-include/, fsys_zfs*},
  * and do the appropriate changes.  Also bump the version number in
  * usr/src/grub/capability.
  */
-#define	SPA_VERSION			SPA_VERSION_22
-#define	SPA_VERSION_STRING		"22"
+#define	SPA_VERSION			SPA_VERSION_23
+#define	SPA_VERSION_STRING		"23"
 
 /*
  * Symbolic names for the changes that caused a SPA_VERSION switch.
@@ -375,6 +375,7 @@ typedef enum zfs_cache_type {
 #define	SPA_VERSION_ZLE_COMPRESSION	SPA_VERSION_20
 #define	SPA_VERSION_DEDUP		SPA_VERSION_21
 #define	SPA_VERSION_RECVD_PROPS		SPA_VERSION_22
+#define	SPA_VERSION_SLIM_ZIL		SPA_VERSION_23
 
 /*
  * ZPL version - rev'd whenever an incompatible on-disk format change
@@ -399,16 +400,18 @@ typedef enum zfs_cache_type {
 #define	ZPL_VERSION_USERSPACE		ZPL_VERSION_4
 
 /* Rewind request information */
-#define	ZPOOL_NO_REWIND		0
-#define	ZPOOL_TRY_REWIND	1 /* Search for best txg, but do not rewind */
-#define	ZPOOL_DO_REWIND		2 /* Rewind to best txg w/in deferred frees */
-#define	ZPOOL_EXTREME_REWIND	4 /* Allow extreme measures to find best txg */
-#define	ZPOOL_REWIND_MASK	7 /* All the possible policy bits */
+#define	ZPOOL_NO_REWIND		1  /* No policy - default behavior */
+#define	ZPOOL_NEVER_REWIND	2  /* Do not search for best txg or rewind */
+#define	ZPOOL_TRY_REWIND	4  /* Search for best txg, but do not rewind */
+#define	ZPOOL_DO_REWIND		8  /* Rewind to best txg w/in deferred frees */
+#define	ZPOOL_EXTREME_REWIND	16 /* Allow extreme measures to find best txg */
+#define	ZPOOL_REWIND_MASK	28 /* All the possible rewind bits */
+#define	ZPOOL_REWIND_POLICIES	31 /* All the possible policy bits */
 
 typedef struct zpool_rewind_policy {
 	uint32_t	zrp_request;	/* rewind behavior requested */
-	uint32_t	zrp_maxmeta;	/* max acceptable meta-data errors */
-	uint32_t	zrp_maxdata;	/* max acceptable data errors */
+	uint64_t	zrp_maxmeta;	/* max acceptable meta-data errors */
+	uint64_t	zrp_maxdata;	/* max acceptable data errors */
 	uint64_t	zrp_txg;	/* specific txg to load */
 } zpool_rewind_policy_t;
 
@@ -454,6 +457,10 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_DDT_HISTOGRAM	"ddt_histogram"
 #define	ZPOOL_CONFIG_DDT_OBJ_STATS	"ddt_object_stats"
 #define	ZPOOL_CONFIG_DDT_STATS		"ddt_stats"
+#define	ZPOOL_CONFIG_SPLIT		"splitcfg"
+#define	ZPOOL_CONFIG_ORIG_GUID		"orig_guid"
+#define	ZPOOL_CONFIG_SPLIT_GUID		"split_guid"
+#define	ZPOOL_CONFIG_SPLIT_LIST		"guid_list"
 #define	ZPOOL_CONFIG_SUSPENDED		"suspended"	/* not stored on disk */
 #define	ZPOOL_CONFIG_TIMESTAMP		"timestamp"	/* not stored on disk */
 #define	ZPOOL_CONFIG_BOOTFS		"bootfs"	/* not stored on disk */
@@ -540,7 +547,8 @@ typedef enum vdev_aux {
 	VDEV_AUX_ERR_EXCEEDED,	/* too many errors			*/
 	VDEV_AUX_IO_FAILURE,	/* experienced I/O failure		*/
 	VDEV_AUX_BAD_LOG,	/* cannot read log chain(s)		*/
-	VDEV_AUX_EXTERNAL	/* external diagnosis			*/
+	VDEV_AUX_EXTERNAL,	/* external diagnosis			*/
+	VDEV_AUX_SPLIT_POOL	/* vdev was split off into another pool	*/
 } vdev_aux_t;
 
 /*
@@ -653,6 +661,7 @@ typedef struct ddt_histogram {
 #define	ZVOL_FULL_RDEV_DIR	ZVOL_DIR "/rdsk/"
 
 #define	ZVOL_PROP_NAME		"name"
+#define	ZVOL_DEFAULT_BLOCKSIZE	8192
 
 /*
  * /dev/zfs ioctl numbers.
@@ -703,7 +712,6 @@ typedef enum zfs_ioc {
 	ZFS_IOC_POOL_GET_PROPS,
 	ZFS_IOC_SET_FSACL,
 	ZFS_IOC_GET_FSACL,
-	ZFS_IOC_ISCSI_PERM_CHECK,
 	ZFS_IOC_SHARE,
 	ZFS_IOC_INHERIT_PROP,
 	ZFS_IOC_SMB_ACL,
@@ -713,7 +721,8 @@ typedef enum zfs_ioc {
 	ZFS_IOC_HOLD,
 	ZFS_IOC_RELEASE,
 	ZFS_IOC_GET_HOLDS,
-	ZFS_IOC_OBJSET_RECVD_PROPS
+	ZFS_IOC_OBJSET_RECVD_PROPS,
+	ZFS_IOC_VDEV_SPLIT
 } zfs_ioc_t;
 
 /*
@@ -831,6 +840,7 @@ typedef enum history_internal_events {
 	LOG_POOL_SCRUB_DONE,
 	LOG_DS_USER_HOLD,
 	LOG_DS_USER_RELEASE,
+	LOG_POOL_SPLIT,
 	LOG_END
 } history_internal_events_t;
 

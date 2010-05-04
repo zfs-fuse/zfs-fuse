@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -130,21 +130,19 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_UMOUNTFAILED:
 		return (dgettext(TEXT_DOMAIN, "umount failed"));
 	case EZFS_UNSHARENFSFAILED:
-		return (dgettext(TEXT_DOMAIN, "unshare(1M) failed"));
+		return (dgettext(TEXT_DOMAIN, " exportfs failed"));
 	case EZFS_SHARENFSFAILED:
-		return (dgettext(TEXT_DOMAIN, "share(1M) failed"));
+		return (dgettext(TEXT_DOMAIN, " exportfs failed"));
 	case EZFS_UNSHARESMBFAILED:
 		return (dgettext(TEXT_DOMAIN, "smb remove share failed"));
 	case EZFS_SHARESMBFAILED:
 		return (dgettext(TEXT_DOMAIN, "smb add share failed"));
-	case EZFS_ISCSISVCUNAVAIL:
-		return (dgettext(TEXT_DOMAIN,
-		    "iscsitgt service need to be enabled by "
-		    "a privileged user"));
 	case EZFS_PERM:
 		return (dgettext(TEXT_DOMAIN, "permission denied"));
 	case EZFS_NOSPC:
 		return (dgettext(TEXT_DOMAIN, "out of space"));
+	case EZFS_FAULT:
+		return (dgettext(TEXT_DOMAIN, "bad address"));
 	case EZFS_IO:
 		return (dgettext(TEXT_DOMAIN, "I/O error"));
 	case EZFS_INTR:
@@ -158,12 +156,6 @@ libzfs_error_description(libzfs_handle_t *hdl)
 		return (dgettext(TEXT_DOMAIN, "recursive dataset dependency"));
 	case EZFS_NOHISTORY:
 		return (dgettext(TEXT_DOMAIN, "no history available"));
-	case EZFS_UNSHAREISCSIFAILED:
-		return (dgettext(TEXT_DOMAIN,
-		    "iscsitgtd failed request to unshare"));
-	case EZFS_SHAREISCSIFAILED:
-		return (dgettext(TEXT_DOMAIN,
-		    "iscsitgtd failed request to share"));
 	case EZFS_POOLPROPS:
 		return (dgettext(TEXT_DOMAIN, "failed to retrieve "
 		    "pool properties"));
@@ -221,6 +213,9 @@ libzfs_error_description(libzfs_handle_t *hdl)
 		return (dgettext(TEXT_DOMAIN, "pipe create failed"));
 	case EZFS_THREADCREATEFAILED:
 		return (dgettext(TEXT_DOMAIN, "thread create failed"));
+	case EZFS_POSTSPLIT_ONLINE:
+		return (dgettext(TEXT_DOMAIN, "disk was split from this pool "
+		    "into a new one"));
 	case EZFS_UNKNOWN:
 		return (dgettext(TEXT_DOMAIN, "unknown error"));
 	default:
@@ -307,6 +302,10 @@ zfs_common_error(libzfs_handle_t *hdl, int error, const char *fmt,
 
 	case EIO:
 		zfs_verror(hdl, EZFS_IO, fmt, ap);
+		return (-1);
+
+	case EFAULT:
+		zfs_verror(hdl, EZFS_FAULT, fmt, ap);
 		return (-1);
 
 	case EINTR:
@@ -593,7 +592,7 @@ libzfs_init(void)
 		return (NULL);
 	}
 
-	hdl->libzfs_sharetab = fopen("/etc/dfs/sharetab", "r");
+	hdl->libzfs_sharetab = fopen("/var/lib/nfs/etab", "r");
 
 	zfs_prop_init();
 	zpool_prop_init();

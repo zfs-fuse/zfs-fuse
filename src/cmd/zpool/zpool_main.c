@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -70,6 +70,7 @@ static int zpool_do_clear(int, char **);
 static int zpool_do_attach(int, char **);
 static int zpool_do_detach(int, char **);
 static int zpool_do_replace(int, char **);
+static int zpool_do_split(int, char **);
 
 static int zpool_do_scrub(int, char **);
 
@@ -122,7 +123,8 @@ typedef enum {
 	HELP_STATUS,
 	HELP_UPGRADE,
 	HELP_GET,
-	HELP_SET
+	HELP_SET,
+	HELP_SPLIT
 } zpool_help_t;
 
 
@@ -159,6 +161,7 @@ static zpool_command_t command_table[] = {
 	{ "attach",	zpool_do_attach,	HELP_ATTACH		},
 	{ "detach",	zpool_do_detach,	HELP_DETACH		},
 	{ "replace",	zpool_do_replace,	HELP_REPLACE		},
+	{ "split",	zpool_do_split,		HELP_SPLIT		},
 	{ NULL },
 	{ "scrub",	zpool_do_scrub,		HELP_SCRUB		},
 	{ NULL },
@@ -236,6 +239,10 @@ get_usage(zpool_help_t idx) {
 		    "<pool> ...\n"));
 	case HELP_SET:
 		return (gettext("\tset <property=value> <pool> \n"));
+	case HELP_SPLIT:
+		return (gettext("\tsplit [-n] [-R altroot] [-o mntopts]\n"
+		    "\t    [-o property=value] <pool> <newpool> "
+		    "[<device> ...]\n"));
 	}
 
 	abort();
@@ -1133,6 +1140,10 @@ print_status_config(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 			(void) printf(gettext("external device fault"));
 			break;
 
+		case VDEV_AUX_SPLIT_POOL:
+			(void) printf(gettext("split into new pool"));
+			break;
+
 		default:
 			(void) printf(gettext("corrupted data"));
 			break;
@@ -1601,7 +1612,7 @@ zpool_do_import(int argc, char **argv)
 	char **searchdirs = NULL;
 	int nsearch = 0;
 	int c;
-	int err;
+	int err = 0;
 	nvlist_t *pools = NULL;
 	boolean_t do_all = B_FALSE;
 	boolean_t do_destroyed = B_FALSE;
@@ -1623,10 +1634,10 @@ zpool_do_import(int argc, char **argv)
 	boolean_t xtreme_rewind = B_FALSE;
 	uint64_t pool_state;
 	char *cachefile = NULL;
-	boolean_t verbose = B_FALSE;
+	importargs_t idata = { 0 };
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":aCc:d:DEfFno:p:rR:vVX")) != -1) {
+	while ((c = getopt(argc, argv, ":aCc:d:DEfFno:rR:VX")) != -1) {
 		switch (c) {
 		case 'a':
 			do_all = B_TRUE;
@@ -1681,9 +1692,6 @@ zpool_do_import(int argc, char **argv)
 			if (add_prop_list(zpool_prop_to_name(
 			    ZPOOL_PROP_CACHEFILE), "none", &props, B_TRUE))
 				goto error;
-			break;
-		case 'v':
-			verbose = B_TRUE;
 			break;
 		case 'V':
 			do_verbatim = B_TRUE;
@@ -1781,27 +1789,47 @@ zpool_do_import(int argc, char **argv)
 		if (errno != 0 || *endptr != '\0')
 			searchname = argv[0];
 		found_config = NULL;
-	}
 
-	if (cachefile) {
-		pools = zpool_find_import_cached(g_zfs, cachefile, searchname,
-		    searchguid);
-	} else if (searchname != NULL) {
-		pools = zpool_find_import_byname(g_zfs, nsearch, searchdirs,
-		    searchname);
-	} else {
 		/*
-		 * It's OK to search by guid even if searchguid is 0.
+		 * User specified a name or guid.  Ensure it's unique.
 		 */
-		pools = zpool_find_import_byguid(g_zfs, nsearch, searchdirs,
-		    searchguid, verbose);
+		idata.unique = B_TRUE;
 	}
 
-	if (pools == NULL) {
+
+	idata.path = searchdirs;
+	idata.paths = nsearch;
+	idata.poolname = searchname;
+	idata.guid = searchguid;
+	idata.cachefile = cachefile;
+
+	pools = zpool_search_import(g_zfs, &idata);
+
+	if (pools != NULL && idata.exists &&
+	    (argc == 1 || strcmp(argv[0], argv[1]) == 0)) {
+		(void) fprintf(stderr, gettext("cannot import '%s': "
+		    "a pool with that name already exists\n"),
+		    argv[0]);
+		(void) fprintf(stderr, gettext("use the form '%s "
+		    "<pool | id> <newpool>' to give it a new name\n"),
+		    "zpool import");
+		err = 1;
+	} else if (pools == NULL && idata.exists) {
+		(void) fprintf(stderr, gettext("cannot import '%s': "
+		    "a pool with that name is already created/imported,\n"),
+		    argv[0]);
+		(void) fprintf(stderr, gettext("and no additional pools "
+		    "with that name were found\n"));
+		err = 1;
+	} else if (pools == NULL) {
 		if (argc != 0) {
 			(void) fprintf(stderr, gettext("cannot import '%s': "
 			    "no such pool available\n"), argv[0]);
 		}
+		err = 1;
+	}
+
+	if (err == 1) {
 		free(searchdirs);
 		nvlist_free(policy);
 		return (1);
@@ -2702,6 +2730,146 @@ zpool_do_detach(int argc, char **argv)
 
 	return (ret);
 }
+
+/*
+ * zpool split [-n] [-o prop=val] ...
+ *		[-o mntopt] ...
+ *		[-R altroot] <pool> <newpool> [<device> ...]
+ *
+ *	-n	Do not split the pool, but display the resulting layout if
+ *		it were to be split.
+ *	-o	Set property=value, or set mount options.
+ *	-R	Mount the split-off pool under an alternate root.
+ *
+ * Splits the named pool and gives it the new pool name.  Devices to be split
+ * off may be listed, provided that no more than one device is specified
+ * per top-level vdev mirror.  The newly split pool is left in an exported
+ * state unless -R is specified.
+ *
+ * Restrictions: the top-level of the pool pool must only be made up of
+ * mirrors; all devices in the pool must be healthy; no device may be
+ * undergoing a resilvering operation.
+ */
+int
+zpool_do_split(int argc, char **argv)
+{
+	char *srcpool, *newpool, *propval;
+	char *mntopts = NULL;
+	splitflags_t flags;
+	int c, ret = 0;
+	zpool_handle_t *zhp;
+	nvlist_t *config, *props = NULL;
+
+	flags.dryrun = B_FALSE;
+	flags.import = B_FALSE;
+
+	/* check options */
+	while ((c = getopt(argc, argv, ":R:no:")) != -1) {
+		switch (c) {
+		case 'R':
+			flags.import = B_TRUE;
+			if (add_prop_list(
+			    zpool_prop_to_name(ZPOOL_PROP_ALTROOT), optarg,
+			    &props, B_TRUE) != 0) {
+				if (props)
+					nvlist_free(props);
+				usage(B_FALSE);
+			}
+			break;
+		case 'n':
+			flags.dryrun = B_TRUE;
+			break;
+		case 'o':
+			if ((propval = strchr(optarg, '=')) != NULL) {
+				*propval = '\0';
+				propval++;
+				if (add_prop_list(optarg, propval,
+				    &props, B_TRUE) != 0) {
+					if (props)
+						nvlist_free(props);
+					usage(B_FALSE);
+				}
+			} else {
+				mntopts = optarg;
+			}
+			break;
+		case ':':
+			(void) fprintf(stderr, gettext("missing argument for "
+			    "'%c' option\n"), optopt);
+			usage(B_FALSE);
+			break;
+		case '?':
+			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
+			    optopt);
+			usage(B_FALSE);
+			break;
+		}
+	}
+
+	if (!flags.import && mntopts != NULL) {
+		(void) fprintf(stderr, gettext("setting mntopts is only "
+		    "valid when importing the pool\n"));
+		usage(B_FALSE);
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	if (argc < 1) {
+		(void) fprintf(stderr, gettext("Missing pool name\n"));
+		usage(B_FALSE);
+	}
+	if (argc < 2) {
+		(void) fprintf(stderr, gettext("Missing new pool name\n"));
+		usage(B_FALSE);
+	}
+
+	srcpool = argv[0];
+	newpool = argv[1];
+
+	argc -= 2;
+	argv += 2;
+
+	if ((zhp = zpool_open(g_zfs, srcpool)) == NULL)
+		return (1);
+
+	config = split_mirror_vdev(zhp, newpool, props, flags, argc, argv);
+	if (config == NULL) {
+		ret = 1;
+	} else {
+		if (flags.dryrun) {
+			(void) printf(gettext("would create '%s' with the "
+			    "following layout:\n\n"), newpool);
+			print_vdev_tree(NULL, newpool, config, 0, B_FALSE);
+		}
+		nvlist_free(config);
+	}
+
+	zpool_close(zhp);
+
+	if (ret != 0 || flags.dryrun || !flags.import)
+		return (ret);
+
+	/*
+	 * The split was successful. Now we need to open the new
+	 * pool and import it.
+	 */
+	if ((zhp = zpool_open_canfail(g_zfs, newpool)) == NULL)
+		return (1);
+	if (zpool_get_state(zhp) != POOL_STATE_UNAVAIL &&
+	    zpool_enable_datasets(zhp, mntopts, 0) != 0) {
+		ret = 1;
+		(void) fprintf(stderr, gettext("Split was succssful, but "
+		    "the datasets could not all be mounted\n"));
+		(void) fprintf(stderr, gettext("Try doing '%s' with a "
+		    "different altroot\n"), "zpool import");
+	}
+	zpool_close(zhp);
+
+	return (ret);
+}
+
+
 
 /*
  * zpool online <pool> <device> ...
@@ -3723,6 +3891,7 @@ zpool_do_upgrade(int argc, char **argv)
 		    "(zero-length encoding)\n"));
 		(void) printf(gettext(" 21  Deduplication\n"));
 		(void) printf(gettext(" 22  Received properties\n"));
+		(void) printf(gettext(" 23  Slim ZIL\n"));
 		(void) printf(gettext("\nFor more information on a particular "
 		    "version, including supported releases, see:\n\n"));
 		(void) printf("http://www.opensolaris.org/os/community/zfs/"

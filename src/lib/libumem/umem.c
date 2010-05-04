@@ -24,7 +24,7 @@
  * Use is subject to license terms.
  */
 /*
- * Portions Copyright 2006 OmniTI, Inc.
+ * Portions Copyright 2006-2008 Message Systems, Inc.
  */
 
 /* #pragma ident	"@(#)umem.c	1.11	05/06/08 SMI" */
@@ -397,6 +397,7 @@
 #if HAVE_ATOMIC_H
 #include <atomic.h>
 #endif
+#include <syslog.h>
 
 #include "misc.h"
 
@@ -1020,8 +1021,11 @@ umem_alloc_retry(umem_cache_t *cp, int umflag)
 
 		(void) mutex_lock(&umem_nofail_exit_lock);
 		umem_nofail_exit_thr = thr_self();
-		exit(result & 0xFF);
+		syslog(LOG_ERR,"umem exiting from umem_alloc_retry\n");
+		kill(getpid(),SIGTERM);
+		sleep(1); // in case the signal takes some time to execute...
 		/*NOTREACHED*/
+		exit(result & 0xFF);
 	}
 	return (0);
 }
@@ -2382,7 +2386,6 @@ umem_reap(void)
 		(void) mutex_unlock(&umem_update_lock);
 		return;
 	}
-
 	umem_reaping = UMEM_REAP_ADDING;	/* lock out other reaps */
 
 	(void) mutex_unlock(&umem_update_lock);
@@ -2903,16 +2906,10 @@ umem_cache_init(void)
  * umem_startup() is called early on, and must be called explicitly if we're
  * the standalone version.
  */
-static void
-umem_startup() __attribute__((constructor));
-
 void
-umem_startup()
+umem_startup(caddr_t start, size_t len, size_t pagesize, caddr_t minstack,
+    caddr_t maxstack) 
 {
-	caddr_t start = NULL;
-	size_t len = 0;
-	size_t pagesize = 0;
-
 #ifdef UMEM_STANDALONE
 	int idx;
 	/* Standalone doesn't fork */
@@ -3199,10 +3196,3 @@ fail:
 	(void) mutex_unlock(&umem_init_lock);
 	return (0);
 }
-
-size_t
-umem_cache_get_bufsize(umem_cache_t *cache)
-{
-	return cache->cache_bufsize;
-}
-

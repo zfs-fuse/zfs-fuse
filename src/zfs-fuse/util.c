@@ -87,6 +87,8 @@ void do_daemon(const char *pidfile)
 	}
 }
 
+extern size_t stack_size;
+
 int do_init()
 {
 	libsolkerncompat_init();
@@ -101,7 +103,8 @@ int do_init()
 
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
-	pthread_attr_setstacksize(&attr,32768 /* PTHREAD_STACK_MIN */);
+	if (stack_size)
+	    pthread_attr_setstacksize(&attr,stack_size);
 	if(pthread_create(&listener_thread, &attr, listener_loop, (void *) &ioctl_fd) != 0) {
 		cmn_err(CE_WARN, "Error creating listener thread.");
 		return -1;
@@ -189,17 +192,11 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		return ENOMEM;
 	}
 	} else {
-	  syslog(LOG_NOTICE,"enabling fuse big_writes");
 	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec, real_opts) == -1) {
 	    VERIFY(do_umount(vfs, B_FALSE) == 0);
 	    return ENOMEM;
 	  }
 	}
-	
-	char *syslogbuf;
-	asprintf(&syslogbuf,"mount options: %s",fuse_opts);
-	syslog(LOG_NOTICE,syslogbuf);
-	free(syslogbuf);
 	
 	struct fuse_args args = FUSE_ARGS_INIT(0, NULL);
 
@@ -219,6 +216,9 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return EIO;
 	}
+
+	if (strstr(fuse_opts,"default_permissions"))
+	    vfs->fuse_attribute = FUSE_VFS_HAS_DEFAULT_PERM;
 
 	struct fuse_session *se = fuse_lowlevel_new(&args, &zfs_operations, sizeof(zfs_operations), vfs);
 	fuse_opt_free_args(&args);

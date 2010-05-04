@@ -37,6 +37,8 @@
 
 #include "libzfs_impl.h"
 
+int aok=0;
+
 int zfsfuse_open(const char *pathname, int flags)
 {
 	struct sockaddr_un name;
@@ -134,18 +136,6 @@ int zfsfuse_sendfd(int sock, int fd)
 	return sendmsg(sock, &msg, 0) < 0 ? -1 : 0;
 }
 
-static int mywrite(int fd, void *buf, size_t count) {
-	int ret;
-	int count0 = count;
-	while ((ret = write(fd,buf,count)) < count) {
-		if (ret < 0) return ret;
-		syslog(LOG_WARNING,"socket busy, buffering...");
-		buf += ret;
-		count -= ret;
-	}
-	return count0;
-}
-
 int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 {
 	zfsfuse_cmd_t cmd;
@@ -154,8 +144,10 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 	cmd.cmd_type = IOCTL_REQ;
 	cmd.cmd_u.ioctl_req.cmd = request;
 	cmd.cmd_u.ioctl_req.arg = (uint64_t)(uintptr_t) arg;
+	cmd.uid = getuid();
+	cmd.gid = getgid();
 
-	if((ret=mywrite(fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t)))
+	if((ret=write(fd, &cmd, sizeof(zfsfuse_cmd_t)) != sizeof(zfsfuse_cmd_t)))
 		return -1;
 
 	for(;;) {
@@ -167,7 +159,7 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 				errno = cmd.cmd_u.ioctl_ans_ret;
 				return errno;
 			case COPYIN_REQ:
-				if((ret=mywrite(fd, (void *)(uintptr_t) cmd.cmd_u.copy_req.ptr, cmd.cmd_u.copy_req.size) != cmd.cmd_u.copy_req.size))
+				if((ret=write(fd, (void *)(uintptr_t) cmd.cmd_u.copy_req.ptr, cmd.cmd_u.copy_req.size) != cmd.cmd_u.copy_req.size))
 					return -1;
 				break;
 			case COPYINSTR_REQ: ;
@@ -181,10 +173,10 @@ int zfsfuse_ioctl(int fd, int32_t request, void *arg)
 				} else
 					ans.cmd_u.copy_ans.lencopied = length;
 
-				if(((ret=mywrite(fd, &ans, sizeof(zfsfuse_cmd_t))) != sizeof(zfsfuse_cmd_t)))
+				if(((ret=write(fd, &ans, sizeof(zfsfuse_cmd_t))) != sizeof(zfsfuse_cmd_t)))
 					return -1;
 
-				if((ret=mywrite(fd, (void *)(uintptr_t) cmd.cmd_u.copy_req.ptr, ans.cmd_u.copy_ans.lencopied)) != ans.cmd_u.copy_ans.lencopied)
+				if((ret=write(fd, (void *)(uintptr_t) cmd.cmd_u.copy_req.ptr, ans.cmd_u.copy_ans.lencopied)) != ans.cmd_u.copy_ans.lencopied)
 					return -1;
 
 				break;
@@ -223,16 +215,16 @@ int zfsfuse_mount(libzfs_handle_t *hdl, const char *spec, const char *dir, int m
 	cmd.cmd_u.mount_req.mflag = mflag;
 	cmd.cmd_u.mount_req.optlen = optlen;
 
-	if((ret=mywrite(hdl->libzfs_fd, &cmd, sizeof(zfsfuse_cmd_t))) != sizeof(zfsfuse_cmd_t))
+	if((ret=write(hdl->libzfs_fd, &cmd, sizeof(zfsfuse_cmd_t))) != sizeof(zfsfuse_cmd_t))
 		return -1;
 
-	if((ret=mywrite(hdl->libzfs_fd, spec, speclen)) != speclen)
+	if((ret=write(hdl->libzfs_fd, spec, speclen)) != speclen)
 		return -1;
 
-	if((ret=mywrite(hdl->libzfs_fd, dir, dirlen)) != dirlen)
+	if((ret=write(hdl->libzfs_fd, dir, dirlen)) != dirlen)
 		return -1;
 
-	if((ret=mywrite(hdl->libzfs_fd, optptr, optlen)) != optlen)
+	if((ret=write(hdl->libzfs_fd, optptr, optlen)) != optlen)
 		return -1;
 
 	uint32_t error;

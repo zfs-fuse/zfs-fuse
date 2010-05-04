@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -70,11 +70,13 @@ typedef enum drr_headertype {
  */
 
 #define	DMU_BACKUP_FEATURE_DEDUP	(0x1)
+#define	DMU_BACKUP_FEATURE_DEDUPPROPS	(0x2)
 
 /*
  * Mask of all supported backup features
  */
-#define	DMU_BACKUP_FEATURE_MASK	(DMU_BACKUP_FEATURE_DEDUP)
+#define	DMU_BACKUP_FEATURE_MASK	(DMU_BACKUP_FEATURE_DEDUP | \
+		DMU_BACKUP_FEATURE_DEDUPPROPS)
 
 /* Are all features in the given flag word currently supported? */
 #define	DMU_STREAM_SUPPORTED(x)	(!((x) & ~DMU_BACKUP_FEATURE_MASK))
@@ -138,7 +140,17 @@ typedef struct {
 
 		int32_t getf_req_fd;
 	} cmd_u __attribute__ ((aligned(8)));
+	uid_t uid;
+	gid_t gid;
 } zfsfuse_cmd_t __attribute__ ((aligned(8)));
+
+/*
+ * flags in the drr_checksumflags field in the DRR_WRITE and
+ * DRR_WRITE_BYREF blocks
+ */
+#define	DRR_CHECKSUM_DEDUP	(1<<0)
+
+#define	DRR_IS_DEDUP_CAPABLE(flags)	((flags) & DRR_CHECKSUM_DEDUP)
 
 /*
  * zfs ioctl command structure
@@ -190,8 +202,9 @@ typedef struct dmu_replay_record {
 			uint64_t drr_length;
 			uint64_t drr_toguid;
 			uint8_t drr_checksumtype;
-			uint8_t drr_pad2[7];
-			zio_cksum_t drr_blkcksum;
+			uint8_t drr_checksumflags;
+			uint8_t drr_pad2[6];
+			ddt_key_t drr_key; /* deduplication key */
 			/* content follows */
 		} drr_write;
 		struct drr_free {
@@ -210,9 +223,11 @@ typedef struct dmu_replay_record {
 			uint64_t drr_refguid;
 			uint64_t drr_refobject;
 			uint64_t drr_refoffset;
+			/* properties of the data */
 			uint8_t drr_checksumtype;
-			uint8_t drr_pad[7];
-			zio_cksum_t drr_blkcksum;
+			uint8_t drr_checksumflags;
+			uint8_t drr_pad2[6];
+			ddt_key_t drr_key; /* deduplication key */
 		} drr_write_byref;
 	} drr_u;
 } dmu_replay_record_t;
@@ -295,6 +310,8 @@ typedef struct zfs_useracct {
 #define	ZVOL_MAX_MINOR	(1 << 16)
 #define	ZFS_MIN_MINOR	(ZVOL_MAX_MINOR + 1)
 
+#define	ZPOOL_EXPORT_AFTER_SPLIT 0x1
+
 #ifdef _KERNEL
 
 typedef struct zfs_creat {
@@ -309,7 +326,7 @@ extern int zfs_secpolicy_rename_perms(const char *from,
     const char *to, cred_t *cr);
 extern int zfs_secpolicy_destroy_perms(const char *name, cred_t *cr);
 extern int zfs_busy(void);
-extern int zfs_unmount_snap(char *, void *);
+extern int zfs_unmount_snap(const char *, void *);
 
 #endif	/* _KERNEL */
 

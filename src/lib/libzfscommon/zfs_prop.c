@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -76,8 +76,6 @@ zfs_prop_init(void)
 		{ "sha256",	ZIO_CHECKSUM_SHA256 },
 		{ "sha256,verify",
 				ZIO_CHECKSUM_SHA256 | ZIO_CHECKSUM_VERIFY },
-		{ "fletcher4,verify",
-				ZIO_CHECKSUM_FLETCHER_4 | ZIO_CHECKSUM_VERIFY },
 		{ NULL }
 	};
 
@@ -192,7 +190,7 @@ zfs_prop_init(void)
 	    checksum_table);
 	register_index(ZFS_PROP_DEDUP, "dedup", ZIO_CHECKSUM_OFF,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
-	    "on | off | verify | sha256[,verify] | fletcher4,verify", "DEDUP",
+	    "on | off | verify | sha256[,verify]", "DEDUP",
 	    dedup_table);
 	register_index(ZFS_PROP_COMPRESSION, "compression",
 	    ZIO_COMPRESS_DEFAULT, PROP_INHERIT,
@@ -287,8 +285,6 @@ zfs_prop_init(void)
 	    ZFS_TYPE_FILESYSTEM, "<path> | legacy | none", "MOUNTPOINT");
 	register_string(ZFS_PROP_SHARENFS, "sharenfs", "off", PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM, "on | off | share(1M) options", "SHARENFS");
-	register_string(ZFS_PROP_SHAREISCSI, "shareiscsi", "off", PROP_INHERIT,
-	    ZFS_TYPE_DATASET, "on | off | type=<type>", "SHAREISCSI");
 	register_string(ZFS_PROP_TYPE, "type", NULL, PROP_READONLY,
 	    ZFS_TYPE_DATASET, "filesystem | volume | snapshot", "TYPE");
 	register_string(ZFS_PROP_SHARESMB, "sharesmb", "off", PROP_INHERIT,
@@ -306,8 +302,8 @@ zfs_prop_init(void)
 	register_number(ZFS_PROP_COMPRESSRATIO, "compressratio", 0,
 	    PROP_READONLY, ZFS_TYPE_DATASET,
 	    "<1.00x or higher if compressed>", "RATIO");
-	register_number(ZFS_PROP_VOLBLOCKSIZE, "volblocksize", 8192,
-	    PROP_ONETIME,
+	register_number(ZFS_PROP_VOLBLOCKSIZE, "volblocksize",
+	    ZVOL_DEFAULT_BLOCKSIZE, PROP_ONETIME,
 	    ZFS_TYPE_VOLUME, "512 to 128k, power of 2",	"VOLBLOCK");
 	register_number(ZFS_PROP_USEDSNAP, "usedbysnapshots", 0, PROP_READONLY,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME, "<size>", "USEDSNAP");
@@ -347,7 +343,7 @@ zfs_prop_init(void)
 	register_hidden(ZFS_PROP_NAME, "name", PROP_TYPE_STRING,
 	    PROP_READONLY, ZFS_TYPE_DATASET, "NAME");
 	register_hidden(ZFS_PROP_ISCSIOPTIONS, "iscsioptions", PROP_TYPE_STRING,
-	    PROP_INHERIT, ZFS_TYPE_VOLUME, "ISCSIOPTIONS");
+	    PROP_READONLY, ZFS_TYPE_VOLUME, "ISCSIOPTIONS");
 	register_hidden(ZFS_PROP_STMF_SHAREINFO, "stmf_sbd_lu",
 	    PROP_TYPE_STRING, PROP_INHERIT, ZFS_TYPE_VOLUME,
 	    "STMF_SBD_LU");

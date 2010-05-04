@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -476,7 +476,7 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	    offsetof(spa_config_dirent_t, scd_link));
 
 	dp = kmem_zalloc(sizeof (spa_config_dirent_t), KM_SLEEP);
-	dp->scd_path = spa_strdup(spa_config_path);
+	dp->scd_path = altroot ? NULL : spa_strdup(spa_config_path);
 	list_insert_head(&spa->spa_config_list, dp);
 
 	if (config != NULL)
@@ -497,6 +497,8 @@ spa_remove(spa_t *spa)
 
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 	ASSERT(spa->spa_state == POOL_STATE_UNINITIALIZED);
+
+	nvlist_free(spa->spa_config_splitting);
 
 	avl_remove(&spa_namespace_avl, spa);
 	cv_broadcast(&spa_namespace_cv);
@@ -907,7 +909,7 @@ spa_vdev_config_exit(spa_t *spa, vdev_t *vd, uint64_t txg, int error, char *tag)
 	 * transactionally.
 	 */
 	if (zio_injection_enabled)
-		zio_handle_panic_injection(spa, tag);
+		zio_handle_panic_injection(spa, tag, 0);
 
 	/*
 	 * Note: this txg_wait_synced() is important because it ensures
@@ -962,12 +964,15 @@ spa_vdev_state_enter(spa_t *spa, int oplocks)
 int
 spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 {
+	boolean_t config_changed = B_FALSE;
+
 	if (vd != NULL || error == 0)
 		vdev_dtl_reassess(vd ? vd->vdev_top : spa->spa_root_vdev,
 		    0, 0, B_FALSE);
 
 	if (vd != NULL) {
 		vdev_state_dirty(vd->vdev_top);
+		config_changed = B_TRUE;
 		spa->spa_config_generation++;
 	}
 
@@ -982,6 +987,15 @@ spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 	 */
 	if (vd != NULL)
 		txg_wait_synced(spa->spa_dsl_pool, 0);
+
+	/*
+	 * If the config changed, update the config cache.
+	 */
+	if (config_changed) {
+		mutex_enter(&spa_namespace_lock);
+		spa_config_sync(spa, B_FALSE, B_TRUE);
+		mutex_exit(&spa_namespace_lock);
+	}
 
 	return (error);
 }
@@ -1115,17 +1129,34 @@ spa_get_random(uint64_t range)
 	return (r % range);
 }
 
+uint64_t
+spa_generate_guid(spa_t *spa)
+{
+	uint64_t guid = spa_get_random(-1ULL);
+
+	if (spa != NULL) {
+		while (guid == 0 || spa_guid_exists(spa_guid(spa), guid))
+			guid = spa_get_random(-1ULL);
+	} else {
+		while (guid == 0 || spa_guid_exists(guid, 0))
+			guid = spa_get_random(-1ULL);
+	}
+
+	return (guid);
+}
+
 void
 sprintf_blkptr(char *buf, const blkptr_t *bp)
 {
-	if (!bp) {
-		strcpy(buf,"NULL");
-		return;
-	}
+	char *type = NULL;
+	char *checksum = NULL;
+	char *compress = NULL;
 
-	char *type = dmu_ot[BP_GET_TYPE(bp)].ot_name;
-	char *checksum = zio_checksum_table[BP_GET_CHECKSUM(bp)].ci_name;
-	char *compress = zio_compress_table[BP_GET_COMPRESS(bp)].ci_name;
+	if (bp != NULL) {
+		type = dmu_ot[BP_GET_TYPE(bp)].ot_name;
+		checksum = zio_checksum_table[BP_GET_CHECKSUM(bp)].ci_name;
+		compress = zio_compress_table[BP_GET_COMPRESS(bp)].ci_name;
+	}
 
 	SPRINTF_BLKPTR(snprintf, ' ', buf, bp, type, checksum, compress);
 }

@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -40,6 +40,8 @@
 #include <sys/fs/zfs.h>
 #include <sys/arc.h>
 #include <sys/zil.h>
+#include <syslog.h>
+#include <libintl.h>
 
 /*
  * Virtual device management.
@@ -300,15 +302,12 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 			 * The root vdev's guid will also be the pool guid,
 			 * which must be unique among all pools.
 			 */
-			while (guid == 0 || spa_guid_exists(guid, 0))
-				guid = spa_get_random(-1ULL);
+			guid = spa_generate_guid(NULL);
 		} else {
 			/*
 			 * Any other vdev's guid must be unique within the pool.
 			 */
-			while (guid == 0 ||
-			    spa_guid_exists(spa_guid(spa), guid))
-				guid = spa_get_random(-1ULL);
+			guid = spa_generate_guid(spa);
 		}
 		ASSERT(!spa_guid_exists(spa_guid(spa), guid));
 	}
@@ -482,7 +481,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	/*
 	 * If we're a top-level vdev, try to load the allocation parameters.
 	 */
-	if (parent && !parent->vdev_parent && alloctype == VDEV_ALLOC_LOAD) {
+	if (parent && !parent->vdev_parent &&
+	    (alloctype == VDEV_ALLOC_LOAD || alloctype == VDEV_ALLOC_SPLIT)) {
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_METASLAB_ARRAY,
 		    &vd->vdev_ms_array);
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_METASLAB_SHIFT,
@@ -494,6 +494,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	if (parent && !parent->vdev_parent) {
 		ASSERT(alloctype == VDEV_ALLOC_LOAD ||
 		    alloctype == VDEV_ALLOC_ADD ||
+		    alloctype == VDEV_ALLOC_SPLIT ||
 		    alloctype == VDEV_ALLOC_ROOTPOOL);
 		vd->vdev_mg = metaslab_group_create(islog ?
 		    spa_log_class(spa) : spa_normal_class(spa), vd);
@@ -778,6 +779,7 @@ vdev_remove_parent(vdev_t *cvd)
 	 */
 	if (mvd->vdev_top == mvd) {
 		uint64_t guid_delta = mvd->vdev_guid - cvd->vdev_guid;
+		cvd->vdev_orig_guid = cvd->vdev_guid;
 		cvd->vdev_guid += guid_delta;
 		cvd->vdev_guid_sum += guid_delta;
 	}
@@ -1238,6 +1240,10 @@ vdev_open(vdev_t *vd)
 	 * then we've experienced dynamic LUN growth.  If automatic
 	 * expansion is enabled then use the additional space.
 	 */
+	/* Force spa_autoexpand = 1 here - it's not initialised at this
+	 * point in linux, and we want it initialised to be able to update
+	 * the vdev size here while importing a pool */
+	spa->spa_autoexpand = 1;
 	if (vd->vdev_state == VDEV_STATE_HEALTHY && asize > vd->vdev_asize &&
 	    (vd->vdev_expanding || spa->spa_autoexpand))
 		vd->vdev_asize = asize;
@@ -1282,7 +1288,7 @@ vdev_validate(vdev_t *vd)
 {
 	spa_t *spa = vd->vdev_spa;
 	nvlist_t *label;
-	uint64_t guid, top_guid;
+	uint64_t guid = 0, top_guid;
 	uint64_t state;
 
 	for (int c = 0; c < vd->vdev_children; c++)
@@ -1295,10 +1301,24 @@ vdev_validate(vdev_t *vd)
 	 * overwrite the previous state.
 	 */
 	if (vd->vdev_ops->vdev_op_leaf && vdev_readable(vd)) {
+		uint64_t aux_guid = 0;
+		nvlist_t *nvl;
 
 		if ((label = vdev_label_read_config(vd)) == NULL) {
 			vdev_set_state(vd, B_TRUE, VDEV_STATE_CANT_OPEN,
 			    VDEV_AUX_BAD_LABEL);
+			return (0);
+		}
+
+		/*
+		 * Determine if this vdev has been split off into another
+		 * pool.  If so, then refuse to open it.
+		 */
+		if (nvlist_lookup_uint64(label, ZPOOL_CONFIG_SPLIT_GUID,
+		    &aux_guid) == 0 && aux_guid == spa_guid(spa)) {
+			vdev_set_state(vd, B_FALSE, VDEV_STATE_CANT_OPEN,
+			    VDEV_AUX_SPLIT_POOL);
+			nvlist_free(label);
 			return (0);
 		}
 
@@ -1310,6 +1330,11 @@ vdev_validate(vdev_t *vd)
 			return (0);
 		}
 
+		if (nvlist_lookup_nvlist(label, ZPOOL_CONFIG_VDEV_TREE, &nvl)
+		    != 0 || nvlist_lookup_uint64(nvl, ZPOOL_CONFIG_ORIG_GUID,
+		    &aux_guid) != 0)
+			aux_guid = 0;
+
 		/*
 		 * If this vdev just became a top-level vdev because its
 		 * sibling was detached, it will have adopted the parent's
@@ -1317,12 +1342,16 @@ vdev_validate(vdev_t *vd)
 		 * Fortunately, either version of the label will have the
 		 * same top guid, so if we're a top-level vdev, we can
 		 * safely compare to that instead.
+		 *
+		 * If we split this vdev off instead, then we also check the
+		 * original pool's guid.  We don't want to consider the vdev
+		 * corrupt if it is partway through a split operation.
 		 */
 		if (nvlist_lookup_uint64(label, ZPOOL_CONFIG_GUID,
 		    &guid) != 0 ||
 		    nvlist_lookup_uint64(label, ZPOOL_CONFIG_TOP_GUID,
 		    &top_guid) != 0 ||
-		    (vd->vdev_guid != guid &&
+		    ((vd->vdev_guid != guid && vd->vdev_guid != aux_guid) &&
 		    (vd->vdev_guid != top_guid || vd != vd->vdev_top))) {
 			vdev_set_state(vd, B_FALSE, VDEV_STATE_CANT_OPEN,
 			    VDEV_AUX_CORRUPT_DATA);
@@ -1372,8 +1401,12 @@ vdev_close(vdev_t *vd)
 
 	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 
+	/*
+	 * If our parent is reopening, then we are as well, unless we are
+	 * going offline.
+	 */
 	if (pvd != NULL && pvd->vdev_reopening)
-		vd->vdev_reopening = pvd->vdev_reopening;
+		vd->vdev_reopening = (pvd->vdev_reopening && !vd->vdev_offline);
 
 	vd->vdev_ops->vdev_op_close(vd);
 
@@ -1406,7 +1439,8 @@ vdev_reopen(vdev_t *vd)
 
 	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 
-	vd->vdev_reopening = B_TRUE;
+	/* set the reopening flag unless we're taking the vdev offline */
+	vd->vdev_reopening = !vd->vdev_offline;
 	vdev_close(vd);
 	(void) vdev_open(vd);
 
@@ -1490,7 +1524,7 @@ vdev_dirty(vdev_t *vd, int flags, void *arg, uint64_t txg)
  * DTLs.
  *
  * A vdev's DTL (dirty time log) is the set of transaction groups for which
- * the vdev has less than perfect replication.  There are three kinds of DTL:
+ * the vdev has less than perfect replication.  There are four kinds of DTL:
  *
  * DTL_MISSING: txgs for which the vdev has no valid copies of the data
  *
@@ -1591,7 +1625,6 @@ vdev_dtl_reassess(vdev_t *vd, uint64_t txg, uint64_t scrub_txg, int scrub_done)
 		mutex_enter(&vd->vdev_dtl_lock);
 		if (scrub_txg != 0 &&
 		    (spa->spa_scrub_started || spa->spa_scrub_errors == 0)) {
-			/* XXX should check scrub_done? */
 			/*
 			 * We completed a scrub up to scrub_txg.  If we
 			 * did it without rebooting, then the scrub dtl
@@ -2133,24 +2166,6 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 	return (spa_vdev_state_exit(spa, vd, 0));
 }
 
-int
-vdev_offline_log(spa_t *spa)
-{
-	int error = 0;
-
-	if ((error = dmu_objset_find(spa_name(spa), zil_vdev_offline,
-	    NULL, DS_FIND_CHILDREN)) == 0) {
-
-		/*
-		 * We successfully offlined the log device, sync out the
-		 * current txg so that the "stubby" block can be removed
-		 * by zil_sync().
-		 */
-		txg_wait_synced(spa->spa_dsl_pool, 0);
-	}
-	return (error);
-}
-
 static int
 vdev_offline_locked(spa_t *spa, uint64_t guid, uint64_t flags)
 {
@@ -2198,7 +2213,7 @@ top:
 			metaslab_group_passivate(mg);
 			(void) spa_vdev_state_exit(spa, vd, 0);
 
-			error = vdev_offline_log(spa);
+			error = spa_offline_log(spa);
 
 			spa_vdev_state_enter(spa, SCL_ALLOC);
 
@@ -2832,6 +2847,62 @@ vdev_propagate_state(vdev_t *vd)
 		vdev_propagate_state(vd->vdev_parent);
 }
 
+static char old_name[MAXNAMELEN];
+static time_t old_time;
+static vdev_state_t old_state;
+
+/* This zpool_state_to_name is a copy of the one from libzfs.
+ * taken from user land, in zfs-fuse we don't have all these problems to
+ * communicate between the 2... ! */
+static char *
+zpool_state_to_name(vdev_state_t state, vdev_aux_t aux)
+{
+	switch (state) {
+	case VDEV_STATE_CLOSED:
+	case VDEV_STATE_OFFLINE:
+		return (gettext("OFFLINE"));
+	case VDEV_STATE_REMOVED:
+		return (gettext("REMOVED"));
+	case VDEV_STATE_CANT_OPEN:
+		if (aux == VDEV_AUX_CORRUPT_DATA || aux == VDEV_AUX_BAD_LOG)
+			return (gettext("FAULTED"));
+		else if (aux == VDEV_AUX_SPLIT_POOL)
+			return (gettext("SPLIT"));
+		else
+			return (gettext("UNAVAIL"));
+	case VDEV_STATE_FAULTED:
+		return (gettext("FAULTED"));
+	case VDEV_STATE_DEGRADED:
+		return (gettext("DEGRADED"));
+	case VDEV_STATE_HEALTHY:
+		return (gettext("ONLINE"));
+	}
+
+	return (gettext("UNKNOWN"));
+}
+
+static int vdev_check_children(vdev_t *vd) {
+    /* Check 1st that it's not just because of an offline vdev :
+     * browse the children looking for 1 which in a state !=
+     * online && offline, check recursively */
+    int n;
+    int found = 0;
+    for (n=0; n<vd->vdev_children; n++) {
+	if (vd->vdev_child[n]->vdev_children) {
+	    found = vdev_check_children(vd->vdev_child[n]);
+	    if (found)
+		break;
+	} else {
+	    vdev_state_t st = vd->vdev_child[n]->vdev_state;
+	    if (st != VDEV_STATE_HEALTHY && st != VDEV_STATE_OFFLINE) {
+		found = 1;
+		break;
+	    }
+	}
+    }
+    return found;
+}
+
 /*
  * Set a vdev's state.  If this is during an open, we don't update the parent
  * state, because we're in the process of opening children depth-first.
@@ -2843,7 +2914,7 @@ vdev_propagate_state(vdev_t *vd)
 void
 vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 {
-	uint64_t save_state;
+	vdev_state_t save_state;
 	spa_t *spa = vd->vdev_spa;
 
 	if (state == vd->vdev_state) {
@@ -2964,6 +3035,42 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 
 	if (!isopen && vd->vdev_parent)
 		vdev_propagate_state(vd->vdev_parent);
+	if ((state == VDEV_STATE_HEALTHY && save_state == VDEV_STATE_DEGRADED)
+		|| (state == VDEV_STATE_DEGRADED &&
+		    save_state == VDEV_STATE_HEALTHY)) {
+	    char cmd[2048];
+	    spa_t *top;
+	    if (vd->vdev_top)
+		top = vd->vdev_top->vdev_spa;
+	    else
+		top = vd->vdev_spa;
+	    time_t mytime = time(NULL);
+	    if (mytime - old_time < 30 && !strcmp(top->spa_name,old_name) &&
+		    old_state == state) {
+		/* Already got the same alert for this pool less than 30s ago */
+		return;
+	    }
+	    if (state == VDEV_STATE_DEGRADED) {
+		int found = vdev_check_children(vd);
+		if (!found)
+		    return; // nothing of interest here
+	    }
+	    if (strcasecmp(top->spa_name,"$import")) {
+		snprintf(cmd,2048,"/etc/zfs/zfs_pool_alert %s &",top->spa_name);
+		syslog(LOG_WARNING,"running zfs_pool_alert for pool %s, status %s prev status %s",top->spa_name,zpool_state_to_name(state,save_state),
+			zpool_state_to_name(save_state,state));
+		int ret = system(cmd);
+		if (ret == -1) 
+		    syslog(LOG_WARNING,"fork failed for zfs_pool_alert");
+		/* We won't get the return code of the actual command since
+		 * it's executed in the background. So if the fork worked
+		 * then this is the job of the zfs_pool_alert to track
+		 * error conditions */
+	    }
+	    old_time = mytime;
+	    strcpy(old_name,top->spa_name);
+	    old_state = state;
+	}
 }
 
 /*
@@ -3037,4 +3144,23 @@ vdev_expand(vdev_t *vd, uint64_t txg)
 		VERIFY(vdev_metaslab_init(vd, txg) == 0);
 		vdev_config_dirty(vd);
 	}
+}
+
+/*
+ * Split a vdev.
+ */
+void
+vdev_split(vdev_t *vd)
+{
+	vdev_t *cvd, *pvd = vd->vdev_parent;
+
+	vdev_remove_child(pvd, vd);
+	vdev_compact_children(pvd);
+
+	cvd = pvd->vdev_child[0];
+	if (pvd->vdev_children == 1) {
+		vdev_remove_parent(cvd);
+		cvd->vdev_splitting = B_TRUE;
+	}
+	vdev_propagate_state(cvd);
 }

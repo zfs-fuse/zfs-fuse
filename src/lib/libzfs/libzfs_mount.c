@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -44,17 +44,14 @@
  *
  * 	zfs_is_shared_nfs()
  * 	zfs_is_shared_smb()
- * 	zfs_is_shared_iscsi()
  * 	zfs_share_proto()
  * 	zfs_shareall();
- * 	zfs_share_iscsi()
  * 	zfs_unshare_nfs()
  * 	zfs_unshare_smb()
  * 	zfs_unshareall_nfs()
  *	zfs_unshareall_smb()
  *	zfs_unshareall()
  *	zfs_unshareall_bypath()
- * 	zfs_unshare_iscsi()
  *
  * The following functions are available for pool consumers, and will
  * mount/unmount and share/unshare all datasets within pool:
@@ -91,11 +88,6 @@ static int zfs_share_proto(zfs_handle_t *, zfs_share_proto_t *);
 zfs_share_type_t zfs_is_shared_proto(zfs_handle_t *, char **,
     zfs_share_proto_t);
 
-static int (*iscsitgt_zfs_share)(const char *);
-static int (*iscsitgt_zfs_unshare)(const char *);
-static int (*iscsitgt_zfs_is_shared)(const char *);
-static int (*iscsitgt_svc_online)();
-
 /*
  * The share protocols table must be in the same order as the zfs_share_prot_t
  * enum in libzfs_impl.h
@@ -127,32 +119,6 @@ zfs_share_proto_t share_all_proto[] = {
 	PROTO_END
 };
 
-static void
-zfs_iscsi_init(void) __attribute__((constructor));
-static void
-zfs_iscsi_init(void)
-{
-#if 0
-	void *libiscsitgt;
-
-	if ((libiscsitgt = dlopen("/lib/libiscsitgt.so.1",
-	    RTLD_LAZY | RTLD_GLOBAL)) == NULL ||
-	    (iscsitgt_zfs_share = (int (*)(const char *))dlsym(libiscsitgt,
-	    "iscsitgt_zfs_share")) == NULL ||
-	    (iscsitgt_zfs_unshare = (int (*)(const char *))dlsym(libiscsitgt,
-	    "iscsitgt_zfs_unshare")) == NULL ||
-	    (iscsitgt_zfs_is_shared = (int (*)(const char *))dlsym(libiscsitgt,
-	    "iscsitgt_zfs_is_shared")) == NULL ||
-	    (iscsitgt_svc_online = (int (*)(const char *))dlsym(libiscsitgt,
-	    "iscsitgt_svc_online")) == NULL) {
-		iscsitgt_zfs_share = NULL;
-		iscsitgt_zfs_unshare = NULL;
-		iscsitgt_zfs_is_shared = NULL;
-		iscsitgt_svc_online = NULL;
-	}
-#endif
-}
-
 /*
  * Search the sharetab for the given mountpoint and protocol, returning
  * a zfs_share_type_t value.
@@ -163,10 +129,18 @@ is_shared(libzfs_handle_t *hdl, const char *mountpoint, zfs_share_proto_t proto)
 	char buf[MAXPATHLEN], *tab;
 	char *ptr;
 
+	/* zfs-fuse :
+	 * Keeping the same file opened seems to produce weird cache results
+	 * with fgets : after unmounting a share the 1st fgets returns the old
+	 * line. So we just close the file a reopen it to clear the cache */
+
+	if (hdl->libzfs_sharetab)
+	    fclose(hdl->libzfs_sharetab);
+	hdl->libzfs_sharetab = fopen("/var/lib/nfs/etab", "r");
 	if (hdl->libzfs_sharetab == NULL)
 		return (SHARED_NOT_SHARED);
-
-	(void) fseek(hdl->libzfs_sharetab, 0, SEEK_SET);
+	if (proto != PROTO_NFS)
+	    return SHARED_NOT_SHARED;
 
 	while (fgets(buf, sizeof (buf), hdl->libzfs_sharetab) != NULL) {
 
@@ -180,6 +154,8 @@ is_shared(libzfs_handle_t *hdl, const char *mountpoint, zfs_share_proto_t proto)
 			 * the protocol field is the third field
 			 * skip over second field
 			 */
+		    return SHARED_NFS;
+#if 0
 			ptr = ++tab;
 			if ((tab = strchr(ptr, '\t')) == NULL)
 				continue;
@@ -198,6 +174,7 @@ is_shared(libzfs_handle_t *hdl, const char *mountpoint, zfs_share_proto_t proto)
 					return (0);
 				}
 			}
+#endif
 		}
 	}
 
@@ -352,6 +329,16 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 		} else if (errno == EPERM) {
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "Insufficient privileges"));
+		} else if (errno == ENOTSUP) {
+			char buf[256];
+
+			(void) snprintf(buf, sizeof (buf),
+			    dgettext(TEXT_DOMAIN, "Mismatched versions:  File "
+			    "system is version %llu on-disk format, which is "
+			    "incompatible with this software version %lld!"),
+			    (u_longlong_t)zfs_prop_get_int(zhp,
+			    ZFS_PROP_VERSION), ZPL_VERSION);
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, buf));
 		} else if (errno == EIO) {
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "Input/output error.\nMake sure the FUSE module is "
@@ -485,7 +472,7 @@ zfs_is_shared(zfs_handle_t *zhp)
 	zfs_share_proto_t *curr_proto;
 
 	if (ZFS_IS_VOLUME(zhp))
-		return (zfs_is_shared_iscsi(zhp));
+		return (B_FALSE);
 
 	for (curr_proto = share_all_proto; *curr_proto != PROTO_END;
 	    curr_proto++)
@@ -498,7 +485,7 @@ int
 zfs_share(zfs_handle_t *zhp)
 {
 	if (ZFS_IS_VOLUME(zhp))
-		return (zfs_share_iscsi(zhp));
+		return (0);
 
 	return (zfs_share_proto(zhp, share_all_proto));
 }
@@ -507,7 +494,7 @@ int
 zfs_unshare(zfs_handle_t *zhp)
 {
 	if (ZFS_IS_VOLUME(zhp))
-		return (zfs_unshare_iscsi(zhp));
+		return (0);
 
 	return (zfs_unshareall(zhp));
 }
@@ -556,17 +543,167 @@ zfs_is_shared_smb(zfs_handle_t *zhp, char **where)
  * initialized in _zfs_init_libshare() are actually present.
  */
 
+static int get_fsid(char *mountpoint) {
+    /* The zfs command is launched for any sharenfs command
+     * which means that we can store no fsid info here.
+     * So the simplest solution is to open the nfs share file
+     * look for all the fsid codes inside and take the next
+     * available one */
+    FILE *f = fopen("/var/lib/nfs/etab","r");
+    if (!f) return 100; // should never happen
+    int fsid = 0;
+    while (!feof(f)) {
+	char buff[2048];
+	fgets(buff,2048,f);
+	char *s = strstr(buff,"fsid=");
+	if (s) {
+	    int t = atoi(s+5);
+	    if (t > fsid) fsid = t;
+	    // maybe it's the fsid for the current mount point...
+	    s = strchr(buff,9); // field separator
+	    if (!s) {
+		fclose(f);
+		return 100; // should never happen
+	    }
+	    *s = 0;
+	    if (!strcmp(mountpoint,buff)) {
+		fclose(f);
+		return t;
+	    }
+	}
+    }
+    fclose(f);
+    // that's a new fsid then...
+    return fsid+1;
+}
+   
+
+static int zfsfuse_share(
+	sa_handle_t libzfs_sharehdl,
+	sa_group_t group, sa_share_t share, char *mountpoint,
+	char  *prot, zprop_source_t sourcetype,
+	char *shareopts, char *sourcestr, char *zfs_name) {
+    if (!strcmp(prot,"nfs")) {
+	char buff[2048];
+	int fsid = get_fsid(mountpoint);
+	if (strcmp(shareopts,"on")) {
+	    /* handle shareopts
+	     * the new syntax should be
+	     * host1:options host2:options ... */
+	    char *s = shareopts-1;
+	    int ret = SA_OK;
+	    while (s = strchr(s+1,':')) {
+		*s = 0;
+		char *hostname = shareopts;
+		char opts[1024];
+		char *e = strchr(s+1,' ');
+		if (e) *e = 0;
+		strcpy(opts,s+1);
+		if (*opts == 0)
+		    strcpy(opts,"ro");
+		if (!strstr(opts,"fsid="))
+		    sprintf(&opts[strlen(opts)],",fsid=%d",fsid);
+		if (!strstr(opts,"subtree_check"))
+		    strcat(opts,",no_subtree_check");
+		sprintf(buff,"exportfs -o %s '%s:%s'",opts,hostname,mountpoint);
+		if (system(buff) != 0) {
+		    printf("%s returned an error\n",buff);
+		    ret = SA_CONFIG_ERR;
+		}
+		if (e) {
+		    do {
+			e++;
+		    } while (*e == ' ');
+		    s = shareopts = e;
+		} else
+		    break;
+	    }
+	    return ret;
+	} 
+	sprintf(buff,"exportfs -o fsid=%d,no_subtree_check '*:%s'",fsid,mountpoint);
+	int ret = system(buff);
+	if (ret == 0) return SA_OK;
+	printf("%s -> %d\n",buff,ret);
+	return SA_CONFIG_ERR;
+    }
+    printf("protocol %s not supported yet\n",prot);
+    return SA_CONFIG_ERR;
+}
+
+static sa_share_t zfsfuse_findshare(sa_handle_t h, char *mshare) {
+    FILE *f = fopen("/var/lib/nfs/etab","r");
+    if (!f) return NULL;
+    static char buff[1024];
+    char share[1024];
+    strcpy(share,mshare);
+    char *s = share-1;
+    while (s = strchr(s+1,' ')) {
+	memmove(s+4,s+1,strlen(s+1)+1); // moves what's after the space
+	strncpy(s,"\\040",4); // replaces the space with \040 (encoded space)
+    }
+    while (!feof(f)) {
+	fgets(buff,1024,f);
+	char *s = strchr(buff,9);
+	if (!s) continue;
+	*s = 0; // keep only the 1st field, path
+
+	if (!strcmp(buff,share)) {
+	    *s = 9; // restore the tab
+	    // we return the 1st share found on this mountpoint
+	    fclose(f);
+	    return buff;
+	}
+    }
+    fclose(f);
+    return NULL;
+}
+
+static int zfsfuse_enable_share(sa_share_t share, char *proto) {
+    if (!strcmp(proto,"nfs")) return SA_OK;
+    return SA_CONFIG_ERR;
+}
+
+static int zfsfuse_disable_share(sa_share_t share, char *proto) {
+    if (!strcmp(proto,"nfs")) {
+	// unshare command just calls this, so we have to call exportfs here
+	char *s = strchr(share,9);
+	if (!s) return SA_CONFIG_ERR;
+	*s = 0; // 1st field = mountpoint
+	char *hostname = s+1;
+	char *p = strchr(hostname,'(');
+	if (!p) return SA_CONFIG_ERR;
+	*p = 0;
+	s = share-1;
+	while (strstr(s+1,"\\040")) { // decode spaces
+	    *s = ' ';
+	    strcpy(s+1,s+4);
+	}
+	char buff[1024];
+	sprintf(buff,"exportfs -u '%s:%s'",hostname,(char*)share);
+
+	int ret = system(buff);
+	if (ret == 0) return SA_OK;
+    }
+    return SA_CONFIG_ERR;
+}
+
+static char *zfsfuse_errorstr(int error) {
+    static char buff[80];
+    sprintf(buff,"share error %d",error);
+    return buff;
+}
+
 static sa_handle_t (*_sa_init)(int);
 static void (*_sa_fini)(sa_handle_t);
-static sa_share_t (*_sa_find_share)(sa_handle_t, char *);
-static int (*_sa_enable_share)(sa_share_t, char *);
-static int (*_sa_disable_share)(sa_share_t, char *);
-static char *(*_sa_errorstr)(int);
+static sa_share_t (*_sa_find_share)(sa_handle_t, char *) = &zfsfuse_findshare;
+static int (*_sa_enable_share)(sa_share_t, char *) = &zfsfuse_enable_share;
+static int (*_sa_disable_share)(sa_share_t, char *) = &zfsfuse_disable_share;
+static char *(*_sa_errorstr)(int) = &zfsfuse_errorstr;
 static int (*_sa_parse_legacy_options)(sa_group_t, char *, char *);
 static boolean_t (*_sa_needs_refresh)(sa_handle_t *);
 static libzfs_handle_t *(*_sa_get_zfs_handle)(sa_handle_t);
 static int (*_sa_zfs_process_share)(sa_handle_t, sa_group_t, sa_share_t,
-    char *, char *, zprop_source_t, char *, char *, char *);
+    char *, char *, zprop_source_t, char *, char *, char *) = &zfsfuse_share;
 static void (*_sa_update_sharetab_ts)(sa_handle_t);
 
 /*
@@ -763,9 +900,6 @@ zfs_sa_disable_share(sa_share_t share, char *proto)
 static int
 zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 {
-	/* ZFSFUSE: not implemented */
-	return 0;
-#if 0
 	char mountpoint[ZFS_MAXPROPLEN];
 	char shareopts[ZFS_MAXPROPLEN];
 	char sourcestr[ZFS_MAXPROPLEN];
@@ -778,6 +912,7 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint), NULL))
 		return (0);
 
+#if 0
 	if ((ret = zfs_init_libshare(hdl, SA_INIT_SHARE_API)) != SA_OK) {
 		(void) zfs_error_fmt(hdl, EZFS_SHARENFSFAILED,
 		    dgettext(TEXT_DOMAIN, "cannot share '%s': %s"),
@@ -785,6 +920,7 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 		    _sa_errorstr(ret) : "");
 		return (-1);
 	}
+#endif
 
 	for (curr_proto = proto; *curr_proto != PROTO_END; curr_proto++) {
 		/*
@@ -806,7 +942,11 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 			continue;
 
 		share = zfs_sa_find_share(hdl->libzfs_sharehdl, mountpoint);
-		if (share == NULL) {
+		/* In linux it's not because we have a share on this directory
+		 * that it's the one corresponding to this property value.
+		 * The only question is should we first disable entierly the
+		 * shares for this directory before adding the new ones ? */
+//		if (share == NULL) {
 			/*
 			 * This may be a new file system that was just
 			 * created so isn't in the internal cache
@@ -829,7 +969,7 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 			hdl->libzfs_shareflags |= ZFSSHARE_MISS;
 			share = zfs_sa_find_share(hdl->libzfs_sharehdl,
 			    mountpoint);
-		}
+//		}
 		if (share != NULL) {
 			int err;
 			err = zfs_sa_enable_share(share,
@@ -851,7 +991,6 @@ zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 
 	}
 	return (0);
-#endif
 }
 
 
@@ -891,12 +1030,14 @@ unshare_one(libzfs_handle_t *hdl, const char *name, const char *mountpoint,
 	mntpt = zfs_strdup(hdl, mountpoint);
 
 	/* make sure libshare initialized */
+#if 0
 	if ((err = zfs_init_libshare(hdl, SA_INIT_SHARE_API)) != SA_OK) {
 		free(mntpt);	/* don't need the copy anymore */
 		return (zfs_error_fmt(hdl, EZFS_SHARENFSFAILED,
 		    dgettext(TEXT_DOMAIN, "cannot unshare '%s': %s"),
 		    name, _sa_errorstr(err)));
 	}
+#endif
 
 	share = zfs_sa_find_share(hdl->libzfs_sharehdl, mntpt);
 	free(mntpt);	/* don't need the copy anymore */
@@ -942,12 +1083,13 @@ zfs_unshare_proto(zfs_handle_t *zhp, const char *mountpoint,
 		for (curr_proto = proto; *curr_proto != PROTO_END;
 		    curr_proto++) {
 
-			if (is_shared(hdl, mntpt, *curr_proto) &&
-			    unshare_one(hdl, zhp->zfs_name,
-			    mntpt, *curr_proto) != 0) {
+			while (is_shared(hdl, mntpt, *curr_proto)) {
+			    if (unshare_one(hdl, zhp->zfs_name,
+					mntpt, *curr_proto) != 0) {
 				if (mntpt != NULL)
 					free(mntpt);
 				return (-1);
+			    }
 			}
 		}
 	}
@@ -1043,89 +1185,6 @@ remove_mountpoint(zfs_handle_t *zhp)
 		 */
 		(void) rmdir(mountpoint);
 	}
-}
-
-boolean_t
-zfs_is_shared_iscsi(zfs_handle_t *zhp)
-{
-
-	/*
-	 * If iscsi deamon isn't running then we aren't shared
-	 */
-	if (iscsitgt_svc_online && iscsitgt_svc_online() == 1)
-		return (B_FALSE);
-	else
-		return (iscsitgt_zfs_is_shared != NULL &&
-		    iscsitgt_zfs_is_shared(zhp->zfs_name) != 0);
-}
-
-int
-zfs_share_iscsi(zfs_handle_t *zhp)
-{
-	/*char shareopts[ZFS_MAXPROPLEN];*/
-	const char *dataset = zhp->zfs_name;
-	libzfs_handle_t *hdl = zhp->zfs_hdl;
-
-	/* ZFSFUSE: not implemented */
-	zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "feature not implemented yet"));
-	return zfs_error_fmt(hdl, EZFS_SHAREISCSIFAILED,
-	                 dgettext(TEXT_DOMAIN, "cannot share '%s'"),
-	                 dataset);
-
-#if 0
-	/*
-	 * Return success if there are no share options.
-	 */
-	if (zfs_prop_get(zhp, ZFS_PROP_SHAREISCSI, shareopts,
-	    sizeof (shareopts), NULL, NULL, 0, B_FALSE) != 0 ||
-	    strcmp(shareopts, "off") == 0)
-		return (0);
-
-	if (iscsitgt_zfs_share == NULL || iscsitgt_zfs_share(dataset) != 0) {
-		int error = EZFS_SHAREISCSIFAILED;
-
-		/*
-		 * If service isn't availabele and EPERM was
-		 * returned then use special error.
-		 */
-		if (iscsitgt_svc_online && errno == EPERM &&
-		    (iscsitgt_svc_online() != 0))
-			error = EZFS_ISCSISVCUNAVAIL;
-
-		return (zfs_error_fmt(hdl, error,
-		    dgettext(TEXT_DOMAIN, "cannot share '%s'"), dataset));
-	}
-
-	return (0);
-#endif
-}
-
-int
-zfs_unshare_iscsi(zfs_handle_t *zhp)
-{
-	const char *dataset = zfs_get_name(zhp);
-	libzfs_handle_t *hdl = zhp->zfs_hdl;
-
-	/*
-	 * Return if the volume is not shared
-	 */
-	if (zfs_is_shared_iscsi(zhp) != SHARED_ISCSI)
-		return (0);
-
-	/*
-	 * If this fails with ENODEV it indicates that zvol wasn't shared so
-	 * we should return success in that case.
-	 */
-	if (iscsitgt_zfs_unshare == NULL ||
-	    (iscsitgt_zfs_unshare(dataset) != 0 && errno != ENODEV)) {
-		if (errno == EPERM)
-			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-			    "Insufficient privileges to unshare iscsi"));
-		return (zfs_error_fmt(hdl, EZFS_UNSHAREISCSIFAILED,
-		    dgettext(TEXT_DOMAIN, "cannot unshare '%s'"), dataset));
-	}
-
-	return (0);
 }
 
 typedef struct mount_cbdata {
@@ -1269,21 +1328,6 @@ out:
 	return (ret);
 }
 
-/*ARGSUSED1*/
-static int
-zvol_cb(zfs_handle_t *zhp, void *unused)
-{
-	int error = 0;
-
-	if (zfs_get_type(zhp) == ZFS_TYPE_FILESYSTEM)
-		(void) zfs_iter_children(zhp, zvol_cb, NULL);
-	if (zfs_get_type(zhp) == ZFS_TYPE_VOLUME)
-		error = zfs_unshare_iscsi(zhp);
-	zfs_close(zhp);
-
-	return (error);
-}
-
 static int
 mountpoint_compare(const void *a, const void *b)
 {
@@ -1309,22 +1353,11 @@ zpool_disable_datasets(zpool_handle_t *zhp, boolean_t force)
 	struct mnttab entry;
 	size_t namelen;
 	char **mountpoints = NULL;
-	zfs_handle_t *zfp;
 	zfs_handle_t **datasets = NULL;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 	int i;
 	int ret = -1;
 	int flags = (force ? MS_FORCE : 0);
-
-	/*
-	 * First unshare all zvols.
-	 */
-	zfp = zfs_open(zhp->zpool_hdl, zhp->zpool_name,
-	    ZFS_TYPE_FILESYSTEM);
-	if (zfp != NULL) {
-		(void) zfs_iter_children(zfp, zvol_cb, NULL);
-		zfs_close(zfp);
-	}
 
 	namelen = strlen(zhp->zpool_name);
 

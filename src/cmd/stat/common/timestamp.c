@@ -39,7 +39,11 @@ print_timestamp(uint_t timestamp_fmt)
 
 	/* We only need to retrieve this once per invocation */
 	if (fmt == NULL)
+#ifdef __APPLE__
+		fmt = nl_langinfo(D_FMT);
+#else
 		fmt = nl_langinfo(_DATE_FMT);
+#endif
 
 	if (timestamp_fmt == UDATE) {
 		(void) printf("%ld\n", t);

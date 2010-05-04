@@ -36,6 +36,8 @@
 
 typedef struct vfsops vfsops_t;
 
+#define FUSE_VFS_HAS_DEFAULT_PERM 1
+
 /* Please look at vfs_init() if you change this structure */
 typedef struct vfs {
 	struct vfs   *vfs_next;
@@ -51,6 +53,7 @@ typedef struct vfs {
 	ulong_t       vfs_bcount;
 	uint_t        vfs_count;
 	refstr_t     *vfs_resource;
+	int	      fuse_attribute;
 } vfs_t;
 
 /*

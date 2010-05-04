@@ -40,7 +40,7 @@
 long pwd_buflen = 0;
 long grp_buflen = 0;
 
-cred_t st_kcred = { 0 };
+cred_t st_kcred = { 0,0 };
 cred_t *kcred = &st_kcred;
 
 int ngroups_max = 0;

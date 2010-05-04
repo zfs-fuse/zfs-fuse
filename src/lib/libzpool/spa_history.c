@@ -33,6 +33,7 @@
 #include <sys/utsname.h>
 #include <sys/cmn_err.h>
 #include <sys/sunddi.h>
+
 #ifdef _KERNEL
 #include <sys/zone.h>
 #endif
@@ -457,7 +458,7 @@ spa_history_log_version(spa_t *spa, history_internal_events_t event)
 
 	if (current_vers >= SPA_VERSION_ZPOOL_HISTORY) {
 		spa_history_internal_log(event, spa, NULL, CRED(),
-		    "pool spa %llu; zfs spa %llu; zpl %d; uts %s %s %s %s",
+		    "pool spa %llu; zfs spa %llu; zpl %lld; uts %s %s %s %s",
 		    (u_longlong_t)current_vers, SPA_VERSION, ZPL_VERSION,
 		    utsname.nodename, utsname.release, utsname.version,
 		    utsname.machine);

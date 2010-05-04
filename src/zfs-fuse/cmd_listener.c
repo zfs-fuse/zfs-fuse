@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fuse/fuse.h>
+#include <syslog.h>
 
 #include "zfs_ioctl.h"
 #include "zfsfuse_socket.h"
@@ -40,17 +41,12 @@
 #define MAX_CONNECTIONS 100
 
 boolean_t exit_listener = B_FALSE;
+static int nthreads;
 
-static int cmd_ioctl_req(int sock, zfsfuse_cmd_t *cmd)
-{
-	dev_t dev = {0};
-
-	cur_fd = sock;
-	int ioctl_ret = zfsdev_ioctl(dev, cmd->cmd_u.ioctl_req.cmd, (uintptr_t) cmd->cmd_u.ioctl_req.arg, 0, NULL, NULL);
-	cur_fd = -1;
-
-	return zfsfuse_socket_ioctl_write(sock, ioctl_ret);
-}
+typedef struct {
+    int socket;
+    zfsfuse_cmd_t *cmd;
+} thread_init_t;
 
 int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 {
@@ -58,41 +54,85 @@ int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 	uint32_t dirlen = cmd->cmd_u.mount_req.dirlen;
 	int32_t optlen = cmd->cmd_u.mount_req.optlen;
 
-	char *spec = malloc(speclen + 1);
-	char *dir = malloc(dirlen + 1);
-	char *opt = malloc(optlen + 1);
+	char *spec = kmem_alloc(speclen + 1,KM_SLEEP);
+	char *dir = kmem_alloc(dirlen + 1,KM_SLEEP);
+	char *opt = kmem_alloc(optlen + 1,KM_SLEEP);
 
-	boolean_t error = spec == NULL || dir == NULL || opt == NULL;
+	int ret = 0; // no error
 
-	if(!error && zfsfuse_socket_read_loop(sock, spec, speclen) == -1)
-		error = B_TRUE;
-	if(!error && zfsfuse_socket_read_loop(sock, dir, dirlen) == -1)
-		error = B_TRUE;
-	if(!error && zfsfuse_socket_read_loop(sock, opt, optlen) == -1)
-		error = B_TRUE;
-	if(!error) {
+	if(zfsfuse_socket_read_loop(sock, spec, speclen) == 0 &&
+		zfsfuse_socket_read_loop(sock, dir, dirlen) == 0 &&
+		zfsfuse_socket_read_loop(sock, opt, optlen) == 0) {
 		spec[speclen] = '\0';
 		dir[dirlen] = '\0';
 		opt[optlen] = '\0';
 #ifdef DEBUG
 		fprintf(stderr, "mount request: \"%s\", \"%s\", \"%i\", \"%s\"\n", spec, dir, cmd->cmd_u.mount_req.mflag, opt);
 #endif
-		uint32_t ret = do_mount(spec, dir, cmd->cmd_u.mount_req.mflag, opt);
-		if(write(sock, &ret, sizeof(uint32_t)) != sizeof(uint32_t))
-			error = B_TRUE;
-	}
-	if(opt != NULL) free(opt);
-	if(dir != NULL) free(dir);
-	if(spec != NULL) free(spec);
+		uint32_t ret_m = do_mount(spec, dir, cmd->cmd_u.mount_req.mflag, opt);
+		if(write(sock, &ret_m, sizeof(uint32_t)) != sizeof(uint32_t))
+			ret = -1;;
+	} else
+	    ret = -1;
+	kmem_free(opt,optlen+1);
+	kmem_free(dir,dirlen+1);
+	kmem_free(spec,speclen+1);
 
-	return error ? -1 : 0;
+	return ret;
+}
+
+static void * cmd_ioctl_thread(void *arg)
+{
+    thread_init_t *init = (thread_init_t *)arg;
+    cur_fd = init->socket;
+    zfsfuse_cmd_t *cmd = init->cmd;
+    dev_t dev = {0};
+
+    cred_t cr;
+    cr.cr_uid = cmd->uid;
+    cr.cr_gid = cmd->gid;
+    cr.req = NULL;
+    nthreads++;
+    int ret;
+    do {
+	if (cmd->cmd_type == MOUNT_REQ) {
+	    if(cmd_mount_req(cur_fd, cmd) != 0)
+		break;
+	} else {
+	    int ioctl_ret = zfsdev_ioctl(dev, cmd->cmd_u.ioctl_req.cmd, (uintptr_t) cmd->cmd_u.ioctl_req.arg, 0, &cr, NULL);
+
+	    zfsfuse_socket_ioctl_write(cur_fd, ioctl_ret);
+	}
+	ret = zfsfuse_socket_read_loop(cur_fd, cmd, sizeof(zfsfuse_cmd_t));
+    } while (ret != -1);
+    kmem_free(cmd,sizeof(zfsfuse_cmd_t));
+    close(cur_fd);
+    cur_fd = -1;
+    nthreads--;
+    return NULL;
+}
+
+extern size_t stack_size;
+
+static void start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
+    static thread_init_t init;
+    init.socket = sock;
+    init.cmd = kmem_alloc(sizeof(zfsfuse_cmd_t),KM_SLEEP);
+    memcpy(init.cmd,cmd,sizeof(zfsfuse_cmd_t));
+    pthread_t ioctl_thread;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    if (stack_size)
+	pthread_attr_setstacksize(&attr,stack_size);
+    if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) &init) != 0) 
+	cmn_err(CE_WARN, "Error creating ioctl thread.");
 }
 
 void *listener_loop(void *arg)
 {
 	int *ioctl_fd = (int *) arg;
-
 	struct pollfd fds[MAX_CONNECTIONS];
+
 
 	fds[0].fd = *ioctl_fd;
 	fds[0].events = POLLIN;
@@ -157,12 +197,12 @@ void *listener_loop(void *arg)
 
 				switch(cmd.cmd_type) {
 					case IOCTL_REQ:
-						if(cmd_ioctl_req(sock, &cmd) != 0) {
-							close(sock);
-							fds[i].fd = -1;
-							continue;
-						}
-						break;
+						start_ioctl_thread(sock, &cmd);
+						/* socket is now handled by
+						 * thread and can be removed
+						 * from the list */
+						fds[i].fd = -1;
+						continue;
 					case MOUNT_REQ:
 						if(cmd_mount_req(sock, &cmd) != 0) {
 							close(sock);
@@ -187,6 +227,11 @@ void *listener_loop(void *arg)
 			write_ptr++;
 		}
 		nfds = write_ptr;
+	}
+
+	while (nthreads) {
+	    syslog(LOG_WARNING,"cmd_listener: waiting for threads to exit");
+	    sleep(1);
 	}
 
 	return NULL;

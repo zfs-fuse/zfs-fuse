@@ -39,7 +39,9 @@ extern "C" {
 #include <sys/types.h>
 // #include <sys/buf.h>
 // #include <sys/dnlc.h>
+#ifndef __APPLE__
 #include <sys/sysinfo.h>
+#endif
 // #include <sys/vmmeter.h>
 #include <sys/processor.h>
 // #include <sys/pset.h>

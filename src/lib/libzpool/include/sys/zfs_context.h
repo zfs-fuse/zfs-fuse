@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -91,12 +91,6 @@ extern "C" {
 #define	CE_PANIC	3	/* panic		*/
 #define	CE_IGNORE	4	/* print nothing	*/
 
-#if DEBUG
-#define ASSERT(EX) assert(EX)
-#else
-#define	ASSERT(x)  ((void)0)
-#endif
-
 /*
  * ZFS debugging
  */
@@ -114,13 +108,34 @@ extern void vpanic(const char *, __va_list);
 
 #define	fm_panic	panic
 
-#define ASSERT_FAIL(EX) \
-        do { \
-        	fprintf(stderr, __FILE__ ":%i: %s: Assertion `" #EX "` failed.\n", __LINE__, __PRETTY_FUNCTION__); \
-        	abort(); \
-        } while(0)
+extern int aok;
 
-#define VERIFY(EX) do { if(!(EX)) ASSERT_FAIL(EX); } while(0)
+/* This definition is copied from assert.h. */
+#if defined(__STDC__)
+// we don't seem to have this __assert_c99 macro in linux...
+#if 0 // __STDC_VERSION__ - 0 >= 199901L
+#define	zverify(EX) (void)((EX) || (aok) || \
+	(__assert_c99(#EX, __FILE__, __LINE__, __func__), 0))
+#else
+#define	zverify(EX) (void)((EX) || (aok) || \
+	(__assert(#EX, __FILE__, __LINE__), 0))
+#endif /* __STDC_VERSION__ - 0 >= 199901L */
+#else
+#define	zverify(EX) (void)((EX) || (aok) || \
+	(_assert("EX", __FILE__, __LINE__), 0))
+#endif	/* __STDC__ */
+
+
+#define	VERIFY	zverify
+#if DEBUG
+#define	ASSERT	zverify
+#undef	assert
+#define	assert	zverify
+#else
+#define	ASSERT(x)  ((void)0)
+#undef assert
+#define	assert(x)  ((void)0)
+#endif
 
 extern void __assert(const char *, const char *, int);
 
@@ -131,7 +146,7 @@ extern void __assert(const char *, const char *, int);
 #define	VERIFY3_IMPL(LEFT, OP, RIGHT, TYPE) do { \
 	const TYPE __left = (TYPE)(LEFT); \
 	const TYPE __right = (TYPE)(RIGHT); \
-	if (!(__left OP __right)) { \
+	if (!(__left OP __right) && (!aok)) { \
 		char *__buf = alloca(256); \
 		(void) snprintf(__buf, 256, "%s %s %s (0x%llx %s 0x%llx)", \
 			#LEFT, #OP, #RIGHT, \
@@ -435,6 +450,7 @@ extern vnode_t *rootdir;
  * Random stuff
  */
 #define	lbolt	(gethrtime() >> 23)
+#define ddi_get_lbolt() (lbolt)
 #define	lbolt64	(gethrtime() >> 23)
 #define	hz	119	/* frequency when using gethrtime() >> 23 for lbolt */
 

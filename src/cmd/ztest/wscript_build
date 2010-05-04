@@ -18,7 +18,7 @@ obj = bld.new_task_gen(
         includes = include_dirs,
         defines = [ '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
         uselib_local = 'zpool-user zfscommon-user  nvpair-user avl umem solcompat',
-        uselib = 'm_lib dl_lib rt_lib pthread_lib z_lib aio_lib',
+        uselib = 'm_lib dl_lib rt_lib pthread_lib z_lib aio_lib crypto',
         install_path = '${PREFIX}/usr/local/sbin/',
         name = 'ztest',
         target = 'ztest'

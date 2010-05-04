@@ -34,6 +34,7 @@
 
 // For flushing the write cache.
 #include "flushwc.h"
+#include "format.h"
 
 /*
  * Virtual device vector for files.
@@ -76,6 +77,14 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	ASSERT(vd->vdev_path != NULL && vd->vdev_path[0] == '/');
 	error = vn_openat(vd->vdev_path + 1, UIO_SYSSPACE,
 	    spa_mode(vd->vdev_spa) | FOFFMAX, 0, &vp, 0, 0, rootdir, -1);
+
+	if (error == ENOENT && vd->vdev_guid) {
+	    // we didn't find it, let's try the uuid then...
+	    char path[64];
+	    sprintf(path,"/dev/disk/by-uuid/" FX64_UP,vd->vdev_guid);
+	    error = vn_openat(path + 1, UIO_SYSSPACE,
+		    spa_mode(vd->vdev_spa) | FOFFMAX, 0, &vp, 0, 0, rootdir, -1);
+	}
 
 	if (error) {
 		dprintf("vn_openat() returned error %i\n", error);

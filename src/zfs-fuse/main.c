@@ -43,6 +43,7 @@ static int cf_disable_block_cache = 0;
 static int cf_disable_page_cache = 0;
 extern void fuse_unmount_all(); // in fuse_listener.c
 static int cf_daemonize = 1;
+extern int no_kstat_mount; // kstat.c
 
 static void exit_handler(int sig)
 {
@@ -74,12 +75,18 @@ extern int optind, opterr, optopt;
 extern int zfs_vdev_cache_size; // in lib/libzpool/vdev_cache.c
 extern int zfs_prefetch_disable; // lib/libzpool/dmu_zfetch.c
 extern int arg_log_uberblocks, arg_min_uberblock_txg; // uberblock.c
+size_t stack_size = 0;
 
 static struct option longopts[] = {
 	{ "no-daemon",
 	  0, /* has-arg */
 	  &cf_daemonize, /* flag */
 	  0 /* val */
+	},
+	{ "no-kstat-mount",
+	    0,
+	    &no_kstat_mount,
+	    1
 	},
 	{ "log-uberblocks",
 	    0,
@@ -141,6 +148,11 @@ static struct option longopts[] = {
 	  NULL,
 	  'h'
 	},
+	{ "stack-size",
+	    1,
+	    NULL,
+	    's'
+	},
 	{ 0, 0, 0, 0 }
 };
 
@@ -155,8 +167,10 @@ void print_usage(int argc, char *argv[]) {
 		"Options:\n"
 		"  -p FILE, --pidfile FILE\n"
 		"			Store the process ID of ZFS in the specified file.\n"
-		"  --no-daemon -n\n"
+		"  --no-daemon, -n\n"
 		"			Do not daemonize ZFS.\n"
+		"  --no-kstat-mount\n"
+		"			Do not mount kstats in /zfs-kstat\n"
 		"  --disable-block-cache\n"
 		"			Enable direct I/O for disk operations. Completely\n"
 		"			disables caching reads and writes in the kernel\n"
@@ -189,6 +203,9 @@ void print_usage(int argc, char *argv[]) {
 		"  --zfs-prefetch-disable\n"
 		"			Disable the high level prefetch cache in zfs.\n"
 		"			This thing can eat up to 150 Mb of ram, maybe more\n"
+		"  --stack-size=size\n"
+		"			Limit the stack size of threads (in kb).\n"
+		"			default : no limit (8 Mb for linux)\n"
 		"  -h, --help\n"
 		"			Show this usage summary.\n"
 		, progname);
@@ -212,7 +229,7 @@ static void parse_args(int argc, char *argv[])
 
 	optind = 0;
 	optarg = NULL;
-	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:no:u:v:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:no:u:v:s:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -280,6 +297,11 @@ static void parse_args(int argc, char *argv[])
 			case 'v':
 				check_opt(progname,"-v");
 				zfs_vdev_cache_size = strtol(optarg,&detecterror,10)<<20;
+				break;
+			case 's':
+				check_opt(progname,"-s");
+				stack_size=strtoul(optarg,&detecterror,10)<<10;
+				syslog(LOG_WARNING,"stack size for threads %zd",stack_size);
 				break;
 			case 0:
 				break; /* flag is not NULL */
@@ -349,6 +371,7 @@ static void read_cfg() {
 
 int main(int argc, char *argv[])
 {
+    init_mmap();
 	/* one sane default a day keeps GDB away - Rudd-O */
 	fuse_attr_timeout = 0.0;
 	fuse_entry_timeout = 0.0;
@@ -360,26 +383,12 @@ int main(int argc, char *argv[])
 	block_cache = cf_disable_block_cache ? 0 : 1;
 	page_cache = cf_disable_page_cache ? 0 : 1;
 
-	/* notice about caching mechanisms */
-	syslog(LOG_NOTICE,"caching mechanisms: ARC 1, block cache %d page cache %d", block_cache, page_cache);
-
 	/* notice about ARC size */
 	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: " FU64 " MiB", max_arc_size>>20);
 	else 			syslog(LOG_NOTICE,"ARC caching: maximum ARC size: compiled-in default");
 
-	/* notice about FUSE caching tunables */
-	syslog(LOG_NOTICE, "FUSE caching: attribute timeout %f, entry timeout %f", fuse_attr_timeout, fuse_entry_timeout);
-
-	 /* notice about extra FUSE mount options */
-	if (strcmp(fuse_mount_options,"") != 0)
-		syslog(LOG_NOTICE,"FUSE mount options (appended to compiled-in options): %s", fuse_mount_options);
-	
 	if (!block_cache) /* direct IO enabled */
 		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
-	if (!page_cache) /* page cache defeated */
-		syslog(LOG_WARNING,"page cache disabled -- expect reduced I/O performance");
-	if (fuse_entry_timeout > 0.0) /* security bug! */
-		syslog(LOG_WARNING,"FUSE entry timeout > 0 -- expect insecure directory traversal");
 	if (cf_daemonize) {
 		do_daemon(cf_pidfile);
 	}

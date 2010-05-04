@@ -30,7 +30,7 @@
 #include <sys/zfs_ioctl.h>
 #include <sys/types.h>
 
-extern int cur_fd;
+extern __thread int cur_fd;
 
 extern int zfsfuse_socket_create();
 extern void zfsfuse_socket_close(int fd);

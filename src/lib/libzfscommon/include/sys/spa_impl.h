@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -96,6 +96,7 @@ struct spa {
 	avl_node_t	spa_avl;		/* node in spa_namespace_avl */
 	nvlist_t	*spa_config;		/* last synced config */
 	nvlist_t	*spa_config_syncing;	/* currently syncing config */
+	nvlist_t	*spa_config_splitting;	/* config for splitting */
 	uint64_t	spa_config_txg;		/* txg of last config change */
 	int		spa_sync_pass;		/* iterate-to-convergence */
 	pool_state_t	spa_state;		/* pool state */
@@ -147,7 +148,6 @@ struct spa {
 	char		*spa_root;		/* alternate root directory */
 	uint64_t	spa_ena;		/* spa-wide ereport ENA */
 	int		spa_last_open_failed;	/* error if last open failed */
-	nvlist_t	*spa_failed_open_cfg;	/* cached config nvlist */
 	uint64_t	spa_last_ubsync_txg;	/* "best" uberblock txg */
 	uint64_t	spa_last_ubsync_txg_ts;	/* timestamp from that ub */
 	uint64_t	spa_load_txg;		/* ub txg that loaded */
@@ -191,6 +191,7 @@ struct spa {
 	kmutex_t	spa_vdev_top_lock;	/* dueling offline/remove */
 	boolean_t	spa_autoreplace;	/* autoreplace set in open */
 	int		spa_vdev_locks;		/* locks grabbed */
+
 	/*
 	 * spa_refcnt & spa_config_lock must be the last elements
 	 * because refcount_t changes size based on compilation options.

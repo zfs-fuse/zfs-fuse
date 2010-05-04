@@ -88,6 +88,7 @@ def configure(conf):
     conf.check(header_name="aio.h", uselib_store='aio_defines', mandatory=True)
     conf.check(lib='aio',  uselib_store='aio_lib', mandatory=True)
     conf.check(lib='ssl',  uselib_store='openssl', mandatory=True)
+    conf.check(lib='crypto',  uselib_store='crypto', mandatory=True)
     conf.check(lib='pthread',  uselib_store='pthread_lib', mandatory=True)
     conf.check_cc(lib='fuse',  uselib_store='fuse_lib',  mandatory=True)
     conf.check_cc(lib='dl',  uselib_store='dl_lib',  mandatory=True)
