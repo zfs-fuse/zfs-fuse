@@ -124,6 +124,7 @@ static int start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
     pthread_attr_init(&attr);
     if (stack_size)
 	pthread_attr_setstacksize(&attr,stack_size);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) &init) != 0) {
 	cmn_err(CE_WARN, "Error creating ioctl thread.");
 	// Not totally sure the error can be passed directly this way ?
