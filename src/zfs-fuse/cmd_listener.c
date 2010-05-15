@@ -114,7 +114,7 @@ static void * cmd_ioctl_thread(void *arg)
 
 extern size_t stack_size;
 
-static void start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
+static int start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
     static thread_init_t init;
     init.socket = sock;
     init.cmd = kmem_alloc(sizeof(zfsfuse_cmd_t),KM_SLEEP);
@@ -124,8 +124,13 @@ static void start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
     pthread_attr_init(&attr);
     if (stack_size)
 	pthread_attr_setstacksize(&attr,stack_size);
-    if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) &init) != 0) 
+    if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) &init) != 0) {
 	cmn_err(CE_WARN, "Error creating ioctl thread.");
+	// Not totally sure the error can be passed directly this way ?
+	zfsfuse_socket_ioctl_write(sock, ENOMEM);
+	return 0; // don't close the socket now then, keep it in the main loop
+    }
+    return 1;
 }
 
 void *listener_loop(void *arg)
@@ -197,11 +202,12 @@ void *listener_loop(void *arg)
 
 				switch(cmd.cmd_type) {
 					case IOCTL_REQ:
-						start_ioctl_thread(sock, &cmd);
-						/* socket is now handled by
-						 * thread and can be removed
-						 * from the list */
-						fds[i].fd = -1;
+						if (start_ioctl_thread(sock, &cmd)) {
+						    /* socket is now handled by
+						     * thread and can be removed
+						     * from the list */
+						    fds[i].fd = -1;
+						}
 						continue;
 					case MOUNT_REQ:
 						if(cmd_mount_req(sock, &cmd) != 0) {
