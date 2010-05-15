@@ -45,7 +45,7 @@ static int nthreads;
 
 typedef struct {
     int socket;
-    zfsfuse_cmd_t *cmd;
+    zfsfuse_cmd_t cmd;
 } thread_init_t;
 
 int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
@@ -85,7 +85,7 @@ static void * cmd_ioctl_thread(void *arg)
 {
     thread_init_t *init = (thread_init_t *)arg;
     cur_fd = init->socket;
-    zfsfuse_cmd_t *cmd = init->cmd;
+    zfsfuse_cmd_t *cmd = &(init->cmd);
     dev_t dev = {0};
 
     cred_t cr;
@@ -105,7 +105,7 @@ static void * cmd_ioctl_thread(void *arg)
 	}
 	ret = zfsfuse_socket_read_loop(cur_fd, cmd, sizeof(zfsfuse_cmd_t));
     } while (ret != -1);
-    kmem_free(cmd,sizeof(zfsfuse_cmd_t));
+    kmem_free(init,sizeof(thread_init_t));
     close(cur_fd);
     cur_fd = -1;
     nthreads--;
@@ -115,17 +115,16 @@ static void * cmd_ioctl_thread(void *arg)
 extern size_t stack_size;
 
 static int start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
-    static thread_init_t init;
-    init.socket = sock;
-    init.cmd = kmem_alloc(sizeof(zfsfuse_cmd_t),KM_SLEEP);
-    memcpy(init.cmd,cmd,sizeof(zfsfuse_cmd_t));
+    thread_init_t* init = kmem_alloc(sizeof(thread_init_t),KM_SLEEP);
+    init->socket = sock;
+    memcpy(&init->cmd,cmd,sizeof(zfsfuse_cmd_t));
     pthread_t ioctl_thread;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     if (stack_size)
-	pthread_attr_setstacksize(&attr,stack_size);
+    pthread_attr_setstacksize(&attr,stack_size);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) &init) != 0) {
+    if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) init) != 0) {
 	cmn_err(CE_WARN, "Error creating ioctl thread.");
 	// Not totally sure the error can be passed directly this way ?
 	zfsfuse_socket_ioctl_write(sock, ENOMEM);
