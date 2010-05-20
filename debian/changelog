@@ -1,3 +1,10 @@
+zfs-fuse (0.6.0+critical20100301-5) unstable; urgency=low
+
+  * Silence the init script a bit in case zfs-fuse was disabled
+    (Closes: #581668).
+
+ -- Sebastien Delafond <seb@debian.org>  Thu, 20 May 2010 14:36:06 +0200
+
 zfs-fuse (0.6.0+critical20100301-4) unstable; urgency=low
 
   * Start the daemon with limits removed and LANG unset, and immunize it

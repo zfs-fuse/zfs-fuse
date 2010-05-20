@@ -103,7 +103,7 @@ do_start() {
         return 1
     fi
     if [ "x$ENABLE_ZFS" != "xyes" ]; then
-        echo "Not starting $NAME: ENABLE_ZFS is not set to 'yes' in /etc/default/$NAME" >&2
+        log_action_msg "Disabled by /etc/default/$NAME" >&2
         return 1
     fi
     log_daemon_msg "Starting $NAME" "zfs-fuse"
