@@ -593,10 +593,19 @@ libzfs_mnttab_init(libzfs_handle_t *hdl)
 	    sizeof (mnttab_node_t), offsetof(mnttab_node_t, mtn_node));
 }
 
+static void free_mnttab_node(mnttab_node_t *mtn) {
+    free(mtn->mtn_mt.mnt_special);
+    free(mtn->mtn_mt.mnt_mountp);
+    free(mtn->mtn_mt.mnt_fstype);
+    free(mtn->mtn_mt.mnt_mntopts);
+    free(mtn);
+}
+
 void
 libzfs_mnttab_update(libzfs_handle_t *hdl)
 {
 	struct mnttab entry;
+	avl_index_t where;
 
 	rewind(hdl->libzfs_mnttab);
 	while (getmntent(hdl->libzfs_mnttab, &entry) == 0) {
@@ -609,7 +618,16 @@ libzfs_mnttab_update(libzfs_handle_t *hdl)
 		mtn->mtn_mt.mnt_mountp = zfs_strdup(hdl, entry.mnt_mountp);
 		mtn->mtn_mt.mnt_fstype = zfs_strdup(hdl, entry.mnt_fstype);
 		mtn->mtn_mt.mnt_mntopts = zfs_strdup(hdl, entry.mnt_mntopts);
-		avl_add(&hdl->libzfs_mnttab_cache, mtn);
+		if (avl_find(&hdl->libzfs_mnttab_cache, mtn, &where) != NULL) {
+		    /* If mounting a zfs-fuse dir with the bind option, then
+		     * this mount point appears twice in /proc/mounts as if
+		     * it were mounted twice by zfs-fuse with exactly the
+		     * same options but on 2 different mount points.
+		     * So if we find another entry here, we keep only the 1st
+		     * one */
+		    free_mnttab_node(mtn);
+		} else
+		    avl_add(&hdl->libzfs_mnttab_cache, mtn);
 	}
 }
 
@@ -620,11 +638,7 @@ libzfs_mnttab_fini(libzfs_handle_t *hdl)
 	mnttab_node_t *mtn;
 
 	while (mtn = avl_destroy_nodes(&hdl->libzfs_mnttab_cache, &cookie)) {
-		free(mtn->mtn_mt.mnt_special);
-		free(mtn->mtn_mt.mnt_mountp);
-		free(mtn->mtn_mt.mnt_fstype);
-		free(mtn->mtn_mt.mnt_mntopts);
-		free(mtn);
+	    free_mnttab_node(mtn);
 	}
 	avl_destroy(&hdl->libzfs_mnttab_cache);
 }
