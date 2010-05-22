@@ -30,6 +30,7 @@
 #include <sys/vfs.h>
 
 extern int do_init();
+extern int do_init_fusesocket();
 extern void do_daemon(const char *pidfile);
 extern void do_exit();
 extern int do_mount(char *spec, char *dir, int mflag, char *opt);
