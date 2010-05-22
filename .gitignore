@@ -10,4 +10,21 @@ src/cmd/zdb/zdb
 src/cmd/zfs/zfs
 src/cmd/zpool/zpool
 src/cmd/ztest/ztest
+src/cmd/zstreamdump/zstreamdump
 
+src/lib/libumem/*.l[ao]
+src/lib/libumem/umem_test
+src/lib/libumem/umem_test[23]
+src/lib/libumem/.deps/
+src/lib/libumem/.libs/
+src/lib/libumem/Doxyfile
+src/lib/libumem/Makefile
+src/lib/libumem/autom4te.cache/
+src/lib/libumem/config.h
+src/lib/libumem/config.h.in~
+src/lib/libumem/config.log
+src/lib/libumem/config.status
+src/lib/libumem/configure.lineno
+src/lib/libumem/libtool
+src/lib/libumem/stamp-h1
+src/lib/libumem/umem.spec
