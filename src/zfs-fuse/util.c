@@ -89,6 +89,14 @@ void do_daemon(const char *pidfile)
 
 extern size_t stack_size;
 
+int do_init_fusesocket()
+{
+	ioctl_fd = zfsfuse_socket_create();
+	if(ioctl_fd == -1)
+		return -1;
+    return 0;
+}
+
 int do_init()
 {
 	libsolkerncompat_init();
@@ -97,9 +105,7 @@ int do_init()
 
 	VERIFY(zfs_ioctl_init() == 0);
 
-	ioctl_fd = zfsfuse_socket_create();
-	if(ioctl_fd == -1)
-		return -1;
+    VERIFY(ioctl_fd != -1); // initialization moved to do_init_fusesocket
 
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
