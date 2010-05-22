@@ -44,6 +44,7 @@
 
 #include "util.h"
 #include "fuse_listener.h"
+#include <syslog.h>
 
 #define ZFS_MAGIC 0x2f52f5
 
@@ -622,7 +623,8 @@ static int zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	zfsfuse_getcred(req, &cred);
 
 	int error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
-	VERIFY(error == 0);
+    if (error)
+        syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
 
 	VN_RELE(info->vp);
 
