@@ -1,8 +1,8 @@
 # Release tag is supposed to be 0. for prerelease, X. for serial number in this version and alphatag XXXsvn.
 
 Name:          zfs-fuse
-Version:       0.6.0
-Release:       8
+Version:       0.6.9_beta2
+Release:       9
 Summary:       The last word in filesystems
 License:       GPL
 Group:         System Environment/Daemons
@@ -10,7 +10,7 @@ URL:           http://zfs-fuse.net/
 Source0:       %{name}-%{version}.tar.bz2
 BuildRoot:     %{_tmppath}/%{name}-%{version}-root
 BuildRequires: fuse-devel libaio-devel zlib-devel scons
-BuildRequires: openssl-devel libattr-devel
+BuildRequires: openssl-devel libattr-devel libacl-devel
 
 %description
 ZFS (formerly the Zettabyte File System), is a filesystem invented by
