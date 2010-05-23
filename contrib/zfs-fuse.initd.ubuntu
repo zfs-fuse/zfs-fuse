@@ -112,10 +112,8 @@ do_start() {
     then
         log_end_msg 0
         log_action_begin_msg "Mounting ZFS filesystems"
-        sleep 2 # allow zfs-fuse time to start up
-	zpool import -a -f
         if zfs mount -a
-        then log_action_end_msg 0; return 0
+        then zfs share -a; log_action_end_msg 0; return 0
         else log_action_end_msg 1; return 1
         fi
     else
