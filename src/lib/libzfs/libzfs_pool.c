@@ -37,6 +37,8 @@
 #include <unistd.h>
 #include <sys/efi_partition.h>
 #include <sys/vtoc.h>
+#include <sys/stat.h>
+
 #include <sys/zfs_ioctl.h>
 
 #include "zfs_namecheck.h"
