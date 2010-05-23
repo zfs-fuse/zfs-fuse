@@ -48,6 +48,22 @@ typedef struct {
     zfsfuse_cmd_t cmd;
 } thread_init_t;
 
+static int cmd_ioctl_req(int sock, zfsfuse_cmd_t *cmd)
+{
+	dev_t dev = {0};
+
+	cur_fd = sock;
+	cred_t cr;
+	cr.cr_uid = cmd->uid;
+	cr.cr_gid = cmd->gid;
+	cr.req = NULL;
+	int ioctl_ret = zfsdev_ioctl(dev, cmd->cmd_u.ioctl_req.cmd, (uintptr_t) cmd->cmd_u.ioctl_req.arg, 0, &cr, NULL);
+	cur_fd = -1;
+
+	return zfsfuse_socket_ioctl_write(sock, ioctl_ret);
+}
+
+
 int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 {
 	uint32_t speclen = cmd->cmd_u.mount_req.speclen;
@@ -202,6 +218,14 @@ void *listener_loop(void *arg)
 
 				switch(cmd.cmd_type) {
 					case IOCTL_REQ:
+#if 0
+						if(cmd_ioctl_req(sock, &cmd) != 0) {
+							close(sock);
+							fds[i].fd = -1;
+							continue;
+						}
+						break;
+#else
 						if (start_ioctl_thread(sock, &cmd)) {
 						    /* socket is now handled by
 						     * thread and can be removed
@@ -209,6 +233,7 @@ void *listener_loop(void *arg)
 						    fds[i].fd = -1;
 						}
 						continue;
+#endif
 					case MOUNT_REQ:
 						if(cmd_mount_req(sock, &cmd) != 0) {
 							close(sock);
