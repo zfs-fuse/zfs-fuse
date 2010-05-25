@@ -30,5 +30,7 @@
 extern boolean_t exit_listener;
 
 extern void *listener_loop(void *arg);
+extern int cmd_listener_init();
+extern int cmd_listener_fini();
 
 #endif
