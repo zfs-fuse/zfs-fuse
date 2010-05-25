@@ -107,6 +107,8 @@ int do_init()
 
     VERIFY(ioctl_fd != -1); // initialization moved to do_init_fusesocket
 
+    VERIFY(cmd_listener_init() == 0);
+
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
 	if (stack_size)
@@ -129,6 +131,7 @@ void do_exit()
 			cmn_err(CE_WARN, "Error in pthread_join().");
 	}
 
+    cmd_listener_fini();
 	zfsfuse_listener_exit();
 
 	if(ioctl_fd != -1)
