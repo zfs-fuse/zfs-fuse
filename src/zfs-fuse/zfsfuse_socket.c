@@ -43,25 +43,10 @@
 
 #include "zfsfuse_socket.h"
 
-#define LOCKDIR "/var/lock/zfs"
-#define LOCKFILE LOCKDIR "/zfs_lock"
-
 __thread int cur_fd = -1;
 
 avl_tree_t fd_avl;
 pthread_mutex_t fd_avl_mtx = PTHREAD_MUTEX_INITIALIZER;
-
-static int zfsfuse_do_locking()
-{
-	/* Ignores errors since the directory might already exist */
-	mkdir(LOCKDIR, 0700);
-
-	int lock_fd = creat(LOCKFILE, S_IRUSR | S_IWUSR);
-	if(lock_fd == -1)
-		return -1;
-
-	return lockf(lock_fd, F_TLOCK, 0);
-}
 
 /*
  * AVL comparison function used to order the fd tree
@@ -91,11 +76,6 @@ int zfsfuse_socket_create()
 
 	int sock;
 	size_t size;
-
-	if(zfsfuse_do_locking() != 0) {
-		cmn_err(CE_WARN, "Error locking " LOCKFILE ". Make sure there isn't another zfs-fuse process running and that you have appropriate permissions.");
-		return -1;
-	}
 
 	/* Create the socket. */
 	sock = socket(PF_LOCAL, SOCK_STREAM, 0);
