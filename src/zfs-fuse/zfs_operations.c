@@ -164,7 +164,7 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, ino, &znode);
+	int error = zfs_zget(zfsvfs, ino, &znode, B_TRUE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -220,7 +220,7 @@ static int int_zfs_enter(zfsvfs_t *zfsvfs) {
 								\
     znode_t *znode;						\
 								\
-    int error = zfs_zget(zfsvfs, ino, &znode);		\
+    int error = zfs_zget(zfsvfs, ino, &znode, B_FALSE);		\
     if(error) {							\
 	ZFS_EXIT(zfsvfs);					\
 	fuse_reply_err(req, error == EEXIST ? ENOENT : error);	\
@@ -463,7 +463,7 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, parent, &znode);
+	int error = zfs_zget(zfsvfs, parent, &znode, B_TRUE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -538,7 +538,7 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, ino, &znode);
+	int error = zfs_zget(zfsvfs, ino, &znode, B_TRUE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -790,7 +790,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, ino, &znode);
+	int error = zfs_zget(zfsvfs, ino, &znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -954,7 +954,7 @@ static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, ino, &znode);
+	int error = zfs_zget(zfsvfs, ino, &znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -1075,7 +1075,7 @@ static int zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, parent, &znode);
+	int error = zfs_zget(zfsvfs, parent, &znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -1150,7 +1150,7 @@ static int zfsfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, parent, &znode);
+	int error = zfs_zget(zfsvfs, parent, &znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -1207,7 +1207,7 @@ static int zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, in
 	if(fi == NULL) {
 		znode_t *znode;
 
-		error = zfs_zget(zfsvfs, ino, &znode);
+		error = zfs_zget(zfsvfs, ino, &znode, B_TRUE);
 		if(error) {
 			ZFS_EXIT(zfsvfs);
 			/* If the inode we are trying to get was recently deleted
@@ -1339,7 +1339,7 @@ static int zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, parent, &znode);
+	int error = zfs_zget(zfsvfs, parent, &znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -1437,7 +1437,7 @@ static int zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, parent, &znode);
+	int error = zfs_zget(zfsvfs, parent, &znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -1520,7 +1520,7 @@ static int zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent, 
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, parent, &znode);
+	int error = zfs_zget(zfsvfs, parent, &znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -1603,7 +1603,7 @@ static int zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, f
 
 	znode_t *p_znode, *np_znode;
 
-	int error = zfs_zget(zfsvfs, parent, &p_znode);
+	int error = zfs_zget(zfsvfs, parent, &p_znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -1613,7 +1613,7 @@ static int zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, f
 
 	ASSERT(p_znode != NULL);
 
-	error = zfs_zget(zfsvfs, newparent, &np_znode);
+	error = zfs_zget(zfsvfs, newparent, &np_znode, B_FALSE);
 	if(error) {
 		VN_RELE(ZTOV(p_znode));
 		ZFS_EXIT(zfsvfs);
@@ -1701,7 +1701,7 @@ static int zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, co
 
 	znode_t *td_znode, *s_znode;
 
-	int error = zfs_zget(zfsvfs, ino, &s_znode);
+	int error = zfs_zget(zfsvfs, ino, &s_znode, B_FALSE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
@@ -1711,7 +1711,7 @@ static int zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, co
 
 	ASSERT(s_znode != NULL);
 
-	error = zfs_zget(zfsvfs, newparent, &td_znode);
+	error = zfs_zget(zfsvfs, newparent, &td_znode, B_FALSE);
 	if(error) {
 		VN_RELE(ZTOV(s_znode));
 		ZFS_EXIT(zfsvfs);
@@ -1788,7 +1788,7 @@ static int zfsfuse_access(fuse_req_t req, fuse_ino_t ino, int mask)
 
 	znode_t *znode;
 
-	int error = zfs_zget(zfsvfs, ino, &znode);
+	int error = zfs_zget(zfsvfs, ino, &znode, B_TRUE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted

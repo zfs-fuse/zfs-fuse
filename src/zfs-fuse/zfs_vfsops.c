@@ -1701,7 +1701,7 @@ zfs_root(vfs_t *vfsp, vnode_t **vpp)
 
 	ZFS_ENTER(zfsvfs);
 
-	error = zfs_zget(zfsvfs, zfsvfs->z_root, &rootzp);
+	error = zfs_zget(zfsvfs, zfsvfs->z_root, &rootzp, B_FALSE);
 	if (error == 0)
 		*vpp = ZTOV(rootzp);
 
