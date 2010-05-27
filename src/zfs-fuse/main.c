@@ -389,6 +389,8 @@ int main(int argc, char *argv[])
 
 	if (!block_cache) /* direct IO enabled */
 		syslog(LOG_WARNING,"block cache disabled -- mmap() cannot be used in ZFS filesystems");
+    if (do_init_fusesocket() != 0)
+        return 1;
 	if (cf_daemonize) {
 		do_daemon(cf_pidfile);
 	}

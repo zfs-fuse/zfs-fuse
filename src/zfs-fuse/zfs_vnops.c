@@ -921,7 +921,7 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	/*
 	 * Nothing to do if the file has been removed
 	 */
-	if (zfs_zget(zfsvfs, object, &zp) != 0)
+	if (zfs_zget(zfsvfs, object, &zp, B_FALSE) != 0)
 		return (ENOENT);
 	if (zp->z_unlinked) {
 		/*
@@ -1593,7 +1593,7 @@ top:
 
 	if (delete_now) {
 		if (zp->z_phys->zp_xattr) {
-			error = zfs_zget(zfsvfs, zp->z_phys->zp_xattr, &xzp);
+			error = zfs_zget(zfsvfs, zp->z_phys->zp_xattr, &xzp, B_FALSE);
 			ASSERT3U(error, ==, 0);
 			ASSERT3U(xzp->z_phys->zp_links, ==, 2);
 			dmu_buf_will_dirty(xzp->z_dbuf, tx);
@@ -2111,7 +2111,7 @@ zfs_readdir(vnode_t *vp, uio_t *uio, cred_t *cr, int *eofp,
 			 * this entry in the returned information
 			 */
 			znode_t	*ezp;
-			if (zfs_zget(zp->z_zfsvfs, objnum, &ezp) != 0)
+			if (zfs_zget(zp->z_zfsvfs, objnum, &ezp, B_FALSE) != 0)
 				goto skip_entry;
 			if (!zfs_has_access(ezp, cr)) {
 				VN_RELE(ZTOV(ezp));
@@ -2806,7 +2806,7 @@ top:
 
 	if (mask & (AT_UID | AT_GID)) {
 		if (pzp->zp_xattr) {
-			err = zfs_zget(zp->z_zfsvfs, pzp->zp_xattr, &attrzp);
+			err = zfs_zget(zp->z_zfsvfs, pzp->zp_xattr, &attrzp, B_FALSE);
 			if (err)
 				goto out;
 			dmu_tx_hold_bonus(tx, attrzp->z_id);
@@ -3065,7 +3065,7 @@ zfs_rename_lock(znode_t *szp, znode_t *tdzp, znode_t *sdzp, zfs_zlock_t **zlpp)
 			return (0);
 
 		if (rw == RW_READER) {		/* i.e. not the first pass */
-			int error = zfs_zget(zp->z_zfsvfs, *oidp, &zp);
+			int error = zfs_zget(zp->z_zfsvfs, *oidp, &zp, B_FALSE);
 			if (error)
 				return (error);
 			zl->zl_znode = zp;

@@ -38,15 +38,14 @@
 #include "zfsfuse_socket.h"
 #include "util.h"
 
+#include "semaphore.h"
+#include <sys/time.h>
+
 #define MAX_CONNECTIONS 100
+#define IOCTLQUEUE_MAX_PENDING 256 // recommend to at least match MAX_CONNECTIONS so no regressions occur
+#define IOCTLQUEUE_WORKERS 8
 
 boolean_t exit_listener = B_FALSE;
-static int nthreads;
-
-typedef struct {
-    int socket;
-    zfsfuse_cmd_t cmd;
-} thread_init_t;
 
 int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 {
@@ -81,56 +80,241 @@ int cmd_mount_req(int sock, zfsfuse_cmd_t *cmd)
 	return ret;
 }
 
-static void * cmd_ioctl_thread(void *arg)
-{
-    thread_init_t *init = (thread_init_t *)arg;
-    cur_fd = init->socket;
-    zfsfuse_cmd_t *cmd = &(init->cmd);
-    dev_t dev = {0};
+/* --------------------------------------------------
+ * new ioctl queue facility
+ * --------------------------------------------------
+ */
 
-    cred_t cr;
-    cr.cr_uid = cmd->uid;
-    cr.cr_gid = cmd->gid;
-    cr.req = NULL;
-    nthreads++;
-    int ret;
-    do {
-	if (cmd->cmd_type == MOUNT_REQ) {
-	    if(cmd_mount_req(cur_fd, cmd) != 0)
-		break;
-	} else {
-	    int ioctl_ret = zfsdev_ioctl(dev, cmd->cmd_u.ioctl_req.cmd, (uintptr_t) cmd->cmd_u.ioctl_req.arg, 0, &cr, NULL);
-
-	    zfsfuse_socket_ioctl_write(cur_fd, ioctl_ret);
-	}
-	ret = zfsfuse_socket_read_loop(cur_fd, cmd, sizeof(zfsfuse_cmd_t));
-    } while (ret != -1);
-    kmem_free(init,sizeof(thread_init_t));
-    close(cur_fd);
-    cur_fd = -1;
-    nthreads--;
-    return NULL;
-}
+typedef struct {
+    int socket;
+} ioctl_queue_item_t;
 
 extern size_t stack_size;
 
-static int start_ioctl_thread(int sock, zfsfuse_cmd_t *cmd) {
-    thread_init_t* init = kmem_alloc(sizeof(thread_init_t),KM_SLEEP);
-    init->socket = sock;
-    memcpy(&init->cmd,cmd,sizeof(zfsfuse_cmd_t));
-    pthread_t ioctl_thread;
+static void handle_connection(int sock)
+{
+    /* Handle request */
+    zfsfuse_cmd_t cmd;
+	dev_t dev = {0};
+	cred_t cr;
+
+    while (-1 != zfsfuse_socket_read_loop(sock, &cmd, sizeof(zfsfuse_cmd_t)))
+    {
+        switch(cmd.cmd_type) 
+        {
+            case IOCTL_REQ:
+                cr.cr_uid = cmd.uid;
+                cr.cr_gid = cmd.gid;
+                cr.req = NULL;
+                cur_fd = sock; // thread local; used outside this module
+                int ioctl_ret = zfsdev_ioctl(dev, cmd.cmd_u.ioctl_req.cmd, (uintptr_t) cmd.cmd_u.ioctl_req.arg, 0, &cr, NULL);
+                
+                if (zfsfuse_socket_ioctl_write(sock, ioctl_ret) != 0) 
+                    goto done;
+                break;
+            case MOUNT_REQ:
+                if(cmd_mount_req(sock, &cmd) != 0)
+                    goto done;
+                break;
+            default:
+                abort();
+        }
+    }
+
+done:
+    cur_fd = -1;
+    close(sock);
+}
+
+typedef struct {
+    sem_t pending;              // pending connections (items) in queue
+    pthread_mutex_t lock;
+    pthread_cond_t handling;    // to efficiently wait for room in the queue
+
+    // shutdown support
+    int active;
+    int inshutdown;
+    pthread_cond_t handled;     // worker is going idle
+
+    ioctl_queue_item_t items[IOCTLQUEUE_MAX_PENDING];
+#ifdef DEBUG
+    int max_pending;
+    int max_active;
+#endif
+} queue_t;
+
+static queue_t ioctl_queue;
+
+static ioctl_queue_item_t* zfsfuse_ioctl_queue_find(int free/*bool*/)
+{
+    int i;
+    for (i=0;i<IOCTLQUEUE_MAX_PENDING;i++)
+        if ((0!=free) == (-1==ioctl_queue.items[i].socket))
+            return &ioctl_queue.items[i];
+
+    return 0;
+}
+
+static void* zfsfuse_ioctl_queue_worker_thread(void* init)
+{
+    queue_t* queue = (queue_t*) init;
+    ASSERT(queue);
+    int must_exit = 0;
+    ioctl_queue_item_t job;
+    
+    while((0 == sem_wait(&queue->pending)) && !must_exit) // await next job pending
+    {
+        // fetch job and signal queue popped
+        VERIFY(0 == pthread_mutex_lock(&queue->lock));
+
+        ioctl_queue_item_t* item = zfsfuse_ioctl_queue_find(0); // locate pending job
+        VERIFY(item);
+
+        // copy local
+        memcpy(&job,item,sizeof(ioctl_queue_item_t));
+
+        // feedback
+        queue->active++;
+        item->socket = -1;
+        VERIFY(0 == pthread_cond_signal(&queue->handling));
+#ifdef DEBUG
+        if (queue->active > queue->max_active)
+            queue->max_active = queue->active;
+#endif
+
+        if (queue->inshutdown)
+            must_exit = 1;
+
+        VERIFY(0 == pthread_mutex_unlock(&queue->lock));
+
+        // actually process item (outside of lock)
+        handle_connection(job.socket);
+
+        VERIFY(0 == pthread_mutex_lock(&queue->lock));
+        queue->active--;
+        VERIFY(0 == pthread_cond_signal(&queue->handled));
+        VERIFY(0 == pthread_mutex_unlock(&queue->lock));
+    }
+
+    ASSERT(must_exit); // sem_wait failed?
+
+    return queue; /*unused*/
+}
+
+int zfsfuse_ioctl_queue_init(queue_t* queue)
+{
+    ASSERT(queue);
+
+    pthread_mutexattr_t a;
+    if (0 != pthread_mutexattr_init(&a) ||
+            0 != pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE_NP) ||
+            0 != pthread_mutex_init(&queue->lock, &a))
+        return -1;
+    if (0 != pthread_cond_init(&queue->handling, NULL))
+        return -1;
+    if (0 != sem_init(&queue->pending, 0, 0))
+        return -1;
+    if (0 != pthread_cond_init(&queue->handled, NULL))
+        return -1;
+
+    int i;
+    for (i=0; i<IOCTLQUEUE_MAX_PENDING; i++)
+        queue->items[i].socket = -1; 
+
+    queue->active = 0;
+    queue->inshutdown = 0;
+#ifdef DEBUG
+    queue->max_pending = 0;
+    queue->max_active = 0;
+#endif
+
+    // send in the drones!
     pthread_attr_t attr;
     pthread_attr_init(&attr);
-    if (stack_size)
-    pthread_attr_setstacksize(&attr,stack_size);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    if(pthread_create(&ioctl_thread, &attr, cmd_ioctl_thread, (void *) init) != 0) {
-	cmn_err(CE_WARN, "Error creating ioctl thread.");
-	// Not totally sure the error can be passed directly this way ?
-	zfsfuse_socket_ioctl_write(sock, ENOMEM);
-	return 0; // don't close the socket now then, keep it in the main loop
+    if (stack_size) pthread_attr_setstacksize(&attr,stack_size);
+    pthread_t worker;
+
+    for (i=0; i<IOCTLQUEUE_WORKERS; i++)
+        if (pthread_create(&worker, &attr, &zfsfuse_ioctl_queue_worker_thread, (void *) queue) != 0) 
+            return -1;
+
+    return 0; 
+}
+
+int zfsfuse_ioctl_queue_fini(queue_t* queue)
+{
+    if (!queue)
+        return 0;
+
+    if (0 != pthread_mutex_lock(&ioctl_queue.lock))
+    {
+        syslog(LOG_ERR,"cmd_listener: synchronization broken, cannot wait for running threads");
+        return -1;
     }
-    return 1;
+
+    ioctl_queue.inshutdown = 1; // signal shutdown to all workers; stop accepting jobs
+
+    struct timeval now;
+    struct timespec timeout;
+    int retcode;
+
+    // wait a maximum of 10 seconds
+    gettimeofday(&now, NULL);
+    timeout.tv_sec = now.tv_sec + 10;
+    timeout.tv_nsec = now.tv_usec * 1000;
+
+    while (queue->active && retcode != ETIMEDOUT)
+    {
+        syslog(LOG_WARNING,"cmd_listener: waiting for %i active workers to exit", queue->active);
+        retcode = pthread_cond_timedwait(&ioctl_queue.handled, &ioctl_queue.lock, &timeout);
+    }
+    
+    if (retcode == ETIMEDOUT)
+        syslog(LOG_WARNING,"cmd_listener: timeout reached, ignoring %i more active", queue->active);
+
+    pthread_mutex_unlock(&ioctl_queue.lock); // ignore errors at this stage...
+
+    return retcode;
+}
+
+/********************************************************************************************************/
+
+static void enqueue_connection(queue_t* queue, int sock) 
+{
+    ASSERT(queue);
+    VERIFY(0 == pthread_mutex_lock(&queue->lock));
+
+    if (queue->inshutdown)
+    {
+        VERIFY(0 == pthread_mutex_unlock(&queue->lock));
+        syslog(LOG_WARNING, "cmd_listener: refusing new connection (shutting down)");
+        close(sock);
+        return;
+    }
+
+    ioctl_queue_item_t* item = zfsfuse_ioctl_queue_find(1); // locate free item
+
+    if (0 == item)
+    {
+        VERIFY(0 == pthread_cond_wait(&queue->handling, &queue->lock)); // block until any worker has popped it's job
+        item = zfsfuse_ioctl_queue_find(1); // locate free item
+    }
+
+    // fill queue item
+    VERIFY(0 != item);
+    item->socket = sock;
+
+#ifdef DEBUG
+    int count;
+    VERIFY(0 == sem_getvalue(&queue->pending, &count));
+    if (count>=queue->max_pending)
+        queue->max_pending = count+1;
+#endif
+    VERIFY(0 == pthread_mutex_unlock(&queue->lock));
+
+    // signal a worker
+    VERIFY(0 == sem_post(&queue->pending));
 }
 
 void *listener_loop(void *arg)
@@ -159,11 +343,10 @@ void *listener_loop(void *arg)
 
 		for(int i = 0; i < oldfds; i++) {
 			short rev = fds[i].revents;
+			fds[i].revents = 0;
 
 			if(rev == 0)
 				continue;
-
-			fds[i].revents = 0;
 
 			ASSERT((rev & POLLNVAL) == 0);
 
@@ -190,36 +373,13 @@ void *listener_loop(void *arg)
 				fds[nfds].revents = 0;
 				nfds++;
 			} else {
-				/* Handle request */
-
-				zfsfuse_cmd_t cmd;
 				int sock = fds[i].fd;
-				if(zfsfuse_socket_read_loop(sock, &cmd, sizeof(zfsfuse_cmd_t)) == -1) {
-					close(sock);
-					fds[i].fd = -1;
-					continue;
-				}
+				/* queue request */
+                enqueue_connection(&ioctl_queue, fds[i].fd);
 
-				switch(cmd.cmd_type) {
-					case IOCTL_REQ:
-						if (start_ioctl_thread(sock, &cmd)) {
-						    /* socket is now handled by
-						     * thread and can be removed
-						     * from the list */
-						    fds[i].fd = -1;
-						}
-						continue;
-					case MOUNT_REQ:
-						if(cmd_mount_req(sock, &cmd) != 0) {
-							close(sock);
-							fds[i].fd = -1;
-							continue;
-						}
-						break;
-					default:
-						abort();
-						break;
-				}
+                /* socket is now handled by queue and can be removed from list */
+                fds[i].fd = -1;
+                continue;
 			}
 		}
 
@@ -235,10 +395,20 @@ void *listener_loop(void *arg)
 		nfds = write_ptr;
 	}
 
-	while (nthreads) {
-	    syslog(LOG_WARNING,"cmd_listener: waiting for threads to exit");
-	    sleep(1);
-	}
-
 	return NULL;
 }
+
+int cmd_listener_init()
+{
+    return zfsfuse_ioctl_queue_init(&ioctl_queue);
+}
+
+int cmd_listener_fini()
+{
+#   ifdef DEBUG
+    fprintf(stderr, "Peak number of pending requests was %i\n", ioctl_queue.max_pending);
+    fprintf(stderr, "Peak number of active workers was %i\n", ioctl_queue.max_active);
+#   endif
+    return zfsfuse_ioctl_queue_fini(&ioctl_queue);
+}
+
