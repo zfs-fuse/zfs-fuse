@@ -921,7 +921,7 @@ zfs_xvattr_set(znode_t *zp, xvattr_t *xvap)
 }
 
 int
-zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp)
+zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp, boolean_t zget_unlinked)
 {
 	dmu_object_info_t doi;
 	dmu_buf_t	*db;
@@ -957,8 +957,8 @@ zfs_zget(zfsvfs_t *zfsvfs, uint64_t obj_num, znode_t **zpp)
 		 */
 		ASSERT3P(zp->z_dbuf, ==, db);
 		ASSERT3U(zp->z_id, ==, obj_num);
-		if (zp->z_unlinked) {
-			err = ENOENT;
+		if (zp->z_unlinked && !zget_unlinked) {
+            err = ENOENT;
 		} else {
 			VN_HOLD(ZTOV(zp));
 			*zpp = zp;
