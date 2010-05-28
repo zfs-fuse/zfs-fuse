@@ -1227,8 +1227,22 @@ zpool_export_common(zpool_handle_t *zhp, boolean_t force, boolean_t hardforce)
 	zc.zc_cookie = force;
 	zc.zc_guid = hardforce;
 
-	sync();
-	if (zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_POOL_EXPORT, &zc) != 0) {
+	int pause = 0;
+	int ret;
+	while ((ret = zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_POOL_EXPORT, &zc))
+	       	!= 0 && pause < 3) {
+	    /* Fuse does lazy umounts apparently, so if we try to export a pool
+	     * containing a few fs like pool/fs1/fs2, then it will try to
+	     * export it much before the umounts are really finished. I hate
+	     * puting sleeps here, but there doesn't seem to be any other
+	     * way. The zfsfuse_destroy function is called after umount has
+	     * already returned, so the only solution is to allow a pause here
+	     * in case the export fails */
+	    sleep(1);
+	    pause++;
+	}
+
+	if (ret != 0) {
 		switch (errno) {
 		case EXDEV:
 			zfs_error_aux(zhp->zpool_hdl, dgettext(TEXT_DOMAIN,
