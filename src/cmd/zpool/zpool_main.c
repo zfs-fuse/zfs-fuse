@@ -1737,8 +1737,12 @@ zpool_do_import(int argc, char **argv)
 		goto error;
 
 	if (searchdirs == NULL) {
+        struct stat s;
 		searchdirs = safe_malloc(sizeof (char *));
-		searchdirs[0] = "/dev";
+        if ((0==stat("/dev/disk/by-id", &s)) && (S_ISDIR(s.st_mode)))
+            searchdirs[0] = "/dev/disk/by-id";
+        else
+            searchdirs[0] = "/dev";
 		nsearch = 1;
 	}
 
