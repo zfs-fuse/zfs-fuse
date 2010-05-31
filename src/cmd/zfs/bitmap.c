@@ -1,1 +1,0 @@
-../../lib/libsolkerncompat/bitmap.c
