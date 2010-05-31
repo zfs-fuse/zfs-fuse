@@ -1,0 +1,27 @@
+#src/! /usr/bin/env python
+#src/ encoding: utf-8
+#src/ Sandeep S Srinivasa, 2009
+from Logs import error, debug, warn
+
+
+ctx.check(header_name="sys/time.h", uselib_store='sys_time_defines', mandatory=True, define_name='HAVE_SYS_TIME_H')
+ctx.check(header_name="malloc.h", uselib_store='malloc_defines', mandatory=True, define_name='HAVE_MALLOC_H')
+ctx.check(header_name="sys/sysmacros.h", uselib_store='sys_macros_defines', mandatory=True, define_name='HAVE_SYS_SYSMACROS_H')
+ctx.check(header_name="sys/mman.h", uselib_store='sys_mman_defines', mandatory=True, define_name='HAVE_SYS_MMAN_H')
+ctx.check(header_name="sys/sysmacros.h", uselib_store='sys_macros_defines', mandatory=True, define_name='HAVE_SYS_SYSMACROS_H')
+ctx.check(header_name="sys/stat.h", uselib_store='sys_stat_defines', mandatory=True, define_name='HAVE_SYS_STAT_H')
+ctx.check(header_name="sys/types.h", uselib_store='sys_types_defines', mandatory=True, define_name='HAVE_SYS_TYPES_H')
+ctx.check(header_name="dlfcn.h", uselib_store='dlfcn_defines', mandatory=True, define_name='HAVE_DLFCN_H')
+ctx.check(header_name="unistd.h", uselib_store='unistd_defines', mandatory=True, define_name='HAVE_UNISTD_H')
+
+
+ctx.define('PACKAGE_NAME', "umem")
+ctx.define('PACKAGE_STRING', "umem 1.0.1")
+ctx.define('PACKAGE_TARNAME', "umem")
+ctx.define('PACKAGE_VERSION', "1.0.1")
+
+for env_name in conf.all_envs:
+  ctx.write_config_header('config.h', env=conf.all_envs[env_name])
+
+
+

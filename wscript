@@ -61,11 +61,12 @@ subdirs = """
 ####
 def set_options(opt):
     opt.add_option('--prefix', type='string',help='set install path prefix', dest='usr_prefix')
+    opt.add_option('--build', action='store', default='debug,release', help='Choose \'debug/release/debug,release\'')
 
 
 def init(ctx):
     import Configure
-#    Configure.configure.define('_FILE_OFFSET_BITS', 64)
+
 ####
 #Configuration
 ####
@@ -79,7 +80,8 @@ def configure(conf):
 
 
 #    conf.env.CCFLAGS = ['-Wall']
-    conf.env.CCFLAGS = ['-pipe', '-Wall', '-std=c99', '-Wno-switch', '-Wno-unused', '-Wno-missing-braces', '-Wno-parentheses', '-Wno-uninitialized', '-fno-strict-aliasing', '-D_GNU_SOURCE', '-DLINUX_AIO']
+    conf.env.ASFLAGS = ["-c"]
+    conf.env.CCFLAGS = ['-pipe', '-Wall', '-std=gnu99', '-Wno-switch', '-Wno-unused', '-Wno-missing-braces', '-Wno-parentheses', '-Wno-uninitialized', '-fno-strict-aliasing', '-D_GNU_SOURCE', '-DLINUX_AIO']
     conf.env.INCLUDEDIR = ['/usr/include/']
 #    conf.env['INCLUDEDIR'] = '/usr/include'
 #    conf.define('_FILE_OFFSET_BITS', 64) 
@@ -96,30 +98,18 @@ def configure(conf):
     conf.check_cc(lib='m',  uselib_store='m_lib',  mandatory=True)
     conf.check_cc(header_name='fuse/fuse_lowlevel.h', includes=['/usr/include/'], 
             ccflags='-D_FILE_OFFSET_BITS=64', uselib_store='fuse_defines', mandatory=True)
-#    conf.check_cc(header_name='attr/xattr.h', includes=['/usr/include/'], mandatory=True) # FIXME not working properly
+    conf.check(
+        		fragment='#include <sys/types.h>\n #include <attr/xattr.h>\nint main() { return 0; }\n',
+        		define_name='xattr_defines',
+        		execute=1,
+        		define_ret=1,
+            mandatory=True,
+        		msg='Checking for <attr/xattr.h>')
     conf.check_cc(lib='rt', uselib_store='rt_lib', mandatory=True)
     conf.check_tool('gas')
     #if not conf.env.AS: conf.env.AS = conf.env.CC
     conf.env.AS = conf.env.CC
 
-#    try:
-#		conf.check_cc(compile_filename='test.s', fragment='''
-#.text
-#.align 2
-#
-#val:
-# .long 10
-#
-## Multiply input value by 10...
-#.global mult10
-#.type mult10, function
-#mult10:
-#  movl val,%eax
-#  imul 4(%esp),%eax
-#  ret
-#	''', type='cstaticlib', mandatory=True, msg='Checking for assembler')
-#    except:
-#		conf.env.AS = None
 
     ###################### install configuration ################
 
@@ -127,8 +117,25 @@ def configure(conf):
     warn(" setting MANDIR = %s" % conf.env.MANDIR)
     conf.env.PREFIX = '/'
     conf.env.MANDIR = '/usr/share/man/man8'
+    
+    dbg = conf.env.copy()
+    rel = conf.env.copy()
 
+    dbg.set_variant('debug')
+    conf.set_env_name('debug', dbg)
+    conf.setenv('debug')
+    #sss - this is a hack. dunno why ASFLAGS dont propagate. maybe a bug
+    conf.env.ASFLAGS='-c'
+    conf.env.CCFLAGS += ['-DDBG_ENABLED']
+    
+    rel.set_variant('release')
+    conf.set_env_name('release', rel)
+    conf.setenv('release')
+    #sss - this is a hack. dunno why ASFLAGS dont propagate. maybe a bug
+    conf.env.ASFLAGS='-c'
+    conf.env.CCFLAGS += ['-O2']
 
+    conf.sub_config("src/lib/libumem")
 ####
 #Build
 ####
@@ -138,3 +145,18 @@ def build(bld):
     #man_list = bld.path.ant_glob('doc/*.gz')
     bld.install_files('${MANDIR}', 'doc/*.gz')
     
+    # enable the debug or the release variant, depending on the one wanted
+    for obj in bld.all_task_gen[:]:
+      debug_obj = obj.clone('debug')
+      release_obj = obj.clone('release')
+
+      #disable "default"
+      obj.posted = 1
+
+
+      # disable the unwanted variant(s)
+      build_type = Options.options.build
+      if build_type.find('debug') < 0:
+        debug_obj.posted = 1
+      if build_type.find('release') < 0:
+        release_obj.posted = 1

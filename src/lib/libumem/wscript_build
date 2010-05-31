@@ -1,0 +1,22 @@
+#src/! /usr/bin/env python
+#src/ encoding: utf-8
+#src/ Sandeep S Srinivasa, 2009
+from Logs import error, debug, warn
+
+include_dirs = """
+                 . 
+                 """.split()
+
+
+obj = bld.new_task_gen(
+        features = 'cc cstaticlib',
+        includes = include_dirs,
+        defines = [ 'std=gnu99','HAVE_CONFIG_H'],
+        install_path = None, #prevents installation of this file
+        name = 'umem',
+        target = 'umem'
+        )
+
+
+obj.find_sources_in_dirs('.') #src/ take the sources in the current folder
+
