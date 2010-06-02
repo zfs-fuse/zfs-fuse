@@ -167,8 +167,17 @@ static void* zfsfuse_ioctl_queue_worker_thread(void* init)
         // fetch job and signal queue popped
         VERIFY(0 == pthread_mutex_lock(&queue->lock));
 
+        if (queue->inshutdown)
+            must_exit = 1;
+
         ioctl_queue_item_t* item = zfsfuse_ioctl_queue_find(0); // locate pending job
-        VERIFY(item);
+        if (!item)
+        {
+            ASSERT(queue->inshutdown);
+            VERIFY(0 == sem_post(&queue->pending)); // pass the word
+            VERIFY(0 == pthread_mutex_unlock(&queue->lock));
+            break;
+        }
 
         // copy local
         memcpy(&job,item,sizeof(ioctl_queue_item_t));
@@ -181,9 +190,6 @@ static void* zfsfuse_ioctl_queue_worker_thread(void* init)
         if (queue->active > queue->max_active)
             queue->max_active = queue->active;
 #endif
-
-        if (queue->inshutdown)
-            must_exit = 1;
 
         VERIFY(0 == pthread_mutex_unlock(&queue->lock));
 
@@ -273,6 +279,7 @@ int zfsfuse_ioctl_queue_fini(queue_t* queue)
     if (retcode == ETIMEDOUT)
         syslog(LOG_WARNING,"cmd_listener: timeout reached, ignoring %i more active", queue->active);
 
+    sem_post(&queue->pending); // tickling a worker with no queued request tells them to commit suicide and pass the word
     pthread_mutex_unlock(&ioctl_queue.lock); // ignore errors at this stage...
 
     return retcode;
