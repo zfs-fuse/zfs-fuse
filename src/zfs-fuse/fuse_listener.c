@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sys/mount.h>
+#include <syslog.h>
 
 #include "fuse.h"
 #include "fuse_listener.h"
@@ -51,6 +52,8 @@ typedef struct fuse_fs_info {
 } fuse_fs_info_t;
 
 boolean_t exit_fuse_listener = B_FALSE;
+static pthread_cond_t exiting_fuse_listener = PTHREAD_COND_INITIALIZER; // a fuse listener thread is exiting
+static int fuse_listeners_count = 0;
 
 int newfs_fd[2];
 
@@ -63,7 +66,6 @@ char *mountpoints[MAX_FDS];
 
 pthread_t fuse_threads[NUM_THREADS];
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t des_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 kmem_cache_t *file_info_cache = NULL;
 
@@ -84,8 +86,15 @@ int zfsfuse_listener_init()
 	return 0;
 }
 
+static void fuse_unmount_all();
+
 void zfsfuse_listener_exit()
 {
+    int ret = zfsfuse_listener_stop();
+    ASSERT(0 == ret);
+
+    fuse_unmount_all();
+
 	if(file_info_cache != NULL)
 		kmem_cache_destroy(file_info_cache);
 
@@ -151,7 +160,7 @@ static void new_fs()
 
 	/*
 	 * This should never fail (famous last words) since the fd
-	 * is only closed in fuse_listener_exit()
+	 * is only closed in zfsfuse_listener_exit()
 	 */
 	VERIFY(fd_read_loop(fds[0].fd, &fs, sizeof(fuse_fs_info_t)) == 0);
 
@@ -187,7 +196,6 @@ static void new_fs()
  */
 static void destroy_fs(int i)
 {
-    VERIFY(pthread_mutex_lock(&des_mtx) == 0);
     if (fsinfo[i].se) {
 #ifdef DEBUG
 	fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
@@ -199,7 +207,6 @@ static void destroy_fs(int i)
 	fds[i].fd = -1;
 	kmem_free(mountpoints[i],fsinfo[i].mntlen+1);
     }
-    VERIFY(pthread_mutex_unlock(&des_mtx) == 0);
 }
 
 static void *zfsfuse_listener_loop(void *arg)
@@ -208,6 +215,8 @@ static void *zfsfuse_listener_loop(void *arg)
 	char *buf = NULL;
 
 	VERIFY(pthread_mutex_lock(&mtx) == 0);
+
+    fuse_listeners_count++;
 
 	while(!exit_fuse_listener) {
 		int ret = poll(fds, nfds, 1000);
@@ -229,11 +238,7 @@ static void *zfsfuse_listener_loop(void *arg)
 
 			fds[i].revents = 0;
 
-			if (rev & POLLNVAL) { // already closed
-			    // fuse_unmount_all triggers this
-			    fds[i].fd = -1;
-			    continue;
-			}
+			ASSERT((rev & POLLNVAL) == 0);
 
 			if(!(rev & POLLIN) && !(rev & POLLERR) && !(rev & POLLHUP))
 				continue;
@@ -283,6 +288,9 @@ static void *zfsfuse_listener_loop(void *arg)
 				/*
 				 * At this point, we can no longer trust oldfds
 				 * to be accurate, so we exit this loop
+                 *
+                 * Also, exit_fuse_listener might have been set in the mean
+                 * time
 				 */
 				break;
 			}
@@ -303,6 +311,8 @@ static void *zfsfuse_listener_loop(void *arg)
 		nfds = write_ptr;
 	}
 
+    fuse_listeners_count--;
+    VERIFY(0 == pthread_cond_signal(&exiting_fuse_listener));
 	VERIFY(pthread_mutex_unlock(&mtx) == 0);
 
 	return NULL;
@@ -319,22 +329,45 @@ int zfsfuse_listener_start()
 	for(int i = 0; i < NUM_THREADS; i++)
 		VERIFY(pthread_create(&fuse_threads[i], &attr, zfsfuse_listener_loop, NULL) == 0);
 
-	for(int i = 0; i < NUM_THREADS; i++) {
-		int ret = pthread_join(fuse_threads[i], NULL);
-		if(ret != 0)
-			fprintf(stderr, "Warning: pthread_join() on thread %i returned %i\n", i, ret);
-	}
+	return 0;
+}
+
+int zfsfuse_listener_stop()
+{
+    exit_fuse_listener = B_TRUE;
+
+    VERIFY(pthread_mutex_lock(&mtx) == 0);
+
+    struct timeval now;
+    struct timespec timeout;
+    int retcode = 0;
+
+    // wait a maximum of 10 seconds
+    gettimeofday(&now, NULL);
+    timeout.tv_sec = now.tv_sec + 10;
+    timeout.tv_nsec = now.tv_usec * 1000;
+
+    while (fuse_listeners_count && retcode != ETIMEDOUT)
+    {
+        syslog(LOG_WARNING,"fuse_listener: waiting for %i active workers to exit", fuse_listeners_count);
+        retcode = pthread_cond_timedwait(&exiting_fuse_listener, &mtx, &timeout);
+    }
+    
+    if (retcode == ETIMEDOUT)
+        syslog(LOG_WARNING,"fuse_listener: timeout reached, ignoring %i more active", fuse_listeners_count);
+
+    VERIFY(pthread_mutex_unlock(&mtx) == 0);
 
 #ifdef DEBUG
 	fprintf(stderr, "Exiting...\n");
 #endif
 
-	return 1;
+	return 0;
 }
 
-void fuse_unmount_all() {
-    int all_ok = 1;
-    VERIFY(pthread_mutex_lock(&des_mtx) == 0);
+static void fuse_unmount_all() {
+    VERIFY(pthread_mutex_lock(&mtx) == 0);
+
     for(int i = nfds-1; i >= 1; i--) {
 	if(fds[i].fd == -1)
 	    continue;
@@ -349,5 +382,6 @@ void fuse_unmount_all() {
 	kmem_free(mountpoints[i],fsinfo[i].mntlen+1);
 
     }
-    VERIFY(pthread_mutex_unlock(&des_mtx) == 0);
+
+    VERIFY(pthread_mutex_unlock(&mtx) == 0);
 }

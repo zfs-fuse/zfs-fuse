@@ -30,6 +30,7 @@
 #include <syslog.h>
 #include <stdlib.h>
 #include <sys/zfs_debug.h>
+#include <semaphore.h>
 
 #include "util.h"
 #include "fuse_listener.h"
@@ -45,10 +46,11 @@ extern void fuse_unmount_all(); // in fuse_listener.c
 static int cf_daemonize = 1;
 extern int no_kstat_mount; // kstat.c
 
+static sem_t daemon_shutdown;
+
 static void exit_handler(int sig)
 {
-    fuse_unmount_all();
-    exit_fuse_listener = B_TRUE;
+    sem_post(&daemon_shutdown);
 }
 
 static int set_signal_handler(int sig, void (*handler)(int))
@@ -371,6 +373,7 @@ static void read_cfg() {
 
 int main(int argc, char *argv[])
 {
+    VERIFY(0 == sem_init(&daemon_shutdown, 0, 0));
     init_mmap();
 	/* one sane default a day keeps GDB away - Rudd-O */
 	fuse_attr_timeout = 0.0;
@@ -408,9 +411,11 @@ int main(int argc, char *argv[])
 		return 2;
 	}
 
-	int ret = zfsfuse_listener_start();
+	VERIFY(0 == zfsfuse_listener_start());
+
+    sem_wait(&daemon_shutdown);
 
 	do_exit();
 
-	return ret;
+	return 1;
 }
