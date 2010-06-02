@@ -46,6 +46,7 @@
 #include "libzfs_impl.h"
 #include "zfs_comutil.h"
 #include "format.h"
+#include <syslog.h>
 
 const char *hist_event_table[LOG_END] = {
 	"invalid event",
@@ -1227,8 +1228,32 @@ zpool_export_common(zpool_handle_t *zhp, boolean_t force, boolean_t hardforce)
 	zc.zc_cookie = force;
 	zc.zc_guid = hardforce;
 
-	sync();
-	if (zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_POOL_EXPORT, &zc) != 0) {
+#define ZFSFUSE_BUSY_SLEEP_FACTOR 50000 // .5 seconds was chosen ater some tuning
+	int retry = 0;
+	int ret;
+	while ((ret = zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_POOL_EXPORT, &zc)) == EBUSY
+            && retry++ < 6) {
+        struct timeval timeout;
+        /* Something in the way zfs-fuse works keeps the datasets busy for
+         * longer than expected. 
+         * If we try to export/destroy a pool containing a few fs like
+         * pool/fs1/fs2, then it will try to export it much before the umounts
+         * are really finished.
+         * The sleep is a temporary workaround here.
+         * The zfsfuse_destroy function is called after umount has already
+         * returned, so the only solution is to allow a pause here in case the
+         * export fails with EBUSY */
+        timeout.tv_sec=0;
+        timeout.tv_usec=ZFSFUSE_BUSY_SLEEP_FACTOR;
+
+        VERIFY(select(0,NULL,NULL,NULL,&timeout)==0);
+	}
+    if (retry>0)
+        syslog(LOG_WARNING, "Pool '%s' was busy, export was tried for %0.1fs (%i attempts) resulting in %s", 
+                zhp->zpool_name, (retry*ZFSFUSE_BUSY_SLEEP_FACTOR)/100000.0, retry, strerror(errno));
+
+	if (ret != 0) {
+
 		switch (errno) {
 		case EXDEV:
 			zfs_error_aux(zhp->zpool_hdl, dgettext(TEXT_DOMAIN,
