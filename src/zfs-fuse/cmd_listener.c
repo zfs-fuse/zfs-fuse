@@ -257,7 +257,7 @@ int zfsfuse_ioctl_queue_fini(queue_t* queue)
 
     struct timeval now;
     struct timespec timeout;
-    int retcode;
+    int retcode = 0;
 
     // wait a maximum of 10 seconds
     gettimeofday(&now, NULL);
