@@ -1,7 +1,7 @@
 # Release tag is supposed to be 0. for prerelease, X. for serial number in this version and alphatag XXXsvn.
 
 Name:          zfs-fuse
-Version:       0.6.9_beta3
+Version:       0.6.9
 Release:       snapshot
 Summary:       The last word in filesystems
 License:       GPL
