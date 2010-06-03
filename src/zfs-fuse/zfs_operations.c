@@ -245,6 +245,11 @@ static int int_zfs_enter(zfsvfs_t *zfsvfs) {
 
 static void zfsfuse_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 {
+	union {
+		char buf[DIRENT64_RECLEN(MAXNAMELEN)];
+		struct dirent64 dirent;
+	} entry;
+
     /* It's like a lookup, but passing LOOKUP_XATTR as a flag to VOP_LOOKUP */
     MY_LOOKUP_XATTR();
 
@@ -256,10 +261,6 @@ static void zfsfuse_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
     // Now try a readdir...
 	char *outbuf = NULL;
 	int alloc = 0,used = 0;
-	union {
-		char buf[DIRENT64_RECLEN(MAXNAMELEN)];
-		struct dirent64 dirent;
-	} entry;
 
 	struct stat fstat = { 0 };
 
