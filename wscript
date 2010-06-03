@@ -32,7 +32,7 @@ from Logs import error, debug, warn
 
 
 APPNAME = 'zfs-fuse'
-VERSION = '0.6.0'
+VERSION = '0.6.9'
 
 srcdir = '.'
 blddir = '__build'
