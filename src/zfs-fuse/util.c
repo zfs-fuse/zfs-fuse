@@ -96,7 +96,7 @@ static int zfsfuse_do_locking(int in_child)
          * first byte; the file /must/ already exist. Only in this way can we
          * prevent races with locking before or after the daemonization
          */
-        lock_fd = open(LOCKFILE, O_WRONLY|O_CLOEXEC);
+        lock_fd = open(LOCKFILE, O_WRONLY);
         if(lock_fd == -1)
             return -1;
 
