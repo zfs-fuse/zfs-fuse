@@ -184,7 +184,7 @@ start() {
 
 stop() {
 
-	# check if the zfs-fuse binary exists and can be executable
+	# check if the zfs-fuse binary exists and can be executed
 	for a in $zfsfuse $zfs ; do if [ ! -x $a ] ; then
 		echo -n "$a not present or executable"
 		failure ; echo
