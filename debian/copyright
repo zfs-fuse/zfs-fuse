@@ -1,15 +1,17 @@
 This package was first debianized by Bryan Donlan <bdonlan@gmail.com> on
 Tue, 17 Apr 2007 16:24:53 -0400.
 Further work by Mike Hommey <glandium@debian.org>
+Further work by Seth Heeren <zfs-fuse@sehe.nl>
 
 It was downloaded from
-https://developer.berlios.de/project/showfiles.php?group_id=6836
+(old) https://developer.berlios.de/project/showfiles.php?group_id=6836
+http://git.zfs-fuse.net/official/
 
 The manual pages were downloaded from
 http://dlc.sun.com/osol/man/downloads/current/man-sunosman-20081210.tar.bz2
 and modified to fit the linux environment.
 
-Upstream Author: Sun Microsystems, Inc. and Ricardo Correia.
+Upstream Author: Sun Microsystems, Inc., Ricardo Correia and zfs-fuse.net
 
 Most source files are Copyright 1990-2008 Sun Microsystems, Inc.
 or Copyright 2006-2007 Ricardo Correia (for the fuse adaptations)
