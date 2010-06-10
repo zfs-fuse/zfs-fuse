@@ -1,13 +1,15 @@
 Source: zfs-fuse
 Section: utils
 Priority: extra
-Maintainer: Bryan Donlan <bdonlan@gmail.com>
-Build-Depends: debhelper (>= 5), scons, libfuse-dev, zlib1g-dev, libaio-dev, xsltproc
+Maintainer: Seth Heeren <zfs-fuse@sehe.nl>
+Build-Depends: debhelper (>= 5), scons, libfuse-dev, libaio-dev, xsltproc, libattr1-dev, libacl1-dev, libz-dev, libfuse2, libssl-dev, dpatch, docbook-xsl, docbook-xml
 Standards-Version: 3.8.0.1
 
 Package: zfs-fuse
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, fuse-utils, lsb-base
+Recommends: nfs-kernel-server, bash-completion
+Suggests: kpartx
 Description: ZFS on FUSE
  ZFS is an advanced filesystem from Sun Microsystems, originally developed
  for solaris. It provides a number of advanced features, such as live

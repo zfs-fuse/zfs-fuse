@@ -16,9 +16,11 @@ zfs-fuse currently should not be used with system volumes such as /var or
 zfs-fuse requires a FUSE module for your kernel. Pre-built modules are included
 in recent debian kernels.
 
-Please note that zfs-fuse is in a very early stage of development, and should
-not be used for production data or on production systems.
+Please note that zfs-fuse is not proven stable enough for production use,
+although we have gone long times without reported data loss. It is not yet
+recommended for production data or on production systems.
 
-[1] - http://www.wizy.org/wiki/ZFS_on_FUSE
+[1] - http://zfs-fuse.net/
 
  -- Bryan Donlan <bdonlan@gmail.com>  Tue, 17 Apr 2007 16:24:53 -0400
+ -- Seth Heeren <zfs-fuse@sehe.nl>  Wed, 09 Jun 2010

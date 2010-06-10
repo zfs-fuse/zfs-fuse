@@ -21,8 +21,8 @@ build-stamp:
 	dh_testdir
 
 	# Add here commands to compile the package.
-	scons -C src optim=$(OPTIM)
-	# xsltproc --nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl debian/zfs-fuse.man.xml
+	scons -C src debug=0 optim=$(OPTIM)
+	xsltproc --nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl debian/zfs-fuse.man.xml
 
 	touch $@
 
@@ -47,8 +47,14 @@ install-stamp: build-stamp
 	dh_installdirs
 
 	# Add here commands to install the package into debian/zfs-fuse.
-	scons -C src install_dir=$(CURDIR)/debian/zfs-fuse/usr/sbin install
-	cp -p doc/*.8.gz $(CURDIR)/debian/zfs-fuse/usr/share/man/man8
+	scons --no-cache -C src optim=$(OPTIM) debug=0 install_dir="$(CURDIR)/debian/zfs-fuse/usr/sbin" man_dir="$(CURDIR)/debian/zfs-fuse/usr/share/man/man8" cfg_dir="$(CURDIR)/debian/zfs-fuse/etc/zfs" install
+	mkdir -p $(CURDIR)/debian/zfs-fuse/usr/share/man/man8
+	mkdir -p $(CURDIR)/debian/zfs-fuse/etc/zfs
+	mkdir -p $(CURDIR)/debian/zfs-fuse/etc/bash_completion.d
+	cp -p zfs-fuse.8 doc/*.8.gz $(CURDIR)/debian/zfs-fuse/usr/share/man/man8
+	cp -p contrib/zfsrc $(CURDIR)/debian/zfs-fuse/etc/zfs/
+	cp -p contrib/zfs_pool_alert $(CURDIR)/debian/zfs-fuse/etc/zfs/
+	cp -p contrib/zfs_completion.bash $(CURDIR)/debian/zfs-fuse/etc/bash_completion.d/zfs-fuse
 
 	touch $@
 
@@ -68,7 +74,7 @@ binary-arch: build install
 #	###
 #	### Start after mountall, stop before umountfs
 	dh_installinit --no-start -- start 35 S . stop 39 0 6 .
-	# dh_installman debian/man/* zfs-fuse.8
+	# dh_installman --all zfs-fuse.8
 	dh_link
 	dh_strip
 	dh_compress

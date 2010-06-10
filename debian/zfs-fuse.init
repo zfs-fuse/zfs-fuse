@@ -15,11 +15,12 @@ set -u # Error on uninitialized variabled
 set -e # Error on uncaught non-zero exit codes
 
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-DAEMON=/usr/sbin/zfs-fuse
+DAEMON=/usr/local//sbin/zfs-fuse
 NAME=zfs-fuse
 DESC=zfs-fuse
+# also overriden from /etc/default/zfs-fuse:
 ENABLE_ZFS=yes
-DAEMON_OPTS=""
+DAEMON_OPTS="-a 1 -e 1"
 RESTART_ON_UPGRADE=no
 
 ### Fallback functions in case lsb-base isn't available (eg in postinst)
@@ -62,9 +63,6 @@ is_running() {
 do_stop() {
     if is_running; then
         log_action_begin_msg "Unmounting ZFS filesystems"
-        ### Note, sometimes umount fails for mysterious reasons, then works a moment later.
-        ### Spooky, huh?
-        zfs umount -a &> /dev/null || sleep 1
         if ! zfs umount -a; then
             log_action_end_msg 1 "possibly due to open files on mounted zfs volumes"
             if [ "x$FORCE_STOP" = "xyes" ]; then
@@ -115,9 +113,8 @@ do_start() {
     then
         log_end_msg 0
         log_action_begin_msg "Mounting ZFS filesystems"
-        sleep 2 # allow zfs-fuse time to start up
         if zfs mount -a
-        then log_action_end_msg 0; return 0
+        then zfs share -a; log_action_end_msg 0; return 0
         else log_action_end_msg 1; return 1
         fi
     else
