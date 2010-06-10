@@ -1,3 +1,9 @@
+zfs-fuse (0.6.9-6) lucid; urgency=high
+
+  * Fixed wrong path to binary in initscript (part of issue #57)
+
+ -- Seth Heeren <zfs-fuse@sehe.nl>  Wed, 09 Jun 2010 23:09:07 +0100
+
 zfs-fuse (0.6.9-5) lucid; urgency=medium
 
   * New stable upstream

@@ -14,8 +14,8 @@
 set -u # Error on uninitialized variabled
 set -e # Error on uncaught non-zero exit codes
 
-PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-DAEMON=/usr/local//sbin/zfs-fuse
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+DAEMON=/usr/sbin/zfs-fuse
 NAME=zfs-fuse
 DESC=zfs-fuse
 # also overriden from /etc/default/zfs-fuse:
