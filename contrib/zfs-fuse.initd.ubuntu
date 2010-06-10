@@ -18,6 +18,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 DAEMON=/usr/local//sbin/zfs-fuse
 NAME=zfs-fuse
 DESC=zfs-fuse
+# also overriden from /etc/default/zfs-fuse:
 ENABLE_ZFS=yes
 DAEMON_OPTS="-a 1 -e 1"
 RESTART_ON_UPGRADE=no
