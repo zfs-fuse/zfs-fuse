@@ -3,7 +3,7 @@ Section: otherosfs
 Priority: optional
 Maintainer: Sebastien Delafond <seb@debian.org>
 Uploaders: Mike Hommey <glandium@debian.org>
-Build-Depends: debhelper (>= 6), scons, libfuse-dev (>= 2.8.1), zlib1g-dev, xsltproc, docbook-xsl, libaio-dev
+Build-Depends: debhelper (>= 6), scons, libfuse-dev (>= 2.8.1), zlib1g-dev, xsltproc, docbook-xsl, libaio-dev, libssl-dev, libattr1-dev
 Standards-Version: 3.8.4
 Homepage: http://zfs-fuse.net
 
