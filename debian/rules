@@ -39,6 +39,8 @@ install: build
 
 	# Add here commands to install the package into debian/zfs-fuse.
 	scons -C src debug=1 DESTDIR=$(CURDIR)/debian/zfs-fuse install_dir=/sbin man_dir=/usr/share/man/man8 install
+	install -m 644 contrib/zfsrc $(CURDIR)/debian/zfs-fuse/etc/zfs
+	install -m 644 -T contrib/zfs_completion.bash $(CURDIR)/debian/zfs-fuse/etc/bash_completion.d/zfs-fuse
 
 # Build architecture-independent files here.
 binary-indep: build install
