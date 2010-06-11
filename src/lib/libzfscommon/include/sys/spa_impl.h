@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -80,16 +80,11 @@ typedef struct spa_config_dirent {
 	char		*scd_path;
 } spa_config_dirent_t;
 
-typedef enum spa_log_state {
-	SPA_LOG_UNKNOWN = 0,	/* unknown log state */
-	SPA_LOG_MISSING,	/* missing log(s) */
-	SPA_LOG_CLEAR,		/* clear the log(s) */
-	SPA_LOG_GOOD,		/* log(s) are good */
-} spa_log_state_t;
-
 enum zio_taskq_type {
 	ZIO_TASKQ_ISSUE = 0,
+	ZIO_TASKQ_ISSUE_HIGH,
 	ZIO_TASKQ_INTERRUPT,
+	ZIO_TASKQ_INTERRUPT_HIGH,
 	ZIO_TASKQ_TYPES
 };
 
@@ -101,12 +96,14 @@ struct spa {
 	avl_node_t	spa_avl;		/* node in spa_namespace_avl */
 	nvlist_t	*spa_config;		/* last synced config */
 	nvlist_t	*spa_config_syncing;	/* currently syncing config */
+	nvlist_t	*spa_config_splitting;	/* config for splitting */
 	uint64_t	spa_config_txg;		/* txg of last config change */
 	int		spa_sync_pass;		/* iterate-to-convergence */
 	pool_state_t	spa_state;		/* pool state */
 	int		spa_inject_ref;		/* injection references */
 	uint8_t		spa_sync_on;		/* sync threads are running */
 	spa_load_state_t spa_load_state;	/* current load operation */
+	boolean_t	spa_load_verbatim;	/* load the given config? */
 	taskq_t		*spa_zio_taskq[ZIO_TYPES][ZIO_TASKQ_TYPES];
 	dsl_pool_t	*spa_dsl_pool;
 	metaslab_class_t *spa_normal_class;	/* normal data class */
@@ -114,6 +111,8 @@ struct spa {
 	uint64_t	spa_first_txg;		/* first txg after spa_open() */
 	uint64_t	spa_final_txg;		/* txg of export/destroy */
 	uint64_t	spa_freeze_txg;		/* freeze pool at this txg */
+	uint64_t	spa_load_max_txg;	/* best initial ub_txg */
+	uint64_t	spa_claim_max_txg;	/* highest claimed birth txg */
 	objset_t	*spa_meta_objset;	/* copy of dp->dp_meta_objset */
 	txg_list_t	spa_vdev_txg_list;	/* per-txg dirty vdev list */
 	vdev_t		*spa_root_vdev;		/* top-level vdev container */
@@ -123,11 +122,14 @@ struct spa {
 	spa_aux_vdev_t	spa_spares;		/* hot spares */
 	spa_aux_vdev_t	spa_l2cache;		/* L2ARC cache devices */
 	uint64_t	spa_config_object;	/* MOS object for pool config */
+	uint64_t	spa_config_generation;	/* config generation number */
 	uint64_t	spa_syncing_txg;	/* txg currently syncing */
-	uint64_t	spa_sync_bplist_obj;	/* object for deferred frees */
-	bplist_t	spa_sync_bplist;	/* deferred-free bplist */
+	uint64_t	spa_deferred_bplist_obj; /* object for deferred frees */
+	bplist_t	spa_deferred_bplist;	/* deferred-free bplist */
+	bplist_t	spa_free_bplist[TXG_SIZE]; /* bplist of stuff to free */
 	uberblock_t	spa_ubsync;		/* last synced uberblock */
 	uberblock_t	spa_uberblock;		/* current uberblock */
+	boolean_t	spa_extreme_rewind;	/* rewind past deferred frees */
 	kmutex_t	spa_scrub_lock;		/* resilver/scrub lock */
 	uint64_t	spa_scrub_inflight;	/* in-flight scrub I/Os */
 	uint64_t	spa_scrub_maxinflight;	/* max in-flight scrub I/Os */
@@ -145,7 +147,14 @@ struct spa {
 	uint16_t	spa_async_tasks;	/* async task mask */
 	char		*spa_root;		/* alternate root directory */
 	uint64_t	spa_ena;		/* spa-wide ereport ENA */
-	boolean_t	spa_last_open_failed;	/* true if last open faled */
+	int		spa_last_open_failed;	/* error if last open failed */
+	uint64_t	spa_last_ubsync_txg;	/* "best" uberblock txg */
+	uint64_t	spa_last_ubsync_txg_ts;	/* timestamp from that ub */
+	uint64_t	spa_load_txg;		/* ub txg that loaded */
+	uint64_t	spa_load_txg_ts;	/* timestamp from that ub */
+	uint64_t	spa_load_meta_errors;	/* verify metadata err count */
+	uint64_t	spa_load_data_errors;	/* verify data err count */
+	uint64_t	spa_verify_min_txg;	/* start txg of verify scrub */
 	kmutex_t	spa_errlog_lock;	/* error log lock */
 	uint64_t	spa_errlog_last;	/* last error log object */
 	uint64_t	spa_errlog_scrub;	/* scrub error log object */
@@ -168,10 +177,21 @@ struct spa {
 	kmutex_t	spa_suspend_lock;	/* protects suspend_zio_root */
 	kcondvar_t	spa_suspend_cv;		/* notification of resume */
 	uint8_t		spa_suspended;		/* pool is suspended */
+	uint8_t		spa_claiming;		/* pool is doing zil_claim() */
 	boolean_t	spa_is_root;		/* pool is root */
 	int		spa_minref;		/* num refs when first opened */
 	int		spa_mode;		/* FREAD | FWRITE */
 	spa_log_state_t spa_log_state;		/* log state */
+	uint64_t	spa_autoexpand;		/* lun expansion on/off */
+	ddt_t		*spa_ddt[ZIO_CHECKSUM_FUNCTIONS]; /* in-core DDTs */
+	uint64_t	spa_ddt_stat_object;	/* DDT statistics */
+	uint64_t	spa_dedup_ditto;	/* dedup ditto threshold */
+	uint64_t	spa_dedup_checksum;	/* default dedup checksum */
+	uint64_t	spa_dspace;		/* dspace in normal class */
+	kmutex_t	spa_vdev_top_lock;	/* dueling offline/remove */
+	boolean_t	spa_autoreplace;	/* autoreplace set in open */
+	int		spa_vdev_locks;		/* locks grabbed */
+
 	/*
 	 * spa_refcnt & spa_config_lock must be the last elements
 	 * because refcount_t changes size based on compilation options.
@@ -183,12 +203,6 @@ struct spa {
 };
 
 extern const char *spa_config_path;
-
-#define	BOOTFS_COMPRESS_VALID(compress) \
-	((compress) == ZIO_COMPRESS_LZJB || \
-	((compress) == ZIO_COMPRESS_ON && \
-	ZIO_COMPRESS_ON_VALUE == ZIO_COMPRESS_LZJB) || \
-	(compress) == ZIO_COMPRESS_OFF)
 
 #ifdef	__cplusplus
 }

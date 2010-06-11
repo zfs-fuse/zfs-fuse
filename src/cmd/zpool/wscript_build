@@ -1,0 +1,32 @@
+#src/! /usr/bin/env python
+#src/ encoding: utf-8
+#src/ Sandeep S Srinivasa, 2009
+from Logs import error, debug, warn
+
+include_dirs = """
+                 #src/lib/libuutil/include 
+                 #src/lib/libnvpair/include 
+                 #src/lib/libumem/include 
+                 #src/lib/libzfscommon/include 
+                 #src/lib/libzfs/include 
+                 #src/lib/libsolcompat/include 
+                 #src/lib/libavl/include 
+                 ../stat/common
+               """.split()
+
+obj = bld.new_task_gen(
+        features = 'cc cprogram',
+        includes = include_dirs,
+        defines = [ '_FILE_OFFSET_BITS=64', 'TEXT_DOMAIN=\"zfs-fuse\"'],
+        uselib_local = 'nvpair-user zfs-lib umem zfscommon-user uutil avl solcompat',
+        uselib = 'pthread_lib m_lib dl_lib openssl',
+        install_path = '${PREFIX}/usr/local/sbin/',
+        name = 'zpool',
+        target = 'zpool'
+        )
+
+
+obj.find_sources_in_dirs('.') #src/ take the sources in the current folder
+
+obj.source = obj.source + ['../stat/common/timestamp.c']
+

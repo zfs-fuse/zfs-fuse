@@ -24,7 +24,7 @@
  * Use is subject to license terms.
  */
 /*
- * Portions Copyright 2006 OmniTI, Inc.
+ * Portions Copyright 2006-2008 Message Systems, Inc.
  */
 
 /* #pragma ident	"@(#)misc.c	1.6	05/06/08 SMI" */
@@ -121,8 +121,6 @@ umem_error_enter(const char *error_str)
 	umem_log_enter(error_str, 1);
 }
 
-/* ZFSFUSE: defined in libzpool/kernel.c and in libsolkerncompat/bitmap.c */
-#if 0
 int
 highbit(ulong_t i)
 {
@@ -152,7 +150,6 @@ highbit(ulong_t i)
 	}
 	return (h);
 }
-#endif
 
 int
 lowbit(ulong_t i)

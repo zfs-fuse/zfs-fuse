@@ -546,8 +546,10 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 
 	if (!(flags & FCREAT) && S_ISBLK(st.st_mode)) {
 		flags |= O_DIRECT;
-		if (flags & FWRITE)
-			flags |= O_EXCL;
+		/* O_EXCL can't be passed for hot spares : they can be shared
+		 * between pools */
+	/*	if (flags & FWRITE)
+			flags |= O_EXCL; */
 	}
 
 	/*
@@ -953,9 +955,8 @@ fop_lookup(
 {
 	int ret;
 
-	VERIFY(!(flags & LOOKUP_XATTR));
-
-	ret = (*(dvp)->v_op->vop_lookup)(dvp, nm, vpp, pnp, flags, rdir, cr, ct, deflags, ppnp);
+	ret = (*(dvp)->v_op->vop_lookup)
+	    (dvp, nm, vpp, pnp, flags, rdir, cr, ct, deflags, ppnp);
 	if (ret == 0 && *vpp) {
 		VOPSTATS_UPDATE(*vpp, lookup);
 		if ((*vpp)->v_path == NULL) {

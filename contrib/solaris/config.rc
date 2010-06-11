@@ -1,0 +1,20 @@
+#!/bin/sh
+
+KSCOPE_DIR="kscope"
+RELEASE_DIR="releases"
+BACKUP_DIR="backups"
+
+# must be absolute path
+TMP_DIR="/tmp/zfs"
+
+OPENSOLARIS_REPO="repos/onnv-gate"
+OPENSOLARIS_SRC="$OPENSOLARIS_REPO/usr/src"
+
+REPO_DIR="repos"
+ORIG_DIR="$REPO_DIR/upstream"
+
+UMEM_SRC="$REPO_DIR/umem-cvs"
+UMEM_DEST="$REPO_DIR/libumem"
+
+#UMEM_SRC="$OPENSOLARIS_SRC/lib/libumem/common"
+#UMEM_DEST="$REPO_DIR/libumem-on"

@@ -1,8 +1,8 @@
 # Release tag is supposed to be 0. for prerelease, X. for serial number in this version and alphatag XXXsvn.
 
 Name:          zfs-fuse
-Version:       0.6.0
-Release:       1
+Version:       0.6.9
+Release:       snapshot
 Summary:       The last word in filesystems
 License:       GPL
 Group:         System Environment/Daemons
@@ -10,6 +10,7 @@ URL:           http://zfs-fuse.net/
 Source0:       %{name}-%{version}.tar.bz2
 BuildRoot:     %{_tmppath}/%{name}-%{version}-root
 BuildRequires: fuse-devel libaio-devel zlib-devel scons
+BuildRequires: openssl-devel libattr-devel libacl-devel
 
 %description
 ZFS (formerly the Zettabyte File System), is a filesystem invented by
@@ -61,19 +62,19 @@ Google Summer of Code 2006 initiative.
 
 %build
 cd src
-scons
+scons debug=0
 
 %install
 [ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] && rm -rf $RPM_BUILD_ROOT;
 mkdir -p $RPM_BUILD_ROOT%_sbindir
-mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/init.d $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig
-install -m755 contrib/%{name}.initd.fedora $RPM_BUILD_ROOT%{_sysconfdir}/init.d/%{name}
+mkdir -p $RPM_BUILD_ROOT%{_initrddir} $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig
+install -m755 contrib/%{name}.initd.fedora $RPM_BUILD_ROOT%{_initrddir}/%{name}
 install -m644 contrib/%{name}.sysconfig $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig/%{name}
 ln -s %{_sysconfdir}/init.d/%{name} $RPM_BUILD_ROOT%_sbindir/rc%{name}
 mkdir -p $RPM_BUILD_ROOT%{_mandir}/man8
 install -m 644 doc/*.8.gz $RPM_BUILD_ROOT%{_mandir}/man8
 cd src
-scons install install_dir=$RPM_BUILD_ROOT%_sbindir
+scons install install_dir=$RPM_BUILD_ROOT%_sbindir man_dir=$RPM_BUILD_ROOT%_mandir/man8/
 
 %clean
 [ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] && rm -rf $RPM_BUILD_ROOT;
@@ -82,7 +83,7 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %defattr(-,root,root)
 %doc BUGS CHANGES HACKING INSTALL LICENSE README README.NFS STATUS TESTING TODO
 %doc %{_mandir}/man8/*
-%{_sysconfdir}/init.d/%{name}
+%{_initrddir}/%{name}
 %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
 %_sbindir/rc%{name}
 %{_sbindir}/zdb
@@ -90,8 +91,12 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir
 %{_sbindir}/zpool
 %{_sbindir}/ztest
 %{_sbindir}/zfs-fuse
+%{_sbindir}/zstreamdump
 
 %changelog
+* Tue Jun 01 2010 Seth Heeren <sgheeren@hotmail.com> 0.6.9-0
+- Release 0.6.9 as is in preparation for 0.7.0
+
 * Sun Dec 06 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.6.0-1
 - Release 0.6.0 as is in preparation for 0.7.0
 

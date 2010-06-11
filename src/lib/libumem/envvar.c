@@ -24,7 +24,7 @@
  * Use is subject to license terms.
  */
 /*
- * Portions Copyright 2006 OmniTI, Inc.
+ * Portions Copyright 2006-2008 Message Systems, Inc.
  */
 
 /* #pragma ident	"@(#)envvar.c	1.5	05/06/08 SMI" */
@@ -91,6 +91,26 @@ typedef struct umem_env_item {
 
 #ifndef UMEM_STANDALONE
 static arg_process_t umem_backend_process;
+#endif
+
+#ifdef __GLIBC__
+/* replace getenv() with a specialized version that doesn't
+ * need to allocate memory.  We can't use strlen or strcmp
+ * here. */
+#include <unistd.h>
+static char *safe_getenv(const char *name)
+{
+	int i, l;
+	for (l = 0; name[l]; l++)
+		;
+	for (i = 0; __environ[i]; i++) {
+		if (!memcmp(__environ[i], name, l) && __environ[i][l] == '=') {
+			return &__environ[i][l+1];
+		}
+	}
+	return NULL;
+}
+#define getenv(x) safe_getenv(x)
 #endif
 
 static arg_process_t umem_log_process;
@@ -437,11 +457,6 @@ process_item(const umem_env_item_t *item, const char *item_arg)
 	case ITEM_SIZE:
 		arg_required = 1;
 		break;
-
-	default:
-		log_message("%s: %s: Invalid type.  Ignored\n",
-		    CURRENT, item->item_name);
-		return (1);
 	}
 
 	switch (item->item_type) {
@@ -558,6 +573,7 @@ umem_setup_envvars(int invalid)
 	static volatile enum {
 		STATE_START,
 		STATE_GETENV,
+		STATE_DLOPEN,
 		STATE_DLSYM,
 		STATE_FUNC,
 		STATE_DONE
@@ -581,6 +597,10 @@ umem_setup_envvars(int invalid)
 		case STATE_GETENV:
 			where = "during getenv(3C) calls -- "
 			    "getenv(3C) results ignored.";
+			break;
+		case STATE_DLOPEN:
+			where = "during dlopen(3C) call -- "
+			    "_umem_*() results ignored.";
 			break;
 		case STATE_DLSYM:
 			where = "during dlsym(3C) call -- "
@@ -628,6 +648,7 @@ umem_setup_envvars(int invalid)
 # define dlclose(a)		0
 # define dlerror()		0
 #endif
+	state = STATE_DLOPEN;
 	/* get a handle to the "a.out" object */
 	if ((h = dlopen(0, RTLD_FIRST | RTLD_LAZY)) != NULL) {
 		for (cur_env = umem_envvars; cur_env->env_name != NULL;

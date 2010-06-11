@@ -107,7 +107,8 @@ zfs_callback(zfs_handle_t *zhp, void *data)
 					zfs_prune_proplist(zhp,
 					    cb->cb_props_table);
 
-				if (zfs_expand_proplist(zhp, cb->cb_proplist)
+				if (zfs_expand_proplist(zhp, cb->cb_proplist,
+				    (cb->cb_flags & ZFS_ITER_RECVD_PROPS))
 				    != 0) {
 					free(node);
 					return (-1);
@@ -362,7 +363,7 @@ zfs_for_each(int argc, char **argv, int flags, zfs_type_t types,
 	cb.cb_types = types;
 	cb.cb_depth_limit = limit;
 	/*
-	 * If cb_proplist is provided then in the zfs_handles created  we
+	 * If cb_proplist is provided then in the zfs_handles created we
 	 * retain only those properties listed in cb_proplist and sortcol.
 	 * The rest are pruned. So, the caller should make sure that no other
 	 * properties other than those listed in cb_proplist/sortcol are

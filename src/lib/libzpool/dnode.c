@@ -272,7 +272,7 @@ dnode_setdblksz(dnode_t *dn, int size)
 }
 
 static dnode_t *
-dnode_create(objset_impl_t *os, dnode_phys_t *dnp, dmu_buf_impl_t *db,
+dnode_create(objset_t *os, dnode_phys_t *dnp, dmu_buf_impl_t *db,
     uint64_t object)
 {
 	dnode_t *dn = kmem_cache_alloc(dnode_cache, KM_SLEEP);
@@ -309,7 +309,7 @@ dnode_create(objset_impl_t *os, dnode_phys_t *dnp, dmu_buf_impl_t *db,
 static void
 dnode_destroy(dnode_t *dn)
 {
-	objset_impl_t *os = dn->dn_objset;
+	objset_t *os = dn->dn_objset;
 
 #ifdef ZFS_DEBUG
 	int i;
@@ -488,7 +488,7 @@ dnode_special_close(dnode_t *dn)
 }
 
 dnode_t *
-dnode_special_open(objset_impl_t *os, dnode_phys_t *dnp, uint64_t object)
+dnode_special_open(objset_t *os, dnode_phys_t *dnp, uint64_t object)
 {
 	dnode_t *dn = dnode_create(os, dnp, NULL, object);
 	DNODE_VERIFY(dn);
@@ -534,7 +534,7 @@ dnode_buf_pageout(dmu_buf_t *db, void *arg)
  * succeeds even for free dnodes.
  */
 int
-dnode_hold_impl(objset_impl_t *os, uint64_t object, int flag,
+dnode_hold_impl(objset_t *os, uint64_t object, int flag,
     void *tag, dnode_t **dnp)
 {
 	int epb, idx, err;
@@ -649,7 +649,7 @@ dnode_hold_impl(objset_impl_t *os, uint64_t object, int flag,
  * Return held dnode if the object is allocated, NULL if not.
  */
 int
-dnode_hold(objset_impl_t *os, uint64_t object, void *tag, dnode_t **dnp)
+dnode_hold(objset_t *os, uint64_t object, void *tag, dnode_t **dnp)
 {
 	return (dnode_hold_impl(os, object, DNODE_MUST_BE_ALLOCATED, tag, dnp));
 }
@@ -688,7 +688,7 @@ dnode_rele(dnode_t *dn, void *tag)
 void
 dnode_setdirty(dnode_t *dn, dmu_tx_t *tx)
 {
-	objset_impl_t *os = dn->dn_objset;
+	objset_t *os = dn->dn_objset;
 	uint64_t txg = tx->tx_txg;
 
 	if (DMU_OBJECT_IS_SPECIAL(dn->dn_object)) {
@@ -1248,7 +1248,7 @@ dnode_diduse_space(dnode_t *dn, int64_t delta)
 void
 dnode_willuse_space(dnode_t *dn, int64_t space, dmu_tx_t *tx)
 {
-	objset_impl_t *os = dn->dn_objset;
+	objset_t *os = dn->dn_objset;
 	dsl_dataset_t *ds = os->os_dsl_dataset;
 
 	if (space > 0)
@@ -1260,6 +1260,22 @@ dnode_willuse_space(dnode_t *dn, int64_t space, dmu_tx_t *tx)
 	dmu_tx_willuse_space(tx, space);
 }
 
+/*
+ * This function scans a block at the indicated "level" looking for
+ * a hole or data (depending on 'flags').  If level > 0, then we are
+ * scanning an indirect block looking at its pointers.  If level == 0,
+ * then we are looking at a block of dnodes.  If we don't find what we
+ * are looking for in the block, we return ESRCH.  Otherwise, return
+ * with *offset pointing to the beginning (if searching forwards) or
+ * end (if searching backwards) of the range covered by the block
+ * pointer we matched on (or dnode).
+ *
+ * The basic search algorithm used below by dnode_next_offset() is to
+ * use this function to search up the block tree (widen the search) until
+ * we find something (i.e., we don't return ESRCH) and then search back
+ * down the tree (narrow the search) until we reach our original search
+ * level.
+ */
 static int
 dnode_next_offset_level(dnode_t *dn, int flags, uint64_t *offset,
 	int lvl, uint64_t blkfill, uint64_t txg)
@@ -1330,6 +1346,7 @@ dnode_next_offset_level(dnode_t *dn, int flags, uint64_t *offset,
 			error = ESRCH;
 	} else {
 		blkptr_t *bp = data;
+		uint64_t start = *offset;
 		span = (lvl - 1) * epbs + dn->dn_datablkshift;
 		minfill = 0;
 		maxfill = blkfill << ((lvl - 1) * epbs);
@@ -1339,18 +1356,25 @@ dnode_next_offset_level(dnode_t *dn, int flags, uint64_t *offset,
 		else
 			minfill++;
 
-		for (i = (*offset >> span) & ((1ULL << epbs) - 1);
+		*offset = *offset >> span;
+		for (i = BF64_GET(*offset, 0, epbs);
 		    i >= 0 && i < epb; i += inc) {
 			if (bp[i].blk_fill >= minfill &&
 			    bp[i].blk_fill <= maxfill &&
 			    (hole || bp[i].blk_birth > txg))
 				break;
-			if (inc < 0 && *offset < (1ULL << span))
-				*offset = 0;
-			else
-				*offset += (1ULL << span) * inc;
+			if (inc > 0 || *offset > 0)
+				*offset += inc;
 		}
-		if (i < 0 || i == epb)
+		*offset = *offset << span;
+		if (inc < 0) {
+			/* traversing backwards; position offset at the end */
+			ASSERT3U(*offset, <=, start);
+			*offset = MIN(*offset + (1ULL << span) - 1, start);
+		} else if (*offset < start) {
+			*offset = start;
+		}
+		if (i < 0 || i >= epb)
 			error = ESRCH;
 	}
 

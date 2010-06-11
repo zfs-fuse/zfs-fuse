@@ -42,6 +42,7 @@ extern "C" {
 
 #include <sys/types.h>
 #include <sys/cred.h>
+#undef FUSE_USE_VERSION
 #define FUSE_USE_VERSION 26
 
 #include <fuse/fuse_lowlevel.h>

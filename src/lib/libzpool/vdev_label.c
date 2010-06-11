@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -246,8 +246,10 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		 * into a crufty old storage pool.
 		 */
 		ASSERT(vd->vdev_nparity == 1 ||
-		    (vd->vdev_nparity == 2 &&
-		    spa_version(spa) >= SPA_VERSION_RAID6));
+		    (vd->vdev_nparity <= 2 &&
+		    spa_version(spa) >= SPA_VERSION_RAIDZ2) ||
+		    (vd->vdev_nparity <= 3 &&
+		    spa_version(spa) >= SPA_VERSION_RAIDZ3));
 
 		/*
 		 * Note that we'll add the nparity tag even on storage pools
@@ -285,6 +287,10 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_DTL,
 		    vd->vdev_dtl_smo.smo_object) == 0);
 
+	if (vd->vdev_crtxg)
+		VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_CREATE_TXG,
+		    vd->vdev_crtxg) == 0);
+
 	if (getstats) {
 		vdev_stat_t vs;
 		vdev_get_stats(vd, &vs);
@@ -295,6 +301,8 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 	if (!vd->vdev_ops->vdev_op_leaf) {
 		nvlist_t **child;
 		int c;
+
+		ASSERT(!vd->vdev_ishole);
 
 		child = kmem_alloc(vd->vdev_children * sizeof (nvlist_t *),
 		    KM_SLEEP);
@@ -312,6 +320,8 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		kmem_free(child, vd->vdev_children * sizeof (nvlist_t *));
 
 	} else {
+		const char *aux = NULL;
+
 		if (vd->vdev_offline && !vd->vdev_tmpoffline)
 			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_OFFLINE,
 			    B_TRUE) == 0);
@@ -327,9 +337,65 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		if (vd->vdev_unspare)
 			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_UNSPARE,
 			    B_TRUE) == 0);
+		if (vd->vdev_ishole)
+			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_IS_HOLE,
+			    B_TRUE) == 0);
+
+		switch (vd->vdev_stat.vs_aux) {
+		case VDEV_AUX_ERR_EXCEEDED:
+			aux = "err_exceeded";
+			break;
+
+		case VDEV_AUX_EXTERNAL:
+			aux = "external";
+			break;
+		}
+
+		if (aux != NULL)
+			VERIFY(nvlist_add_string(nv, ZPOOL_CONFIG_AUX_STATE,
+			    aux) == 0);
+
+		if (vd->vdev_splitting && vd->vdev_orig_guid != 0LL) {
+			VERIFY(nvlist_add_uint64(nv, ZPOOL_CONFIG_ORIG_GUID,
+			    vd->vdev_orig_guid) == 0);
+		}
 	}
 
 	return (nv);
+}
+
+/*
+ * Generate a view of the top-level vdevs.  If we currently have holes
+ * in the namespace, then generate an array which contains a list of holey
+ * vdevs.  Additionally, add the number of top-level children that currently
+ * exist.
+ */
+void
+vdev_top_config_generate(spa_t *spa, nvlist_t *config)
+{
+	vdev_t *rvd = spa->spa_root_vdev;
+	uint64_t *array;
+	uint_t idx;
+
+	array = kmem_alloc(rvd->vdev_children * sizeof (uint64_t), KM_SLEEP);
+
+	idx = 0;
+	for (int c = 0; c < rvd->vdev_children; c++) {
+		vdev_t *tvd = rvd->vdev_child[c];
+
+		if (tvd->vdev_ishole)
+			array[idx++] = c;
+	}
+
+	if (idx) {
+		VERIFY(nvlist_add_uint64_array(config, ZPOOL_CONFIG_HOLE_ARRAY,
+		    array, idx) == 0);
+	}
+
+	VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_VDEV_CHILDREN,
+	    rvd->vdev_children) == 0);
+
+	kmem_free(array, rvd->vdev_children * sizeof (uint64_t));
 }
 
 nvlist_t *
@@ -517,6 +583,9 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 		    crtxg, reason)) != 0)
 			return (error);
 
+	/* Track the creation time for this vdev */
+	vd->vdev_crtxg = crtxg;
+
 	if (!vd->vdev_ops->vdev_op_leaf)
 		return (0);
 
@@ -529,7 +598,7 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 	/*
 	 * Determine if the vdev is in use.
 	 */
-	if (reason != VDEV_LABEL_REMOVE &&
+	if (reason != VDEV_LABEL_REMOVE && reason != VDEV_LABEL_SPLIT &&
 	    vdev_inuse(vd, crtxg, reason, &spare_guid, &l2cache_guid))
 		return (EBUSY);
 
@@ -555,7 +624,8 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 		 */
 		if (reason == VDEV_LABEL_SPARE)
 			return (0);
-		ASSERT(reason == VDEV_LABEL_REPLACE);
+		ASSERT(reason == VDEV_LABEL_REPLACE ||
+		    reason == VDEV_LABEL_SPLIT);
 	}
 
 	if (reason != VDEV_LABEL_REMOVE && reason != VDEV_LABEL_SPARE &&
@@ -620,7 +690,11 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 		VERIFY(nvlist_add_uint64(label, ZPOOL_CONFIG_GUID,
 		    vd->vdev_guid) == 0);
 	} else {
-		label = spa_config_generate(spa, vd, 0ULL, B_FALSE);
+		uint64_t txg = 0ULL;
+
+		if (reason == VDEV_LABEL_SPLIT)
+			txg = spa->spa_uberblock.ub_txg;
+		label = spa_config_generate(spa, vd, txg, B_FALSE);
 
 		/*
 		 * Add our creation time.  This allows us to detect multiple
@@ -645,8 +719,8 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 	/*
 	 * Initialize uberblock template.
 	 */
-	ub = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
-	bzero(ub, VDEV_UBERBLOCK_SIZE(vd));
+	ub = zio_buf_alloc(VDEV_UBERBLOCK_RING);
+	bzero(ub, VDEV_UBERBLOCK_RING);
 	*ub = spa->spa_uberblock;
 	ub->ub_txg = 0;
 
@@ -675,11 +749,9 @@ retry:
 		    offsetof(vdev_label_t, vl_pad2),
 		    VDEV_PAD_SIZE, NULL, NULL, flags);
 
-		for (int n = 0; n < VDEV_UBERBLOCK_COUNT(vd); n++) {
-			vdev_label_write(zio, vd, l, ub,
-			    VDEV_UBERBLOCK_OFFSET(vd, n),
-			    VDEV_UBERBLOCK_SIZE(vd), NULL, NULL, flags);
-		}
+		vdev_label_write(zio, vd, l, ub,
+		    offsetof(vdev_label_t, vl_uberblock),
+		    VDEV_UBERBLOCK_RING, NULL, NULL, flags);
 	}
 
 	error = zio_wait(zio);
@@ -691,7 +763,7 @@ retry:
 
 	nvlist_free(label);
 	zio_buf_free(pad2, VDEV_PAD_SIZE);
-	zio_buf_free(ub, VDEV_UBERBLOCK_SIZE(vd));
+	zio_buf_free(ub, VDEV_UBERBLOCK_RING);
 	zio_buf_free(vp, sizeof (vdev_phys_t));
 
 	/*
@@ -718,11 +790,6 @@ retry:
  * uberblock load/sync
  * ==========================================================================
  */
-
-/*
- * For use by zdb and debugging purposes only
- */
-uint64_t ub_max_txg = UINT64_MAX;
 
 /*
  * Consider the following situation: txg is safely synced to disk.  We've
@@ -753,6 +820,7 @@ vdev_uberblock_compare(uberblock_t *ub1, uberblock_t *ub2)
 static void
 vdev_uberblock_load_done(zio_t *zio)
 {
+	spa_t *spa = zio->io_spa;
 	zio_t *rio = zio->io_private;
 	uberblock_t *ub = zio->io_data;
 	uberblock_t *ubbest = rio->io_private;
@@ -761,7 +829,7 @@ vdev_uberblock_load_done(zio_t *zio)
 
 	if (zio->io_error == 0 && uberblock_verify(ub) == 0) {
 		mutex_enter(&rio->io_lock);
-		if (ub->ub_txg <= ub_max_txg &&
+		if (ub->ub_txg <= spa->spa_load_max_txg &&
 		    vdev_uberblock_compare(ub, ubbest) > 0)
 			*ubbest = *ub;
 		mutex_exit(&rio->io_lock);
@@ -979,6 +1047,9 @@ vdev_label_sync_list(spa_t *spa, int l, uint64_t txg, int flags)
 	for (vd = list_head(dl); vd != NULL; vd = list_next(dl, vd)) {
 		uint64_t *good_writes = kmem_zalloc(sizeof (uint64_t),
 		    KM_SLEEP);
+
+		ASSERT(!vd->vdev_ishole);
+
 		zio_t *vio = zio_null(zio, spa, NULL,
 		    (vd->vdev_islog || vd->vdev_aux != NULL) ?
 		    vdev_label_sync_ignore_done : vdev_label_sync_top_done,

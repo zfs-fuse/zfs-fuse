@@ -33,6 +33,7 @@
 #include <sys/kmem.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/mount.h>
 
 #include "fuse.h"
 #include "fuse_listener.h"
@@ -57,11 +58,12 @@ int newfs_fd[2];
 
 int nfds;
 struct pollfd fds[MAX_FDS];
-fuse_fs_info_t fsinfo[MAX_FDS];
+static fuse_fs_info_t fsinfo[MAX_FDS];
 char *mountpoints[MAX_FDS];
 
 pthread_t fuse_threads[NUM_THREADS];
-pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t des_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 kmem_cache_t *file_info_cache = NULL;
 
@@ -153,11 +155,7 @@ static void new_fs()
 	 */
 	VERIFY(fd_read_loop(fds[0].fd, &fs, sizeof(fuse_fs_info_t)) == 0);
 
-	char *mntpoint = malloc(fs.mntlen + 1);
-	if(mntpoint == NULL) {
-		fprintf(stderr, "Warning: out of memory!\n");
-		return;
-	}
+	char *mntpoint = kmem_alloc(fs.mntlen + 1,KM_SLEEP);
 
 	VERIFY(fd_read_loop(fds[0].fd, mntpoint, fs.mntlen) == 0);
 
@@ -166,7 +164,7 @@ static void new_fs()
 	if(nfds == MAX_FDS) {
 		fprintf(stderr, "Warning: filesystem limit (%i) reached, unmounting..\n", MAX_FILESYSTEMS);
 		fuse_unmount(mntpoint,fs.ch);
-		free(mntpoint);
+		kmem_free(mntpoint,fs.mntlen+1);
 		return;
 	}
 
@@ -189,14 +187,19 @@ static void new_fs()
  */
 static void destroy_fs(int i)
 {
+    VERIFY(pthread_mutex_lock(&des_mtx) == 0);
+    if (fsinfo[i].se) {
 #ifdef DEBUG
 	fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
 #endif
 	fuse_session_reset(fsinfo[i].se);
 	fuse_session_destroy(fsinfo[i].se);
+	fsinfo[i].se = NULL;
 	close(fds[i].fd);
 	fds[i].fd = -1;
-	free(mountpoints[i]);
+	kmem_free(mountpoints[i],fsinfo[i].mntlen+1);
+    }
+    VERIFY(pthread_mutex_unlock(&des_mtx) == 0);
 }
 
 static void *zfsfuse_listener_loop(void *arg)
@@ -226,7 +229,11 @@ static void *zfsfuse_listener_loop(void *arg)
 
 			fds[i].revents = 0;
 
-			ASSERT((rev & POLLNVAL) == 0);
+			if (rev & POLLNVAL) { // already closed
+			    // fuse_unmount_all triggers this
+			    fds[i].fd = -1;
+			    continue;
+			}
 
 			if(!(rev & POLLIN) && !(rev & POLLERR) && !(rev & POLLHUP))
 				continue;
@@ -246,10 +253,14 @@ static void *zfsfuse_listener_loop(void *arg)
 					bufsize = fsinfo[i].bufsize;
 				}
 
+				if (!fsinfo[i].se) {
+				    destroy_fs(i);
+				    continue;
+				}
 				int res = fuse_chan_recv(&fsinfo[i].ch, buf, fsinfo[i].bufsize);
 				if(res == -1 || fuse_session_exited(fsinfo[i].se)) {
-					destroy_fs(i);
-					continue;
+				    destroy_fs(i);
+				    continue;
 				}
 
 				if(res == 0)
@@ -297,10 +308,16 @@ static void *zfsfuse_listener_loop(void *arg)
 	return NULL;
 }
 
+extern size_t stack_size;
+
 int zfsfuse_listener_start()
 {
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	if (stack_size)
+	    pthread_attr_setstacksize(&attr,stack_size);
 	for(int i = 0; i < NUM_THREADS; i++)
-		VERIFY(pthread_create(&fuse_threads[i], NULL, zfsfuse_listener_loop, NULL) == 0);
+		VERIFY(pthread_create(&fuse_threads[i], &attr, zfsfuse_listener_loop, NULL) == 0);
 
 	for(int i = 0; i < NUM_THREADS; i++) {
 		int ret = pthread_join(fuse_threads[i], NULL);
@@ -312,17 +329,25 @@ int zfsfuse_listener_start()
 	fprintf(stderr, "Exiting...\n");
 #endif
 
-	for(int i = 1; i < nfds; i++) {
-		if(fds[i].fd == -1)
-			continue;
-
-		fuse_session_exit(fsinfo[i].se);
-		fuse_session_reset(fsinfo[i].se);
-		fuse_unmount(mountpoints[i],fsinfo[i].ch);
-		fuse_session_destroy(fsinfo[i].se);
-
-		free(mountpoints[i]);
-	}
-
 	return 1;
+}
+
+void fuse_unmount_all() {
+    int all_ok = 1;
+    VERIFY(pthread_mutex_lock(&des_mtx) == 0);
+    for(int i = nfds-1; i >= 1; i--) {
+	if(fds[i].fd == -1)
+	    continue;
+
+	/* unmount before shuting down... */
+	fuse_session_remove_chan(fsinfo[i].ch);
+	fuse_session_destroy(fsinfo[i].se);
+	fsinfo[i].se = NULL;
+	fuse_unmount(mountpoints[i],fsinfo[i].ch);
+	close(fds[i].fd);
+	fds[i].fd = -1;
+	kmem_free(mountpoints[i],fsinfo[i].mntlen+1);
+
+    }
+    VERIFY(pthread_mutex_unlock(&des_mtx) == 0);
 }

@@ -34,6 +34,7 @@
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_znode.h>
 #include <sys/mode.h>
+#include <attr/xattr.h>
 #include <sys/fcntl.h>
 
 #include <string.h>
@@ -43,8 +44,17 @@
 
 #include "util.h"
 #include "fuse_listener.h"
+#include <syslog.h>
 
 #define ZFS_MAGIC 0x2f52f5
+
+// #define VERBOSE
+
+#ifdef VERBOSE
+#define print_debug printf
+#else
+#define print_debug
+#endif
 
  /* the command-line options */
 int block_cache, page_cache;
@@ -63,20 +73,17 @@ static void zfsfuse_destroy(void *userdata)
 {
 	vfs_t *vfs = (vfs_t *) userdata;
 
-	struct timespec req;
-	req.tv_sec = 0;
-	req.tv_nsec = 100000000; /* 100 ms */
-
 #ifdef DEBUG
-	fprintf(stderr, "Calling do_umount()...\n");
+	fprintf(stderr, "Calling do_umount()... force %d\n",exit_fuse_listener);
 #endif
 	/*
 	 * If exit_fuse_listener is true, then we received a signal
 	 * and we're terminating the process. Therefore we need to
 	 * force unmount since there could still be opened files
 	 */
+	sync();
 	while(do_umount(vfs, exit_fuse_listener) != 0)
-		nanosleep(&req, NULL);
+	    sync();
 #ifdef DEBUG
 	fprintf(stderr, "do_umount() done\n");
 #endif
@@ -84,6 +91,7 @@ static void zfsfuse_destroy(void *userdata)
 
 static void zfsfuse_statfs(fuse_req_t req, fuse_ino_t ino)
 {
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 
 	struct statvfs64 zfs_stat;
@@ -148,6 +156,7 @@ static int zfsfuse_stat(vnode_t *vp, struct stat *stbuf, cred_t *cred)
 
 static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -177,7 +186,7 @@ static int zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		fuse_reply_attr(req, &stbuf, 0.0);
+		fuse_reply_attr(req, &stbuf, fuse_attr_timeout);
 
 	return error;
 }
@@ -191,11 +200,262 @@ static void zfsfuse_getattr_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_f
 		fuse_reply_err(req, error);
 }
 
+static int int_zfs_enter(zfsvfs_t *zfsvfs) {
+    ZFS_ENTER(zfsvfs);
+    return 0;
+}
+
+// This macro allows to call ZFS_ENTER from a void function without warning
+#define ZFS_VOID_ENTER(a) \
+    if (int_zfs_enter(zfsvfs) != 0) return;
+
+/* This macro makes the lookup for the xattr directory, necessary for listxattr
+ * getxattr and setxattr */
+#define MY_LOOKUP_XATTR() \
+    vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);		\
+    zfsvfs_t *zfsvfs = vfs->vfs_data;				\
+    if (ino == 1) ino = 3;					\
+								\
+    ZFS_VOID_ENTER(zfsvfs);					\
+								\
+    znode_t *znode;						\
+								\
+    int error = zfs_zget(zfsvfs, ino, &znode, B_FALSE);		\
+    if(error) {							\
+	ZFS_EXIT(zfsvfs);					\
+	fuse_reply_err(req, error == EEXIST ? ENOENT : error);	\
+	return;							\
+    }								\
+								\
+    ASSERT(znode != NULL);					\
+    vnode_t *dvp = ZTOV(znode);					\
+    ASSERT(dvp != NULL);					\
+								\
+    vnode_t *vp = NULL;						\
+								\
+    cred_t cred;						\
+    zfsfuse_getcred(req, &cred);				\
+								\
+    error = VOP_LOOKUP(dvp, "", &vp, NULL, LOOKUP_XATTR |	\
+	    CREATE_XATTR_DIR, NULL, &cred, NULL, NULL, NULL);	\
+    if(error || vp == NULL) {					\
+	if (error != EACCES) error = ENOSYS; 			\
+	goto out;						\
+    }
+
+static void zfsfuse_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
+{
+    /* It's like a lookup, but passing LOOKUP_XATTR as a flag to VOP_LOOKUP */
+    MY_LOOKUP_XATTR();
+
+    error = VOP_OPEN(&vp, FREAD, &cred, NULL);
+    if (error) {
+	goto out;
+    }
+
+    // Now try a readdir...
+	char *outbuf = NULL;
+	int alloc = 0,used = 0;
+	union {
+		char buf[DIRENT64_RECLEN(MAXNAMELEN)];
+		struct dirent64 dirent;
+	} entry;
+
+	struct stat fstat = { 0 };
+
+	iovec_t iovec;
+	uio_t uio;
+	uio.uio_iov = &iovec;
+	uio.uio_iovcnt = 1;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_fmode = 0;
+	uio.uio_llimit = RLIM64_INFINITY;
+
+	int eofp = 0;
+
+	off_t next = 0;
+
+	for(;;) {
+		iovec.iov_base = entry.buf;
+		iovec.iov_len = sizeof(entry.buf);
+		uio.uio_resid = iovec.iov_len;
+		uio.uio_loffset = next;
+
+		error = VOP_READDIR(vp, &uio, &cred, &eofp, NULL, 0);
+		if(error)
+			goto out;
+
+		/* No more directory entries */
+		if(iovec.iov_base == entry.buf)
+			break;
+
+		next = entry.dirent.d_off;
+		char *s = entry.dirent.d_name;
+		if (*s == '.' && (s[1] == 0 || (s[1] == '.' && s[2] == 0)))
+			continue;
+		while (used + strlen(s)+1 > alloc) {
+		    alloc += 1024;
+		    outbuf = realloc(outbuf, alloc);
+		}
+		strcpy(&outbuf[used],s);
+		used += strlen(s)+1;
+
+	}
+
+	error = VOP_CLOSE(vp, FREAD, 1, (offset_t) 0, &cred, NULL);
+	if (size == 0) {
+	    fuse_reply_xattr(req,used);
+	} else if (size < used) {
+	    error = ERANGE;
+	} else {
+	    fuse_reply_buf(req,outbuf,used);
+	}
+	free(outbuf);
+out:
+    if(vp != NULL)
+	VN_RELE(vp);
+    VN_RELE(dvp);
+    ZFS_EXIT(zfsvfs);
+    if (error)
+	fuse_reply_err(req,error);
+}
+
+static void zfsfuse_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name, const char *value, size_t size, int flags)
+{
+    MY_LOOKUP_XATTR();
+    // Now the idea is to create a file inside the xattr directory with the
+    // wanted attribute.
+
+    vattr_t vattr;
+    vattr.va_type = VREG;
+    vattr.va_mode = 0660;
+    vattr.va_mask = AT_TYPE|AT_MODE|AT_SIZE;
+    vattr.va_size = 0;
+
+    vnode_t *new_vp;
+    error = VOP_CREATE(vp, (char *) name, &vattr, NONEXCL, VWRITE, &new_vp, &cred, 0, NULL, NULL);
+    if(error)
+	goto out;
+
+    VN_RELE(vp);
+    vp = new_vp;
+    error = VOP_OPEN(&vp, FWRITE, &cred, NULL);
+    if (error) goto out;
+
+    iovec_t iovec;
+    uio_t uio;
+    uio.uio_iov = &iovec;
+    uio.uio_iovcnt = 1;
+    uio.uio_segflg = UIO_SYSSPACE;
+    uio.uio_fmode = 0;
+    uio.uio_llimit = RLIM64_INFINITY;
+
+    iovec.iov_base = (void *) value;
+    iovec.iov_len = size;
+    uio.uio_resid = iovec.iov_len;
+    uio.uio_loffset = 0;
+
+    error = VOP_WRITE(vp, &uio, FWRITE, &cred, NULL);
+    if (error) goto out;
+    error = VOP_CLOSE(vp, FWRITE, 1, (offset_t) 0, &cred, NULL);
+
+out:
+    if(vp != NULL)
+	VN_RELE(vp);
+    VN_RELE(dvp);
+    ZFS_EXIT(zfsvfs);
+	// The fuse_reply_err at the end seems to be an mandatory even if there is no error
+    fuse_reply_err(req,error);
+}
+
+static void zfsfuse_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
+	size_t size)
+{
+    MY_LOOKUP_XATTR();
+    vnode_t *new_vp = NULL;
+    error = VOP_LOOKUP(vp, (char *) name, &new_vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);  
+    if (error) {
+	error = ENOATTR;
+	goto out;
+    }
+    VN_RELE(vp);
+    vp = new_vp;
+    vattr_t vattr;
+    vattr.va_mask = AT_STAT | AT_NBLOCKS | AT_BLKSIZE | AT_SIZE;
+
+    // We are obliged to get the size 1st because of the stupid handling of the
+    // size parameter
+    error = VOP_GETATTR(vp, &vattr, 0, &cred, NULL);
+    if (error) goto out;
+    if (size == 0) {
+	fuse_reply_xattr(req,vattr.va_size);
+	goto out;
+    } else if (size < vattr.va_size) {
+	fuse_reply_xattr(req, ERANGE);
+	goto out;
+    }
+    char *buf = malloc(vattr.va_size);
+    if (!buf)
+	goto out;
+
+    error = VOP_OPEN(&vp, FREAD, &cred, NULL);
+    if (error) {
+	free(buf);
+	goto out;
+    }
+
+    iovec_t iovec;
+    uio_t uio;
+    uio.uio_iov = &iovec;
+    uio.uio_iovcnt = 1;
+    uio.uio_segflg = UIO_SYSSPACE;
+    uio.uio_fmode = 0;
+    uio.uio_llimit = RLIM64_INFINITY;
+
+    iovec.iov_base = buf;
+    iovec.iov_len = vattr.va_size;
+    uio.uio_resid = iovec.iov_len;
+    uio.uio_loffset = 0;
+
+    error = VOP_READ(vp, &uio, FREAD, &cred, NULL);
+    if (error) {
+	free(buf);
+	goto out;
+    }
+    fuse_reply_buf(req,buf,vattr.va_size);
+    free(buf);
+    error = VOP_CLOSE(vp, FREAD, 1, (offset_t) 0, &cred, NULL);
+
+out:
+    if(vp != NULL)
+	VN_RELE(vp);
+    VN_RELE(dvp);
+    ZFS_EXIT(zfsvfs);
+    if (error)
+	fuse_reply_err(req,error);
+}
+
+static void zfsfuse_removexattr(fuse_req_t req, fuse_ino_t ino, const char *name)
+{
+    MY_LOOKUP_XATTR();
+    error = VOP_REMOVE(vp, (char *) name, &cred, NULL, 0);
+
+out:
+    if(vp != NULL)
+	VN_RELE(vp);
+    VN_RELE(dvp);
+    ZFS_EXIT(zfsvfs);
+	if (error == ENOENT)
+		error = ENOATTR;
+    fuse_reply_err(req,error);
+}
+
 static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 	if(strlen(name) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -270,6 +530,7 @@ static void zfsfuse_lookup_helper(fuse_req_t req, fuse_ino_t parent, const char 
 
 static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -300,8 +561,10 @@ static int zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	/*
 	 * Check permissions.
 	 */
-	if (error = VOP_ACCESS(vp, VREAD | VEXEC, 0, &cred, NULL))
+	if (!(vfs->fuse_attribute & FUSE_VFS_HAS_DEFAULT_PERM)) {
+	    if (error = VOP_ACCESS(vp, VREAD | VEXEC, 0, &cred, NULL))
 		goto out;
+	}
 
 	vnode_t *old_vp = vp;
 
@@ -345,6 +608,7 @@ static void zfsfuse_opendir_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_f
 
 static int zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -359,7 +623,8 @@ static int zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info
 	zfsfuse_getcred(req, &cred);
 
 	int error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
-	VERIFY(error == 0);
+    if (error)
+        syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
 
 	VN_RELE(info->vp);
 
@@ -389,6 +654,7 @@ static int zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t of
 	if(vp->v_type != VDIR)
 		return ENOTDIR;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -480,6 +746,7 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	if(name && strlen(name) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -588,8 +855,12 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 		/*
 		 * Check permissions.
 		 */
-		if (error = VOP_ACCESS(vp, mode, 0, &cred, NULL))
+		if (!(vfs->fuse_attribute & FUSE_VFS_HAS_DEFAULT_PERM)) {
+		    if (error = VOP_ACCESS(vp, mode, 0, &cred, NULL)) {
+			print_debug("open fails on access\n");
 			goto out;
+		    }
+		}
 	}
 
 	if ((flags & FNOFOLLOW) && vp->v_type == VLNK) {
@@ -675,6 +946,7 @@ static void zfsfuse_create_helper(fuse_req_t req, fuse_ino_t parent, const char 
 
 static int zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 {
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -743,6 +1015,7 @@ static int zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, 
 	ASSERT(VTOZ(vp) != NULL);
 	ASSERT(VTOZ(vp)->z_id == ino);
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -794,6 +1067,7 @@ static int zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 	if(strlen(name) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -868,6 +1142,7 @@ static int zfsfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	if(strlen(name) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -915,6 +1190,7 @@ static void zfsfuse_rmdir_helper(fuse_req_t req, fuse_ino_t parent, const char *
 
 static int zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set, struct fuse_file_info *fi)
 {
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1036,7 +1312,7 @@ out: ;
 	ZFS_EXIT(zfsvfs);
 
 	if(!error)
-		fuse_reply_attr(req, &stat_reply, 0.0);
+		fuse_reply_attr(req, &stat_reply, fuse_attr_timeout);
 
 	return error;
 }
@@ -1055,6 +1331,7 @@ static int zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 	if(strlen(name) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1103,6 +1380,7 @@ static int zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t
 	ASSERT(VTOZ(vp) != NULL);
 	ASSERT(VTOZ(vp)->z_id == ino);
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1151,6 +1429,7 @@ static int zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 	if(strlen(name) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1233,6 +1512,7 @@ static int zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent, 
 	if(strlen(name) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1315,6 +1595,7 @@ static int zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, f
 	if(strlen(newname) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1374,6 +1655,7 @@ static void zfsfuse_rename_helper(fuse_req_t req, fuse_ino_t parent, const char 
 
 static int zfsfuse_fsync(fuse_req_t req, fuse_ino_t ino, int datasync, struct fuse_file_info *fi)
 {
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1411,6 +1693,7 @@ static int zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, co
 	if(strlen(newname) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1497,6 +1780,7 @@ static void zfsfuse_link_helper(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newpa
 
 static int zfsfuse_access(fuse_req_t req, fuse_ino_t ino, int mask)
 {
+    print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
@@ -1572,4 +1856,11 @@ struct fuse_lowlevel_ops zfs_operations =
 	.access     = zfsfuse_access_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
+#if 0
+// xattr support disabled for now since it's not cached by fuse and slows things down incredibly !
+	.listxattr  = zfsfuse_listxattr,
+	.setxattr   = zfsfuse_setxattr,
+	.getxattr   = zfsfuse_getxattr,
+	.removexattr= zfsfuse_removexattr,
+#endif
 };

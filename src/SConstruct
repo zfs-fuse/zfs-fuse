@@ -6,14 +6,24 @@ import os, sys, re
 #   debug=1 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
 
 install_dir = ARGUMENTS.get('install_dir', '/usr/local/sbin')
+man_dir = ARGUMENTS.get('man_dir', '/usr/local/share/man/man8/')
+cfg_dir = ARGUMENTS.get('cfg_dir', '/etc/zfs')
 
 env = Environment()
 
+f = os.popen('uname')
+osname = f.readline().strip()
+f.close()
+
+env.CacheDir('/tmp/.zfs-fuse.scons')
 env['CC'] = 'gcc'
 env['LINKFLAGS'] = Split('-pipe -Wall')
-env['CCFLAGS'] = Split('-pipe -Wall -std=c99 -Wno-switch -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\" -DLINUX_AIO')
+env['CCFLAGS'] = Split('-pipe -Wall -std=c99 -Wno-switch -Wno-unused -Wno-missing-braces -Wno-parentheses -Wno-uninitialized -fno-strict-aliasing -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT -DTEXT_DOMAIN=\\"zfs-fuse\\" ')
 
-debug = int(ARGUMENTS.get('debug', '1'))
+if osname == "Linux":
+  env.Append(CPPFLAGS = " -DLINUX_AIO")
+
+debug = int(ARGUMENTS.get('debug', '0'))
 
 if not debug:
 	env.Append(LINKFLAGS = ['-s'])
@@ -21,8 +31,9 @@ if not debug:
 else:
 	env.Append(LINKFLAGS = ['-ggdb'])
 	env.Append(CCFLAGS = ['-ggdb'])
+# Be careful here, one of DEBUG or NDEBUG must be defined, if you undef both, you'll get unexpected results
 	if debug == 1:
-		env.Append(CCFLAGS = ['-O2'])
+		env.Append(CCFLAGS = Split('-O2 -DDEBUG'))
 	elif debug == 2:
 		env.Append(CCFLAGS = ['-DDEBUG'])
 	elif debug == 3:
@@ -44,7 +55,7 @@ def getarch(arch):
 	if re.compile('i\d86').match(arch):
 		return 'i386'
 
-	return None
+	return 'generic'
 
 myarch = getarch(arch)
 
@@ -78,6 +89,7 @@ SConscript('lib/libsolkerncompat/SConscript')
 SConscript('cmd/zdb/SConscript')
 SConscript('cmd/ztest/SConscript')
 SConscript('cmd/zpool/SConscript')
+SConscript('cmd/zstreamdump/SConscript')
 SConscript('cmd/zfs/SConscript')
 SConscript('zfs-fuse/SConscript')
 
@@ -86,5 +98,16 @@ env.Install(install_dir, 'cmd/ztest/ztest')
 env.Install(install_dir, 'cmd/zpool/zpool')
 env.Install(install_dir, 'cmd/zfs/zfs')
 env.Install(install_dir, 'zfs-fuse/zfs-fuse')
+env.Install(install_dir, 'cmd/zstreamdump/zstreamdump')
+env.Install(cfg_dir, '../contrib/zfs_pool_alert')
 
-env.Alias('install', install_dir)
+env.Install(man_dir, '../doc/zdb.8.gz')
+env.Install(man_dir, '../doc/zfs.8.gz')
+env.Install(man_dir, '../doc/zpool.8.gz')
+env.Install(man_dir, '../doc/zstreamdump.8.gz')
+
+if "tags" in sys.argv:
+    print "updating tags..."
+    os.system("ctags --extra=+f `find -name '*.c'` `find -name '*.h'`")
+
+env.Alias('install', [install_dir, man_dir, cfg_dir])

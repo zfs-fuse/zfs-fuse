@@ -31,10 +31,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+static int random_fd = -1, urandom_fd = -1;
+
 static int
-random_get_bytes_common(uint8_t *ptr, size_t len, char *devname)
+random_get_bytes_common(uint8_t *ptr, size_t len, int fd)
 {
-	int fd = open(devname, O_RDONLY);
 	size_t resid = len;
 	ssize_t bytes;
 
@@ -47,19 +48,25 @@ random_get_bytes_common(uint8_t *ptr, size_t len, char *devname)
 		resid -= bytes;
 	}
 
-	close(fd);
-
 	return (0);
 }
 
 int
 random_get_bytes(uint8_t *ptr, size_t len)
 {
-	return (random_get_bytes_common(ptr, len, "/dev/random"));
+    // TODO find a better location for initialization
+    if (-1==random_fd)
+        VERIFY((random_fd = open("/dev/random", O_RDONLY)) != -1); // FIXME leaked fd
+
+	return (random_get_bytes_common(ptr, len, random_fd));
 }
 
 int
 random_get_pseudo_bytes(uint8_t *ptr, size_t len)
 {
-	return (random_get_bytes_common(ptr, len, "/dev/urandom"));
+    // TODO find a better location for initialization
+    if (-1==urandom_fd)
+        VERIFY((urandom_fd = open("/dev/urandom", O_RDONLY)) != -1); // FIXME leaked fd
+
+	return (random_get_bytes_common(ptr, len, urandom_fd));
 }

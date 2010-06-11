@@ -1,0 +1,215 @@
+#! /bin/bash
+### BEGIN INIT INFO
+# Provides:          zfs-fuse
+# Required-Start:    fuse
+# Required-Stop:     fuse
+# Default-Start:     S
+# Default-Stop:      0 6
+# Short-Description: Daemon for ZFS support via FUSE
+# Description:       Mounts and makes available ZFS volumes
+### END INIT INFO
+
+# Author: Bryan Donlan <bdonlan@gmail.com>
+
+set -u # Error on uninitialized variabled
+set -e # Error on uncaught non-zero exit codes
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+DAEMON=/usr/local//sbin/zfs-fuse
+NAME=zfs-fuse
+DESC=zfs-fuse
+ENABLE_ZFS=yes
+DAEMON_OPTS="-a 1 -e 1"
+RESTART_ON_UPGRADE=no
+
+### Fallback functions in case lsb-base isn't available (eg in postinst)
+log_action_begin_msg() {
+    echo -n "$1..."
+}
+
+log_action_cont_msg() {
+    echo -n "$1..."
+}
+
+log_action_end_msg() {
+    echo "$2"
+}
+
+log_daemon_msg() {
+    echo -n "$1: $2"
+}
+
+log_end_msg() {
+    if [ "x$1" = "x0" ]; then
+        echo "ok"
+    else
+        echo "failed"
+    fi
+}
+
+if [ -r /lib/lsb/init-functions ]; then
+    . /lib/lsb/init-functions
+fi
+
+FORCE_STOP=no
+
+is_running() {
+    ### XXX: this produces output for some reason
+	start-stop-daemon --stop --test --quiet --pidfile \
+		/var/run/$NAME.pid --exec $DAEMON &>/dev/null
+}
+
+do_stop() {
+    if is_running; then
+        log_action_begin_msg "Unmounting ZFS filesystems"
+        if ! zfs umount -a; then
+            log_action_end_msg 1 "possibly due to open files on mounted zfs volumes"
+            if [ "x$FORCE_STOP" = "xyes" ]; then
+                log_action_msg "Will forcibly terminate ZFS daemon"
+            else
+                return 1
+            fi
+        else
+            log_action_end_msg 0
+        fi
+        log_daemon_msg "Stopping $NAME" "zfs-fuse"
+        if start-stop-daemon --stop --quiet --pidfile \
+            /var/run/$NAME.pid --exec $DAEMON
+        then
+            ## wait for it to stop, up to 10 seconds
+            COUNTER=0
+            while is_running; do
+                sleep 1
+                COUNTER=`expr $COUNTER + 1`
+                if [ $COUNTER = 10 ]; then
+                    log_end_msg 1 "Timed out"
+                    exit 1
+                fi
+            done
+            rm -f /var/run/$NAME.pid
+
+            log_end_msg 0
+            return 0
+        else
+            log_end_msg 1
+            return 1
+        fi
+    fi
+}
+
+do_start() {
+    if is_running; then
+        log_action_msg "zfs-fuse is already running"
+        return 1
+    fi
+    if [ "x$ENABLE_ZFS" != "xyes" ]; then
+        echo "Not starting $NAME: ENABLE_ZFS is not set to 'yes' in /etc/default/$NAME" >&2
+        return 1
+    fi
+    log_daemon_msg "Starting $NAME" "zfs-fuse"
+    if start-stop-daemon --start --quiet --pidfile \
+        /var/run/$NAME.pid --exec $DAEMON -- $DAEMON_OPTS --pidfile /var/run/$NAME.pid
+    then
+        log_end_msg 0
+        log_action_begin_msg "Mounting ZFS filesystems"
+        if zfs mount -a
+        then zfs share -a; log_action_end_msg 0; return 0
+        else log_action_end_msg 1; return 1
+        fi
+    else
+        log_end_msg 1
+        return 1
+    fi
+}
+
+do_restart() {
+    if is_running; then
+        ## We don't want restart to act like stop
+        ENABLE_ZFS=yes
+    fi
+    do_stop && sleep 1 && do_start
+}
+
+upgrade_restart() {
+    if is_running && [ "x$RESTART_ON_UPGRADE" = "xno" ]; then
+        echo "Not restarting $NAME; \$RESTART_ON_UPGRADE is set to 'no'" >&2
+        echo "Administrative binaries (zfs, zpool) may not work until" >&2
+        echo "zfs-fuse is restarted." >&2
+        exit 0
+    fi
+    do_restart || {
+        echo "Proceeding with upgrade anyway. Please note that administrative binaries" >&2
+        echo "such as zfs or zpool may not work properly until the zfs-fuse daemon is" >&2
+        echo "restarted." >&2
+        exit 0
+    }
+}
+
+test -x $DAEMON || exit 0
+
+# Include zfs-fuse defaults if available
+if [ -f /etc/default/zfs-fuse ] ; then
+	. /etc/default/zfs-fuse
+fi
+
+case "$1" in
+  start)
+    do_start || exit $?
+	;;
+  stop)
+    do_stop || exit $?
+    ;;
+  force-stop)
+    FORCE_STOP=yes
+    do_stop || exit $?
+    ;;
+  reload)
+    echo "Nothing to do, exiting." >&2
+    exit 0
+    ;;
+	#
+	#	If the daemon can reload its config files on the fly
+	#	for example by sending it SIGHUP, do it here.
+	#
+	#	If the daemon responds to changes in its config file
+	#	directly anyway, make this a do-nothing entry.
+	#
+	# echo "Reloading $DESC configuration files."
+	# start-stop-daemon --stop --signal 1 --quiet --pidfile \
+	#	/var/run/$NAME.pid --exec $DAEMON
+  #;;
+  force-reload)
+	#
+	#	If the "reload" option is implemented, move the "force-reload"
+	#	option to the "reload" entry above. If not, "force-reload" is
+	#	just the same as "restart" except that it does nothing if the
+	#   daemon isn't already running.
+	# check wether $DAEMON is running. If so, restart
+
+	is_running && $0 restart || exit $?
+	;;
+  restart)
+    ## --upgrade is an undocumented flag used by the postinst
+    ## $2 may be undefined here
+    set +u
+    UPGRADE_FLAG="$2"
+    set -u
+    if [ "x$UPGRADE_FLAG" = "x--upgrade" ]; then
+        upgrade_restart || exit $?; exit $?
+    fi
+
+    do_restart || exit $?
+	;;
+  force-restart)
+    FORCE_STOP=yes
+    do_restart || exit $?
+    ;;
+  *)
+	N=/etc/init.d/$NAME
+	# echo "Usage: $N {start|stop|restart|reload|force-reload}" >&2
+	echo "Usage: $N {start|stop|force-stop|restart|force-restart|force-reload}" >&2
+	exit 1
+	;;
+esac
+
+exit 0

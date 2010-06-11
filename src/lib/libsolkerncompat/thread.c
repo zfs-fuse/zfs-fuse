@@ -31,6 +31,8 @@
 
 #include <pthread.h>
 
+extern size_t stack_size;
+
 kthread_t *
 zk_thread_create(void (*func)(), void *arg)
 {
@@ -40,6 +42,8 @@ zk_thread_create(void (*func)(), void *arg)
 	pthread_attr_init(&attr);
 
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	if (stack_size)
+	    pthread_attr_setstacksize(&attr,stack_size);
 
 	VERIFY(pthread_create(&tid, &attr, (void *(*)(void *)) func, arg) == 0);
 

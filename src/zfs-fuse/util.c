@@ -33,6 +33,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <syslog.h>
+#include <signal.h>
 
 #include "libsolkerncompat.h"
 #include "zfs_ioctl.h"
@@ -45,7 +46,11 @@
 #include "zfs_operations.h"
 #include "util.h"
 
-int ioctl_fd = -1;
+static int ioctl_fd = -1;
+static int lock_fd = -1;
+
+#define LOCKDIR "/var/lock/zfs"
+#define LOCKFILE LOCKDIR "/zfs_lock"
 
 boolean_t listener_thread_started = B_FALSE;
 pthread_t listener_thread;
@@ -56,6 +61,55 @@ char * fuse_mount_options;
 
 extern vfsops_t *zfs_vfsops;
 extern int zfs_vfsinit(int fstype, char *name);
+
+static int zfsfuse_do_locking(int in_child)
+{
+	/* Ignores errors since the directory might already exist */
+	mkdir(LOCKDIR, 0700);
+
+    if (!in_child)
+    {
+        ASSERT(lock_fd == -1);
+        /*
+         * before the fork, we create the file, truncating it, and locking the
+         * first byte
+         */
+        lock_fd = creat(LOCKFILE, S_IRUSR | S_IWUSR);
+        if(lock_fd == -1)
+            return -1;
+
+        /*
+         * only if we /could/ lock all of the file,
+         * we shall lock just the first byte; this way
+         * we can let the daemon child process lock the
+         * remainder of the file after forking
+         */
+        if (0==lockf(lock_fd, F_TEST, 0))
+            return lockf(lock_fd, F_TLOCK, 1);
+        else
+            return -1;
+    } else
+    {
+        ASSERT(lock_fd != -1);
+        /*
+         * after the fork, we instead try to lock only the region /after/ the
+         * first byte; the file /must/ already exist. Only in this way can we
+         * prevent races with locking before or after the daemonization
+         */
+        lock_fd = open(LOCKFILE, O_WRONLY|O_CLOEXEC);
+        if(lock_fd == -1)
+            return -1;
+
+        ASSERT(-1 == lockf(lock_fd, F_TEST, 0)); /* assert that parent still has the lock on the first byte */
+        if (-1 == lseek(lock_fd, 1, SEEK_SET))
+        {
+            perror("lseek");
+            return -1;
+        }
+
+        return lockf(lock_fd, F_TLOCK, 0);
+    }
+}
 
 void do_daemon(const char *pidfile)
 {
@@ -68,7 +122,74 @@ void do_daemon(const char *pidfile)
 		}
 	}
 
-	daemon(0, 0);
+    /*
+     * info gleaned from the web, notably
+     * http://www.enderunix.org/docs/eng/daemon.php
+     *
+     * and
+     *
+     * http://sourceware.org/git/?p=glibc.git;a=blob;f=misc/daemon.c;h=7597ce9996d5fde1c4ba622e7881cf6e821a12b4;hb=HEAD
+     */
+    {
+        int forkres, devnull;
+
+        if(getppid()==1)
+            return; /* already a daemon */
+
+        forkres=fork();
+        if (forkres<0)
+        { /* fork error */
+            cmn_err(CE_WARN, "Cannot fork (%s)", strerror(errno));
+            exit(1);
+        }
+        if (forkres>0)
+        {
+            int i;
+            /* parent */
+            for (i=getdtablesize();i>=0;--i)
+                if ((lock_fd!=i) && (ioctl_fd!=i))       /* except for the lockfile and the comm socket */
+                    close(i);                            /* close all descriptors */
+
+            /* allow for airtight lockfile semantics... */
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 200000;  /* 0.2 seconds */
+            select(0, NULL, NULL, NULL, &tv);
+
+            VERIFY(0 == close(lock_fd));
+            lock_fd == -1;
+            exit(0);
+        }
+
+        /* child (daemon) continues */
+        setsid();                         /* obtain a new process group */
+        VERIFY(0 == chdir("/"));          /* change working directory */
+        umask(027);                       /* set newly created file permissions */
+        devnull=open("/dev/null",O_RDWR); /* handle standard I/O */
+        ASSERT(-1 != devnull);
+        dup2(devnull, 0); /* stdin  */
+        dup2(devnull, 1); /* stdout */
+        dup2(devnull, 2); /* stderr */
+        if (devnull>2)
+            close(devnull);
+
+        /*
+         * contrary to recommendation, do _not_ ignore SIGCHLD:
+         * it will break exec-ing subprocesses, e.g. for kstat mount and
+         * (presumably) nfs sharing!
+         *
+         * this will lead to really bad performance too
+         */
+        signal(SIGTSTP,SIG_IGN);     /* ignore tty signals */
+        signal(SIGTTOU,SIG_IGN);
+        signal(SIGTTIN,SIG_IGN);
+    }
+
+    if (0 != zfsfuse_do_locking(1))
+    {
+        cmn_err(CE_WARN, "Unexpected locking conflict (%s: %s)", strerror(errno), LOCKFILE);
+        exit(1);
+    }
 
 	if (pidfile) {
 		FILE *f = fopen(pidfile, "w");
@@ -87,6 +208,21 @@ void do_daemon(const char *pidfile)
 	}
 }
 
+extern size_t stack_size;
+
+int do_init_fusesocket()
+{
+	if(zfsfuse_do_locking(0) != 0) {
+		cmn_err(CE_WARN, "Error locking " LOCKFILE ". Make sure there isn't another zfs-fuse process running and that you have appropriate permissions.");
+		return -1;
+	}
+
+	ioctl_fd = zfsfuse_socket_create();
+	if(ioctl_fd == -1)
+		return -1;
+    return 0;
+}
+
 int do_init()
 {
 	libsolkerncompat_init();
@@ -95,11 +231,15 @@ int do_init()
 
 	VERIFY(zfs_ioctl_init() == 0);
 
-	ioctl_fd = zfsfuse_socket_create();
-	if(ioctl_fd == -1)
-		return -1;
+    VERIFY(ioctl_fd != -1); // initialization moved to do_init_fusesocket
 
-	if(pthread_create(&listener_thread, NULL, listener_loop, (void *) &ioctl_fd) != 0) {
+    VERIFY(cmd_listener_init() == 0);
+
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	if (stack_size)
+	    pthread_attr_setstacksize(&attr,stack_size);
+	if(pthread_create(&listener_thread, &attr, listener_loop, (void *) &ioctl_fd) != 0) {
 		cmn_err(CE_WARN, "Error creating listener thread.");
 		return -1;
 	}
@@ -117,6 +257,7 @@ void do_exit()
 			cmn_err(CE_WARN, "Error in pthread_join().");
 	}
 
+    cmd_listener_fini();
 	zfsfuse_listener_exit();
 
 	if(ioctl_fd != -1)
@@ -140,7 +281,6 @@ uint32_t mounted = 0;
 int do_mount(char *spec, char *dir, int mflag, char *opt)
 {
 	VERIFY(mflag == 0);
-	VERIFY(opt[0] == '\0');
 
 	vfs_t *vfs = kmem_zalloc(sizeof(vfs_t), KM_SLEEP);
 	if(vfs == NULL)
@@ -149,13 +289,30 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	VFS_INIT(vfs, zfs_vfsops, 0);
 	VFS_HOLD(vfs);
 
-	struct mounta uap = {spec, dir, mflag | MS_SYSSPACE, NULL, opt, strlen(opt)};
+	struct mounta uap = {
+	.spec = spec,
+	.dir = dir,
+	.flags = mflag | MS_SYSSPACE,
+	.fstype = "zfs-fuse",
+	.dataptr = "",
+	.datalen = 0,
+	.optptr = opt,
+	.optlen = strlen(opt)
+	};
 
 	int ret;
 	if ((ret = VFS_MOUNT(vfs, rootdir, &uap, kcred)) != 0) {
 		kmem_free(vfs, sizeof(vfs_t));
 		return ret;
 	}
+	/* Actually, optptr is totally ignored by VFS_MOUNT.
+	 * So we are going to pass this with fuse_mount_options if possible */
+	char real_opts[1024];
+	*real_opts = 0;
+	if (*fuse_mount_options)
+		strcat(real_opts,fuse_mount_options); // comes with a starting ,
+	if (*opt)
+		sprintf(&real_opts[strlen(real_opts)],",%s",opt);
 
 #ifdef DEBUG
 	atomic_inc_32(&mounted);;
@@ -165,22 +322,16 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	char *fuse_opts;
 	if (fuse_version() <= 27) {
-	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec, fuse_mount_options) == -1) {
+	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec, real_opts) == -1) {
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return ENOMEM;
 	}
 	} else {
-	  syslog(LOG_NOTICE,"enabling fuse big_writes");
-	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec, fuse_mount_options) == -1) {
+	  if(asprintf(&fuse_opts, FUSE_OPTIONS ",big_writes", spec, real_opts) == -1) {
 	    VERIFY(do_umount(vfs, B_FALSE) == 0);
 	    return ENOMEM;
 	  }
 	}
-	
-	char *syslogbuf;
-	asprintf(&syslogbuf,"mount options: %s",fuse_opts);
-	syslog(LOG_NOTICE,syslogbuf);
-	free(syslogbuf);
 	
 	struct fuse_args args = FUSE_ARGS_INIT(0, NULL);
 
@@ -200,6 +351,9 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return EIO;
 	}
+
+	if (strstr(fuse_opts,"default_permissions"))
+	    vfs->fuse_attribute = FUSE_VFS_HAS_DEFAULT_PERM;
 
 	struct fuse_session *se = fuse_lowlevel_new(&args, &zfs_operations, sizeof(zfs_operations), vfs);
 	fuse_opt_free_args(&args);

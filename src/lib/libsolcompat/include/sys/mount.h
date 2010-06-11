@@ -68,7 +68,13 @@ static inline int _sol_mount(const char *spec, const char *dir, int mflag, char 
 
 	fprintf(stderr, "spec: \"%s\", dir: \"%s\", mflag: %i, optptr: \"%s\"\n", newspec, dir, mflag, optptr);
 
-	int ret = mount(newspec, dir, "fuse", mflag, "defaults");
+	int ret = 0;
+#ifdef __APPLE__
+	printf("wrong function\n");
+	abort();
+#else
+	ret = mount(newspec, dir, "fuse", mflag, "defaults");
+#endif
 
 	free(newspec);
 
