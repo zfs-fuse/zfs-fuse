@@ -1,86 +1,32 @@
 #!/usr/bin/make -f
 
-# Uncomment this to turn on verbose mode.
-#export DH_VERBOSE=1
-
 ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
 	OPTIM = -O0
 else
 	OPTIM = -O2
 endif
 
-build: build-stamp
-
-build-stamp:
-	dh_testdir
-
-	# Add here commands to compile the package.
+override_dh_auto_build:
 	scons -C src debug=1 optim=$(OPTIM)
 	xsltproc --nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl debian/zfs-fuse.man.xml
 
-	touch $@
-
-clean:
-	dh_testdir
-	dh_testroot
-	rm -f build-stamp configure-stamp
-
-	# Add here commands to clean up after the build process.
+override_dh_auto_clean:
 	scons -c -C src
 	rm -f zfs-fuse.8
 
-	dh_clean 
-
-install: build
-	dh_testdir
-	dh_testroot
-	dh_clean -k 
-	dh_installdirs
-
-	# Add here commands to install the package into debian/zfs-fuse.
+override_dh_auto_install:
 	scons -C src debug=1 DESTDIR=$(CURDIR)/debian/zfs-fuse install_dir=/sbin man_dir=/usr/share/man/man8 install
 	install -m 644 contrib/zfsrc $(CURDIR)/debian/zfs-fuse/etc/zfs
 	install -m 644 -T contrib/zfs_completion.bash $(CURDIR)/debian/zfs-fuse/etc/bash_completion.d/zfs-fuse
 
-# Build architecture-independent files here.
-binary-indep: build install
-# We have nothing to do by default.
-
-# Build architecture-dependent files here.
-binary-arch: build install
-	dh_testdir
-	dh_testroot
+override_dh_installchangelogs:
 	dh_installchangelogs CHANGES
-	dh_installdocs
-	dh_installexamples
-#	dh_install
-#	dh_installmenu
-#	dh_installdebconf	
-#	dh_installlogrotate
-#	dh_installemacsen
-#	dh_installpam
-#	dh_installmime
-#	dh_python
-#
-#	### We use --no-start here as we need to be sure not to shut down a fs
-#	### while it's in use - therefore, we implement our own restart logic.
-#	###
-#	### Start after mountall, stop before umountfs
-	dh_installinit --no-start -- start 38 S . stop 39 0 6 .
-#	dh_installcron
-#	dh_installinfo
-	dh_installman zfs-fuse.8
-	dh_link
-	dh_strip
-	dh_compress
-	dh_fixperms
-#	dh_perl
-#	dh_makeshlibs
-	dh_installdeb
-	dh_shlibdeps
-	dh_gencontrol
-	dh_md5sums
-	dh_builddeb
 
-binary: binary-indep binary-arch
-.PHONY: build clean binary-indep binary-arch binary install
+override_dh_installinit:
+	dh_installinit --no-start -- start 38 S . stop 39 0 6 .
+
+override_dh_installman:
+	dh_installman zfs-fuse.8
+
+%:
+	dh $@
