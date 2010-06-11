@@ -30,7 +30,7 @@ and docbook-xsl in your Build-Depends control field.
   <!ENTITY dhfirstname "<firstname>Bryan</firstname>">
   <!ENTITY dhsurname   "<surname>Donlan</surname>">
   <!-- Please adjust the date whenever revising the manpage. -->
-  <!ENTITY dhdate      "<date>2007-04-29</date>">
+  <!ENTITY dhdate      "<date>2010-06-09</date>">
   <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
        allowed: see man(7), man(1). -->
   <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
@@ -50,7 +50,7 @@ and docbook-xsl in your Build-Depends control field.
       &dhemail;
     </address>
     <copyright>
-      <year>2007</year>
+      <year>2010</year>
       <holder>&dhusername;</holder>
     </copyright>
     &dhdate;
@@ -71,6 +71,20 @@ and docbook-xsl in your Build-Depends control field.
 
       <arg><option>--pidfile <replaceable>path</replaceable></option></arg>
       <arg><option>--no-daemon</option></arg>
+
+      <arg><option>--pidfile <replaceable>FILE</replaceable></option></arg>
+      <arg><option>--no-daemon</option></arg>
+      <arg><option>--no-kstat-mount</option></arg>
+      <arg><option>--disable-block-cache</option></arg>
+      <arg><option>--disable-page-cache</option></arg>
+      <arg><option>--fuse-attr-timeout <replaceable>SECONDS</replaceable></option></arg>
+      <arg><option>--fuse-entry-timeout <replaceable>SECONDS</replaceable></option></arg>
+      <arg><option>--log-uberblocks</option></arg>
+      <arg><option>--max-arc-size <replaceable>MB</replaceable></option></arg>
+      <arg><option>--fuse-mount-options <replaceable>OPT,OPT,OPT...</replaceable></option></arg>
+      <arg><option>--min-uberblock-txg <replaceable>MIN</replaceable></option></arg>
+      <arg><option>--stack-size=<replaceable>size</replaceable></option></arg>
+      <arg><option>--help</option></arg>
     </cmdsynopsis>
   </refsynopsisdiv>
   <refsect1>
@@ -113,17 +127,170 @@ and docbook-xsl in your Build-Depends control field.
         </listitem>
       </varlistentry>
       <varlistentry>
-        <term><option>--no-daemon</option></term>
-        <listitem>
-          <para>Stay in foreground, don't daemonize.</para>
-        </listitem>
+          <term>
+              <option>-n</option>
+              <option>--no-daemon</option>
+          </term>
+          <listitem>
+              <para>Stay in foreground, don't daemonize.</para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--no-kstat-mount</option>
+          </term>
+          <listitem>
+              <para>
+                  Do not mount kstats in /zfs-kstat
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--disable-block-cache</option>
+          </term>
+          <listitem>
+              <para>
+                  Enable direct I/O for disk operations. Completely
+                  disables caching reads and writes in the kernel
+                  block cache.  Breaks mmap() in ZFS datasets too.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--disable-page-cache</option>
+          </term>
+          <listitem>
+              <para>
+                  Disable the page cache for files residing within
+                  ZFS filesystems.  Not recommended as it slows down
+                  I/O operations considerably.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-a <replaceable>SECONDS</replaceable></option>
+              <option>--fuse-attr-timeout <replaceable>SECONDS</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Sets timeout for caching FUSE attributes in kernel.
+                  Defaults to 0.0.
+                  Higher values give a 40% performance boost.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-e <replaceable>SECONDS</replaceable></option>
+              <option>--fuse-entry-timeout <replaceable>SECONDS</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Sets timeout for caching FUSE entries in kernel.
+                  Defaults to 0.0.
+                  Higher values give a 10000% performance boost
+                  but cause file permission checking security issues.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--log-uberblocks</option>
+          </term>
+          <listitem>
+              <para>
+                  Logs uberblocks of any mounted filesystem to syslog
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-m <replaceable>MB</replaceable></option>
+              <option>--max-arc-size <replaceable>MB</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Forces the maximum ARC size (in megabytes).
+                  Range: 16 to 16384.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-o <replaceable>OPT...</replaceable></option>
+              <option>--fuse-mount-options <replaceable>OPT,OPT,OPT...</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Sets FUSE mount options for all filesystems.
+                  Format: comma-separated string of characters.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-u <replaceable>MIN</replaceable></option>
+              <option>--min-uberblock-txg <replaceable>MIN</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Skips uberblocks with a TXG &lt; <replaceable>MIN</replaceable> when mounting any fs
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-v <replaceable>MB</replaceable></option>
+              <option>--vdev-cache-size <replaceable>MB</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  adjust the size of the vdev cache. Default : 10
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--zfs-prefetch-disable</option>
+          </term>
+          <listitem>
+              <para>
+                  Disable the high level prefetch cache in zfs.
+                  This thing can eat up to 150 Mb of ram, maybe more
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--stack-size=<replaceable>size</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Limit the stack <replaceable>size</replaceable> of threads (in kb).
+                  default : no limit (8 Mb for linux)
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-h</option>
+              <option>--help</option>
+          </term>
+          <listitem>
+              <para>
+                  Show this usage summary.
+              </para>
+          </listitem>
       </varlistentry>
     </variablelist>
   </refsect1>
   <refsect1>
     <title>SEE ALSO</title>
 
-    <para>zfs (1), zpool (1).</para>
+    <para>zfs (8), zpool (8), zdb(8), zstreamdump(8), /etc/zfs/zfsrc</para>
 
   </refsect1>
   <refsect1>
@@ -136,6 +303,7 @@ and docbook-xsl in your Build-Depends control field.
       later version published by the Free Software Foundation,
       or the Common Development and Distribution License.
     </para>
+    <para>Revised by Seth Heeren <email>zfs-fuse@sehe.nl</email></para>
 	<para>
 	  On Debian systems, the complete text of the GNU General Public
           License can be found in /usr/share/common-licenses/GPL. The text of
