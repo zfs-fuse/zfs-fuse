@@ -19,7 +19,7 @@ DAEMON=/usr/sbin/zfs-fuse
 NAME=zfs-fuse
 DESC=zfs-fuse
 ENABLE_ZFS=yes
-DAEMON_OPTS=""
+DAEMON_OPTS="-a 1 -e 1"
 RESTART_ON_UPGRADE=no
 
 ### Fallback functions in case lsb-base isn't available (eg in postinst)
