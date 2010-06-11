@@ -2,4 +2,4 @@
 version=3
 
 http://zfs-fuse.net/releases/(\d.+)/ \
-	.*zfs-fuse-(\d.+)\.tar\.bz2 uupdate
+	.*zfs-fuse-(\d.+)\.tar\.bz2
