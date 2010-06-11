@@ -71,7 +71,7 @@ binary-arch: build install
 	dh_installinit --no-start -- start 38 S . stop 39 0 6 .
 #	dh_installcron
 #	dh_installinfo
-	dh_installman debian/man/* zfs-fuse.8
+	dh_installman zfs-fuse.8
 	dh_link
 	dh_strip
 	dh_compress
