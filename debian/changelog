@@ -1,3 +1,9 @@
+zfs-fuse (0.6.9-1) UNRELEASED; urgency=low
+
+  * New upstream release.
+
+ -- Mike Hommey <glandium@debian.org>  Fri, 11 Jun 2010 13:37:13 +0200
+
 zfs-fuse (0.6.0+critical20100301-5) unstable; urgency=low
 
   * Silence the init script a bit in case zfs-fuse was disabled
