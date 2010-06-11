@@ -2,7 +2,7 @@ This package was debianized by Bryan Donlan <bdonlan@gmail.com> on
 Tue, 17 Apr 2007 16:24:53 -0400. It was later modified by Filip Brcic
 <brcha@gna.org> and Sébastien Delafond <seb@debian.org>.
 
-It was downloaded from http://rudd-o.com/new-projects/zfs/releases.
+It was downloaded from http://zfs-fuse.net/
 
 Upstream Authors:
   <rudd-o@rudd-o.com>
