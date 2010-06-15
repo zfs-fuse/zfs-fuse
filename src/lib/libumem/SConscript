@@ -3,3 +3,5 @@ Import('env')
 Command("Makefile", [], ["cd lib/libumem && ./configure"])
 Command("libumem.a", [Glob('*.c'),'Makefile',Glob('*.h')], ["cd lib/libumem && make && rm -f libumem.a && ln -s .libs/libumem.a"])
 
+if os.path.isfile("Makefile") and env.GetOption('clean'):
+	Execute(Action(["make -C %s distclean" % (os.path.join(env.Dir("#").abspath, 'lib/libumem'))]))
