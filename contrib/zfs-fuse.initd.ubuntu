@@ -1,8 +1,8 @@
 #! /bin/bash
 ### BEGIN INIT INFO
 # Provides:          zfs-fuse
-# Required-Start:    fuse
-# Required-Stop:     fuse
+# Required-Start:    fuse $remote_fs
+# Required-Stop:     fuse $remote_fs
 # Default-Start:     S
 # Default-Stop:      0 6
 # Short-Description: Daemon for ZFS support via FUSE
@@ -20,7 +20,8 @@ NAME=zfs-fuse
 DESC=zfs-fuse
 # also overriden from /etc/default/zfs-fuse:
 ENABLE_ZFS=yes
-DAEMON_OPTS="-a 1 -e 1"
+DAEMON_OPTS="" # deprecated, please refer to /etc/zfs/zfsrc for your tuning
+               # needs
 RESTART_ON_UPGRADE=no
 
 ### Fallback functions in case lsb-base isn't available (eg in postinst)
@@ -77,12 +78,15 @@ do_stop() {
         if start-stop-daemon --stop --quiet --pidfile \
             /var/run/$NAME.pid --exec $DAEMON
         then
-            ## wait for it to stop, up to 10 seconds
+            ## wait for it to stop, up to 12 seconds
+            ## 10 seconds is the wait time for worker threads to complete their
+            ## work before the daemon forcibly terminates them and completes
+            ## shutdown 
             COUNTER=0
             while is_running; do
                 sleep 1
-                COUNTER=`expr $COUNTER + 1`
-                if [ $COUNTER = 10 ]; then
+                COUNTER=$(($COUNTER + 1))
+                if [ $COUNTER -ge 12 ]; then
                     log_end_msg 1 "Timed out"
                     exit 1
                 fi
@@ -104,14 +108,28 @@ do_start() {
         return 1
     fi
     if [ "x$ENABLE_ZFS" != "xyes" ]; then
-        echo "Not starting $NAME: ENABLE_ZFS is not set to 'yes' in /etc/default/$NAME" >&2
+        log_action_msg "Disabled by /etc/default/$NAME" >&2
         return 1
     fi
     log_daemon_msg "Starting $NAME" "zfs-fuse"
+    ulimit -v unlimited
+    ulimit -c 512000
+    ulimit -l unlimited
+    ulimit -s unlimited
+    unset LANG
     if start-stop-daemon --start --quiet --pidfile \
         /var/run/$NAME.pid --exec $DAEMON -- $DAEMON_OPTS --pidfile /var/run/$NAME.pid
     then
         log_end_msg 0
+        log_action_begin_msg "Immunizing $NAME against OOM kills and sendsigs signals"
+        echo -17 > /proc/$(cat /var/run/$NAME.pid)/oom_adj
+        ES_TO_REPORT=$?
+        if [ "$ES_TO_REPORT" = 0 ] ; then
+          log_action_end_msg 0
+        else
+          log_action_end_msg 1 "code $ES_TO_REPORT"
+          exit 3
+        fi
         log_action_begin_msg "Mounting ZFS filesystems"
         if zfs mount -a
         then zfs share -a; log_action_end_msg 0; return 0
