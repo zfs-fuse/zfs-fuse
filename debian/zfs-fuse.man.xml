@@ -69,10 +69,7 @@ and docbook-xsl in your Build-Depends control field.
     <cmdsynopsis>
       <command>&dhpackage;</command>
 
-      <arg><option>--pidfile <replaceable>path</replaceable></option></arg>
-      <arg><option>--no-daemon</option></arg>
-
-      <arg><option>--pidfile <replaceable>FILE</replaceable></option></arg>
+      <arg><option>--pidfile <replaceable>filename</replaceable></option></arg>
       <arg><option>--no-daemon</option></arg>
       <arg><option>--no-kstat-mount</option></arg>
       <arg><option>--disable-block-cache</option></arg>
@@ -286,6 +283,27 @@ and docbook-xsl in your Build-Depends control field.
           </listitem>
       </varlistentry>
     </variablelist>
+  </refsect1>
+  <refsect1>
+    <title>REMARKS ON PRECEDENCE</title>
+
+    <para>Note that the parameters passed on the command line take precedence
+        over those supplied through /etc/zfs/zfsrc.</para>
+
+  </refsect1>
+  <refsect1>
+      <title>BUGS/CAVEATS</title>
+
+    <para>The path to the configuration file (/etc/zfs/zfsrc) cannot at this
+        time be configured.</para>
+    <para>Most existing packages suggest settings can be set at the top of
+        their init script. These get frequently overridden by a (distribution
+        specific) /etc/default/zfs-fuse file, if it exists. Be sure to look at
+        these places if you want your changes to options to take effect.</para>
+    <para>The /etc/zfs/zfsrc is going to be the recommended approach in the
+        future. So, packagers, please refrain from passing commandline
+        parameters within the initscript (except for --pid-file).</para>
+
   </refsect1>
   <refsect1>
     <title>SEE ALSO</title>
