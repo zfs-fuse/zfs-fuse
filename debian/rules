@@ -15,7 +15,7 @@ override_dh_auto_clean:
 	rm -f zfs-fuse.8
 
 override_dh_auto_install:
-	scons -C src debug=1 DESTDIR=$(CURDIR)/debian/zfs-fuse install_dir=/sbin man_dir=/usr/share/man/man8 install
+	scons $(SCONSFLAGS) DESTDIR=$(CURDIR)/debian/zfs-fuse install_dir=/sbin man_dir=/usr/share/man/man8 install
 	install -m 644 contrib/zfsrc $(CURDIR)/debian/zfs-fuse/etc/zfs
 	install -m 644 -T contrib/zfs_completion.bash $(CURDIR)/debian/zfs-fuse/etc/bash_completion.d/zfs-fuse
 

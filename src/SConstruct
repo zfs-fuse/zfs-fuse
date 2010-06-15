@@ -5,18 +5,21 @@ import os, sys, re
 #   install_dir=/usr/local/sbin - directory where the install target copies the binaries
 #   debug=1 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
 
-destdir = ARGUMENTS.get('DESTDIR', '/')
+DESTDIR = ARGUMENTS.get('DESTDIR')
 
 def arg_get(name, default):
-	global destdir
+	global DESTDIR
 	arg = ARGUMENTS.get(name, default)
-	if os.path.isabs(arg):
-		arg = '.' + arg
-	return os.path.join(destdir, arg)
+	if DESTDIR:
+		if os.path.isabs(arg):
+			arg = '.' + arg
+		return os.path.join(DESTDIR, arg)
+	else:
+		return arg
 
 install_dir = arg_get('install_dir', '/usr/local/sbin')
-man_dir = arg_get('man_dir', '/usr/local/share/man/man8/')
-cfg_dir = arg_get('cfg_dir', '/etc/zfs')
+man_dir     = arg_get('man_dir',     '/usr/local/share/man/man8/')
+cfg_dir     = arg_get('cfg_dir',     '/etc/zfs')
 
 env = Environment()
 
