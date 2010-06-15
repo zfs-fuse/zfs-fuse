@@ -1,3 +1,4 @@
+# vim: noexpandtab ft=python
 import os, sys, re
 
 # Accepted parameters (and defaults):
@@ -40,17 +41,23 @@ debug = int(ARGUMENTS.get('debug', '0'))
 
 if not debug:
 	env.Append(LINKFLAGS = ['-s'])
-	env.Append(CCFLAGS = Split('-s -O2 -DNDEBUG'))
+	env.Append(CCFLAGS = Split(" ".join(["-s -DNDEBUG", optim])));
 else:
 	env.Append(LINKFLAGS = ['-ggdb'])
 	env.Append(CCFLAGS = ['-ggdb'])
 # Be careful here, one of DEBUG or NDEBUG must be defined, if you undef both, you'll get unexpected results
 	if debug == 1:
-		env.Append(CCFLAGS = Split('-O2 -DDEBUG'))
+		env.Append(CCFLAGS = Split(" ".join(["-DDEBUG", optim])));
 	elif debug == 2:
 		env.Append(CCFLAGS = ['-DDEBUG'])
 	elif debug == 3:
 		env.Append(CCFLAGS = Split('-finstrument-functions -DDEBUG'))
+
+if not (('-DDEBUG' in env['CCFLAGS']) or 
+		('-DNDEBUG' in env['CCFLAGS'])):
+	print
+	print "Misconfigured debug level: Neither DEBUG or NDEBUG appears to have been defined: %s" % env['CCFLAGS']
+	sys.exit(1)
 
 env['CPPPATH'] = []
 

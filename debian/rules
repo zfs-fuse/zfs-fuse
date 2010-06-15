@@ -33,8 +33,7 @@ clean:
 
 	# Add here commands to clean up after the build process.
 	scons -c -C src
-	rm -f zfs-fuse.8
-	rm -f src/lib/libsolkerncompat/generic
+	rm -f zfs-fuse.8 src/.sconsign.dblite src/path.pyc
 
 override_dh_auto_install:
 	scons $(SCONSFLAGS) DESTDIR=$(CURDIR)/debian/zfs-fuse install_dir=/sbin man_dir=/usr/share/man/man8 install
