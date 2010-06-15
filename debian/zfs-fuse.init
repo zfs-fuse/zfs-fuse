@@ -1,8 +1,8 @@
 #! /bin/bash
 ### BEGIN INIT INFO
 # Provides:          zfs-fuse
-# Required-Start:    fuse
-# Required-Stop:     fuse
+# Required-Start:    fuse $remote_fs
+# Required-Stop:     fuse $remote_fs
 # Default-Start:     S
 # Default-Stop:      0 6
 # Short-Description: Daemon for ZFS support via FUSE
@@ -14,8 +14,8 @@
 set -u # Error on uninitialized variabled
 set -e # Error on uncaught non-zero exit codes
 
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
-DAEMON=/usr/sbin/zfs-fuse
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+DAEMON=/sbin/zfs-fuse
 NAME=zfs-fuse
 DESC=zfs-fuse
 # also overriden from /etc/default/zfs-fuse:
@@ -104,15 +104,31 @@ do_start() {
         return 1
     fi
     if [ "x$ENABLE_ZFS" != "xyes" ]; then
-        echo "Not starting $NAME: ENABLE_ZFS is not set to 'yes' in /etc/default/$NAME" >&2
+        log_action_msg "Disabled by /etc/default/$NAME" >&2
         return 1
     fi
     log_daemon_msg "Starting $NAME" "zfs-fuse"
+    ulimit -v unlimited
+    ulimit -c 512000
+    ulimit -l unlimited
+    ulimit -s unlimited
+    unset LANG
     if start-stop-daemon --start --quiet --pidfile \
         /var/run/$NAME.pid --exec $DAEMON -- $DAEMON_OPTS --pidfile /var/run/$NAME.pid
     then
         log_end_msg 0
+        log_action_begin_msg "Immunizing $NAME against OOM kills and sendsigs signals"
+        echo -17 > /proc/$(cat /var/run/$NAME.pid)/oom_adj
+        ES_TO_REPORT=$?
+        if [ "$ES_TO_REPORT" = 0 ] ; then
+          log_action_end_msg 0
+        else
+          log_action_end_msg 1 "code $ES_TO_REPORT"
+          exit 3
+        fi
         log_action_begin_msg "Mounting ZFS filesystems"
+        sleep 2 # allow zfs-fuse time to start up
+	zpool import -a -f
         if zfs mount -a
         then zfs share -a; log_action_end_msg 0; return 0
         else log_action_end_msg 1; return 1

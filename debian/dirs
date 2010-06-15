@@ -1,2 +1,3 @@
+etc/bash_completion.d
 var/lib/zfs
 usr/share/man/man8

@@ -2,7 +2,7 @@ zfs-fuse for Debian
 -------------------
 
 ZFS uses a very different configuration system than traditional filesystems
-in Debian. The full details may be found in zfs(1) and zpool(1); you can get
+in Debian. The full details may be found in zfs(8) and zpool(8); you can get
 started quickly with:
   
   # zpool create zfs hdx4
@@ -22,5 +22,4 @@ recommended for production data or on production systems.
 
 [1] - http://zfs-fuse.net/
 
- -- Bryan Donlan <bdonlan@gmail.com>  Tue, 17 Apr 2007 16:24:53 -0400
- -- Seth Heeren <zfs-fuse@sehe.nl>  Wed, 09 Jun 2010
+ -- Mike Hommey <glandium@debian.org>  Fri, 11 Jun 2010 16:20:42 +0200

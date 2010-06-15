@@ -290,7 +290,7 @@ and docbook-xsl in your Build-Depends control field.
   <refsect1>
     <title>SEE ALSO</title>
 
-    <para>zfs (1), zpool (1), zdb(1), zstreamdump(1), /etc/zfs/zfsrc</para>
+    <para>zfs (8), zpool (8), zdb(8), zstreamdump(8), /etc/zfs/zfsrc</para>
 
   </refsect1>
   <refsect1>

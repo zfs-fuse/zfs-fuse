@@ -5,9 +5,18 @@ import os, sys, re
 #   install_dir=/usr/local/sbin - directory where the install target copies the binaries
 #   debug=1 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
 
-install_dir = ARGUMENTS.get('install_dir', '/usr/local/sbin')
-man_dir = ARGUMENTS.get('man_dir', '/usr/local/share/man/man8/')
-cfg_dir = ARGUMENTS.get('cfg_dir', '/etc/zfs')
+destdir = ARGUMENTS.get('DESTDIR', '/')
+
+def arg_get(name, default):
+	global destdir
+	arg = ARGUMENTS.get(name, default)
+	if os.path.isabs(arg):
+		arg = '.' + arg
+	return os.path.join(destdir, arg)
+
+install_dir = arg_get('install_dir', '/usr/local/sbin')
+man_dir = arg_get('man_dir', '/usr/local/share/man/man8/')
+cfg_dir = arg_get('cfg_dir', '/etc/zfs')
 
 env = Environment()
 
@@ -24,16 +33,17 @@ if osname == "Linux":
   env.Append(CPPFLAGS = " -DLINUX_AIO")
 
 debug = int(ARGUMENTS.get('debug', '0'))
+optim = ARGUMENTS.get('optim', '-O2')
 
 if not debug:
 	env.Append(LINKFLAGS = ['-s'])
-	env.Append(CCFLAGS = Split('-s -O2 -DNDEBUG'))
+	env.Append(CCFLAGS = ['-s', optim, '-DNDEBUG'])
 else:
 	env.Append(LINKFLAGS = ['-ggdb'])
 	env.Append(CCFLAGS = ['-ggdb'])
 # Be careful here, one of DEBUG or NDEBUG must be defined, if you undef both, you'll get unexpected results
 	if debug == 1:
-		env.Append(CCFLAGS = Split('-O2 -DDEBUG'))
+		env.Append(CCFLAGS = [optim, '-DDEBUG'])
 	elif debug == 2:
 		env.Append(CCFLAGS = ['-DDEBUG'])
 	elif debug == 3:
@@ -111,3 +121,5 @@ if "tags" in sys.argv:
     os.system("ctags --extra=+f `find -name '*.c'` `find -name '*.h'`")
 
 env.Alias('install', [install_dir, man_dir, cfg_dir])
+
+Clean('clean', ['.sconsign.dblite', 'path.pyc'])
