@@ -14,8 +14,8 @@
 set -u # Error on uninitialized variabled
 set -e # Error on uncaught non-zero exit codes
 
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
-DAEMON=/usr/sbin/zfs-fuse
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+DAEMON=/sbin/zfs-fuse
 NAME=zfs-fuse
 DESC=zfs-fuse
 # also overriden from /etc/default/zfs-fuse:
@@ -78,12 +78,15 @@ do_stop() {
         if start-stop-daemon --stop --quiet --pidfile \
             /var/run/$NAME.pid --exec $DAEMON
         then
-            ## wait for it to stop, up to 10 seconds
+            ## wait for it to stop, up to 12 seconds
+            ## 10 seconds is the wait time for worker threads to complete their
+            ## work before the daemon forcibly terminates them and completes
+            ## shutdown 
             COUNTER=0
             while is_running; do
                 sleep 1
-                COUNTER=`expr $COUNTER + 1`
-                if [ $COUNTER = 10 ]; then
+                COUNTER=$(($COUNTER + 1))
+                if [ $COUNTER -ge 12 ]; then
                     log_end_msg 1 "Timed out"
                     exit 1
                 fi
