@@ -353,7 +353,8 @@ static void read_cfg() {
 		char buf[1024];
 		int argc;
 		char *argv[10];
-		fgets(buf,1024,f);
+		if (!fgets(buf,1024,f)) 
+			continue;
 		int l = strlen(buf)-1;
 		while (l >= 0 && buf[l] < 32)
 			buf[l--] = 0; // remove trailing cr (or any code < ' ')
