@@ -898,7 +898,8 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	fi->fh = (uint64_t) (uintptr_t) info;
 	/* by setting these as int directly, we save one CMP operation per file open. */
 	/* but, honestly, we mostly get readability of the code */
-	fi->keep_cache = page_cache;
+	// fi->keep_cache = page_cache; // UNSAFE in relation to e.g. rollback, promote, receive(?) page_cache;
+	fi->keep_cache = 0;
 	fi->direct_io = block_cache ? 0 : 1;
 
 	if(flags & FCREAT) {
