@@ -57,7 +57,7 @@ pthread_t listener_thread;
 
 int num_filesystems;
 
-char * fuse_mount_options;
+char * fuse_mount_options = NULL;
 
 extern vfsops_t *zfs_vfsops;
 extern int zfs_vfsinit(int fstype, char *name);
@@ -307,6 +307,8 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	}
 	/* Actually, optptr is totally ignored by VFS_MOUNT.
 	 * So we are going to pass this with fuse_mount_options if possible */
+    if (fuse_mount_options == NULL)
+        fuse_mount_options = "";
 	char real_opts[1024];
 	*real_opts = 0;
 	if (*fuse_mount_options)

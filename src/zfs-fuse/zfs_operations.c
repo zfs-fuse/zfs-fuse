@@ -57,7 +57,7 @@
 #endif
 
  /* the command-line options */
-int block_cache, page_cache;
+int block_cache;
 float fuse_attr_timeout, fuse_entry_timeout;
 
 static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
@@ -896,9 +896,6 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	info->flags = flags;
 
 	fi->fh = (uint64_t) (uintptr_t) info;
-	/* by setting these as int directly, we save one CMP operation per file open. */
-	/* but, honestly, we mostly get readability of the code */
-	// fi->keep_cache = page_cache; // UNSAFE in relation to e.g. rollback, promote, receive(?) page_cache;
 	fi->keep_cache = 0;
 	fi->direct_io = block_cache ? 0 : 1;
 

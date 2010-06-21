@@ -103,7 +103,7 @@ static struct option longopts[] = {
 	  &cf_disable_block_cache,
 	  1
 	},
-	{ "disable-page-cache",
+	{ "disable-page-cache", // obsolete (broken)
 	  0,
 	  &cf_disable_page_cache,
 	  1
@@ -237,33 +237,50 @@ static void parse_args(int argc, char *argv[])
 				print_usage(argc, argv);
 				exit(64);
 			case 'p':
-				if (cf_pidfile != NULL) {
+				if (cf_pidfile != NULL)
+					syslog(LOG_WARNING,"%s: duplicate pid-file setting, prior setting '%s' ignored", progname, cf_pidfile);
+
+				cf_pidfile = optarg;
+
+				if (cf_pidfile == NULL) {
 					fprintf(stderr, "%s: you need to specify a file name\n\n", progname);
 					print_usage(argc, argv);
 					exit(64);
 				}
-				cf_pidfile = optarg;
 				break;
 			case 'n':
 				cf_daemonize = 0;
 				break;
 			case 'o':
-				if (cf_fuse_mount_options != NULL) {
+				if (fuse_mount_options != NULL)
+					syslog(LOG_WARNING,"%s: multiple fuse-mount-options parameters, appending to prior setting '%s'", progname, fuse_mount_options);
+
+				if (optarg == NULL) {
 					fprintf(stderr, "%s: you need to specify mount options\n\n", progname);
 					print_usage(argc, argv);
 					exit(64);
 				}
-				cf_fuse_mount_options = optarg;
-				if (strcmp(cf_fuse_mount_options,"") == 0) {
+				if (strcmp(optarg,"") == 0) {
 					fprintf(stderr, "%s: empty mount options are not valid\n\n", progname);
 					print_usage(argc, argv);
 					exit(64);
 				}
-				 /* bug here, asprintf result not checked for malloc success, dunno what action to take if it fails */
-				asprintf(&fuse_mount_options,",%s",optarg);
+				{
+					char* tmpopts = fuse_mount_options;
+					if (-1 == asprintf(&fuse_mount_options,"%s,%s",tmpopts?tmpopts:"",optarg))
+					{
+						fprintf(stderr, "%s: fatal allocation error\n", progname);
+						abort();
+					}
+					if (tmpopts)
+						free(tmpopts);
+				}
 				break;
 			case 'a':
 				check_opt(progname,"-a");
+				if (fuse_attr_timeout != 0.0f)
+					syslog(LOG_WARNING,"%s: conflicting fuse_attr_timeout, prior setting %f ignored", progname, fuse_attr_timeout);
+
 				fuse_attr_timeout = strtof(optarg,&detecterror);
 				if ((fuse_attr_timeout == 0.0 && detecterror == optarg) || (fuse_attr_timeout < 0.0)) {
 					fprintf(stderr, "%s: you need to specify a valid, non-zero attribute timeout\n\n", progname);
@@ -273,6 +290,9 @@ static void parse_args(int argc, char *argv[])
 				break;
 			case 'e':
 				check_opt(progname,"-e");
+				if (fuse_entry_timeout != 0.0f)
+					syslog(LOG_WARNING,"%s: conflicting fuse_entry_timeout, prior setting %f ignored", progname, fuse_entry_timeout);
+
 				fuse_entry_timeout = strtof(optarg,&detecterror);
 				if ((fuse_entry_timeout == 0.0 && detecterror == optarg) || (fuse_entry_timeout < 0.0)) {
 					fprintf(stderr, "%s: you need to specify a valid, non-zero entry timeout\n\n", progname);
@@ -300,6 +320,9 @@ static void parse_args(int argc, char *argv[])
 				break;
 			case 's':
 				check_opt(progname,"-s");
+				if (stack_size != 0ul)
+					syslog(LOG_WARNING,"%s: conflicting stack_size, prior setting %lu ignored", progname, stack_size);
+
 				stack_size=strtoul(optarg,&detecterror,10)<<10;
 				syslog(LOG_WARNING,"stack size for threads %zd",stack_size);
 				break;
@@ -353,7 +376,7 @@ static void read_cfg() {
 		char buf[1024];
 		int argc;
 		char *argv[10];
-		if (!fgets(buf,1024,f)) 
+		if (!fgets(buf,1024,f))
 			continue;
 		int l = strlen(buf)-1;
 		while (l >= 0 && buf[l] < 32)
@@ -376,13 +399,14 @@ int main(int argc, char *argv[])
 	/* one sane default a day keeps GDB away - Rudd-O */
 	fuse_attr_timeout = 0.0;
 	fuse_entry_timeout = 0.0;
-	fuse_mount_options = "";
+	fuse_mount_options = NULL;
 	zfs_vdev_cache_size = 10ULL << 20;         /* 10MB */
 	read_cfg();
 	parse_args(argc, argv);
 	/* we invert the options positively, since they both default to enabled */
 	block_cache = cf_disable_block_cache ? 0 : 1;
-	page_cache = cf_disable_page_cache ? 0 : 1;
+	if (cf_disable_page_cache)
+		syslog(LOG_WARNING,"deprecated option used (disable-page-cache); option no longer has an effect");
 
 	/* notice about ARC size */
 	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: " FU64 " MiB", max_arc_size>>20);
