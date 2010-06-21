@@ -126,6 +126,12 @@ start() {
 		fi
 	fi
 
+	# ZFS_DAEMONOPTS deprecated; refer to /etc/zfs/zfsrc now
+	if [ -n "$ZFS_DAEMONOPTS" ]; then
+		echo -n "Deprecated use of ZFS_DAEMONOPTS. Refer to /etc/zfs/zfsrc instead"
+		warning
+		echo
+	fi
 	action "Starting the ZFS-FUSE daemon:" daemon $zfsfuse -p "$PIDFILE" $ZFS_DAEMONOPTS
 	ret=$? ; [ $ret -ne 0 ] && return $ret
 

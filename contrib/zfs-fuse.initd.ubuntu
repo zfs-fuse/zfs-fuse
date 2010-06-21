@@ -20,7 +20,7 @@ NAME=zfs-fuse
 DESC=zfs-fuse
 # also overriden from /etc/default/zfs-fuse:
 ENABLE_ZFS=yes
-DAEMON_OPTS="-a 1 -e 1"
+DAEMON_OPTS="" # deprecated, prefer /etc/zfs/zfsrc
 RESTART_ON_UPGRADE=no
 
 ### Fallback functions in case lsb-base isn't available (eg in postinst)
@@ -108,6 +108,9 @@ do_start() {
         return 1
     fi
     log_daemon_msg "Starting $NAME" "zfs-fuse"
+    if [ -n "$DAEMON_OPTS" ]; then
+        log_action_cont_msg "Warning: use of DAEMON_OPTS deprecated: use /etc/zfs/zfsrc instead"
+    fi
     if start-stop-daemon --start --quiet --pidfile \
         /var/run/$NAME.pid --exec $DAEMON -- $DAEMON_OPTS --pidfile /var/run/$NAME.pid
     then
