@@ -230,11 +230,13 @@ taskq_create(const char *name, int nthreads, pri_t pri,
 		mutex_exit(&tq->tq_lock);
 	}
 	pthread_attr_t attr;
-	pthread_attr_init(&attr);
+	VERIFY(0 == pthread_attr_init(&attr));
 	pthread_attr_setscope(&attr,PTHREAD_SCOPE_PROCESS);
 
 	for (t = 0; t < nthreads; t++)
 		pthread_create(&tq->tq_threadlist[t], &attr, taskq_thread, tq);
+
+	VERIFY(0 == pthread_attr_destroy(&attr));
 
 	return (tq);
 }

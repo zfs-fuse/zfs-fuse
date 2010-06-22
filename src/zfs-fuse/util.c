@@ -236,13 +236,15 @@ int do_init()
     VERIFY(cmd_listener_init() == 0);
 
 	pthread_attr_t attr;
-	pthread_attr_init(&attr);
+	VERIFY(0 == pthread_attr_init(&attr));
 	if (stack_size)
 	    pthread_attr_setstacksize(&attr,stack_size);
 	if(pthread_create(&listener_thread, &attr, listener_loop, (void *) &ioctl_fd) != 0) {
+		VERIFY(0 == pthread_attr_destroy(&attr));
 		cmn_err(CE_WARN, "Error creating listener thread.");
 		return -1;
 	}
+	VERIFY(0 == pthread_attr_destroy(&attr));
 
 	listener_thread_started = B_TRUE;
 

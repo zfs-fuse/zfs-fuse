@@ -236,7 +236,7 @@ int zfsfuse_ioctl_queue_init(queue_t* queue)
 
     // send in the drones!
     pthread_attr_t attr;
-    pthread_attr_init(&attr);
+    VERIFY(0 == pthread_attr_init(&attr));
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     if (stack_size) pthread_attr_setstacksize(&attr,stack_size);
     pthread_t worker;
@@ -244,6 +244,8 @@ int zfsfuse_ioctl_queue_init(queue_t* queue)
     for (i=0; i<IOCTLQUEUE_WORKERS; i++)
         if (pthread_create(&worker, &attr, &zfsfuse_ioctl_queue_worker_thread, (void *) queue) != 0) 
             return -1;
+
+    VERIFY(0 == pthread_attr_destroy(&attr));
 
     return 0; 
 }
