@@ -323,12 +323,13 @@ extern size_t stack_size;
 int zfsfuse_listener_start()
 {
 	pthread_attr_t attr;
-	pthread_attr_init(&attr);
+	VERIFY(0 == pthread_attr_init(&attr));
 	if (stack_size)
 	    pthread_attr_setstacksize(&attr,stack_size);
 	for(int i = 0; i < NUM_THREADS; i++)
 		VERIFY(pthread_create(&fuse_threads[i], &attr, zfsfuse_listener_loop, NULL) == 0);
 
+	VERIFY(0 == pthread_attr_destroy(&attr));
 	return 0;
 }
 
