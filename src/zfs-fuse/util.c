@@ -320,7 +320,8 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 	fprintf(stderr, "mounting %s\n", dir);
 #endif
 
-	char *fuse_opts;
+	char *fuse_opts = NULL;
+	int has_default_perm = 0;
 	if (fuse_version() <= 27) {
 	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec, real_opts) == -1) {
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
@@ -343,6 +344,8 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return ENOMEM;
 	}
+	if (strstr(fuse_opts,"default_permissions"))
+		has_default_perm = 1;
 	free(fuse_opts);
 
 	struct fuse_chan *ch = fuse_mount(dir, &args);
@@ -352,7 +355,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		return EIO;
 	}
 
-	if (strstr(fuse_opts,"default_permissions"))
+	if (has_default_perm)
 	    vfs->fuse_attribute = FUSE_VFS_HAS_DEFAULT_PERM;
 
 	struct fuse_session *se = fuse_lowlevel_new(&args, &zfs_operations, sizeof(zfs_operations), vfs);
