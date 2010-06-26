@@ -341,57 +341,64 @@ static void parse_args(int argc, char *argv[])
 	}	
 }
 
-static void split_command(char *field, char **argv, int *argc, int max) {
-	char *s = field;
-	*argc = 1;
-	argv[0] = "zfs-fuse";
-	while (*s && (*s == ' ' || *s==9)) // skip the leading spaces
-		s++;
-	if (*s) {
-		if (*s == '#') return;
-		memmove(&s[2],s,strlen(s)+1); // includes the traililng 0
-		s[0] = s[1] = '-'; // add -- prefix
-		argv[(*argc)++] = s;
-	}
-	while (*s) {
-		while (*s != ' ' && *s)  {
-			s++;
-		}
-		if (*s == ' ' || *s==9) {
-			*s++ = 0;
-			while (*s == ' ' || *s==9)
-				s++;
-			if (*s) {
-				if (*s == '#') return;
-				argv[(*argc)++] = s;
-				if (*argc == max) // no more args, thanks !
-					return;
-			}
-		}
-	}
-}
-
 static void read_cfg() {
 	FILE *f = fopen("/etc/zfs/zfsrc","r");
 	if (!f)
 		return;
 	while (!feof(f)) {
 		char buf[1024];
-		int argc;
+		int argc = 0;
 		char *argv[10];
 		if (!fgets(buf,1024,f))
 			continue;
 		int l = strlen(buf)-1;
 		while (l >= 0 && buf[l] < 32)
 			buf[l--] = 0; // remove trailing cr (or any code < ' ')
-		split_command(buf, argv, &argc, 10);
-		if (argc == 1) continue;
-		if (argc > 2 && *argv[2] ==  '=') {
-			// remove the =
-			memmove(&argv[2],&argv[3],sizeof(char*)*(argc-2));
-			argc--;
+
+		argv[argc++] = "/etc/zfs/zfsrc";
+
+		////////////////////////////////////////////
+		// more predictable parsing required
+		int name_s = -1, name_e = -1, value_s = -1, value_e = -1;
+		char first = 0;
+
+		sscanf(buf, " %1[#]", &first);
+		if ('#' == first)
+			continue;
+
+		sscanf(buf, " %n%*[a-z-]%n = %n%*[^#]%n", &name_s, &name_e, &value_s, &value_e);
+
+		// unfortunately, can't trust the return value according to SCANF(3)
+		if (!((-1 == name_s) || (-1 == name_e) || (-1 == value_s) || (-1 == value_e)))
+		{
+			// treat righthand side as shell quoted (--name='value')
+			buf[name_e] = buf[value_e] = 0;
+			argv[argc++] = buf+name_s;
+			argv[argc++] = buf+value_s;
+		} else
+		{
+			for (char* token=strtok(buf, " \t\n\r"); token && argc<10; token=strtok(NULL, " \t\n\r"))
+			{
+				if ('#' == *token) // keeping the old behaviour only
+					break;
+				else
+					argv[argc++] = token;
+			}
 		}
-		parse_args(argc,argv);
+
+		if (argc>1)
+		{
+			// prepend dashes for short or long options
+			const char* original = argv[1];
+			if ('-'!=*original)
+				VERIFY(-1 != asprintf(&argv[1], strlen(original)>1? "--%s" : "-%s", original));
+
+			// parse
+			parse_args(argc,argv);
+
+			if (original != argv[1])
+				free(argv[1]);
+		}
 	}
 	fclose(f);
 }
