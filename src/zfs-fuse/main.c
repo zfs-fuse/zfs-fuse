@@ -324,7 +324,7 @@ static void parse_args(int argc, char *argv[])
 			case 's':
 				check_opt(progname,"-s");
 				if (stack_size != 0ul)
-					syslog(LOG_WARNING,"%s: conflicting stack_size, prior setting %lu ignored", progname, stack_size);
+					syslog(LOG_WARNING,"%s: conflicting stack_size, prior setting %u ignored", progname, stack_size);
 
 				stack_size=strtoul(optarg,&detecterror,10)<<10;
 				syslog(LOG_WARNING,"stack size for threads %zd",stack_size);
