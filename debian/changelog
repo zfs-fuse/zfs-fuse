@@ -1,3 +1,19 @@
+zfs-fuse (0.6.9-6~1.gbp52ec03) UNRELEASED; urgency=low
+
+  ** SNAPSHOT build @52ec037ffa41128d6c70f5b3baed9fdfc26f9fea **
+
+  * SConstruct: incorporate suggested installation prefix as DESTDIR=
+  * SConstruct safely handle optim flag as paramline
+  * Manpage updates
+  * Several improvements to debian/ubuntu zfs-fuse.init
+  * use --no-cache on debian package build
+  * Removing unused path.py
+  * Upstreamed the zfs-fuse man page
+  * Gunzip the manpages. They caused trouble with packaging
+  * Move existing zpool.cache to new location if posisble
+
+ -- Seth Heeren <zfs-fuse@sehe.nl>  Wed, 30 Jun 2010 01:14:06 +0200
+
 zfs-fuse (0.6.9-1) UNRELEASED; urgency=low
 
   * New upstream release.
