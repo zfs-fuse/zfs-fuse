@@ -51,6 +51,13 @@ That's it!
 If the compilation fails, please report a bug. See the BUGS file for
 instructions.
 
+Manpage
+-------
+If you want to update the zfs-fuse man page, edit doc/zfs-fuse.man.xml and run (on a debian-like host)
+
+	apt-get install xsltproc docbook-xml docbook-xsl
+	make -C doc/
+
 Installing
 ----------
 

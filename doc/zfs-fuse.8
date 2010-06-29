@@ -1,0 +1,170 @@
+'\" t
+.\"     Title: zfs-fuse
+.\"    Author: [see the "AUTHOR" section]
+.\" Generator: DocBook XSL Stylesheets v1.75.2 <http://docbook.sf.net/>
+.\"      Date: 2010-06-09
+.\"    Manual: [FIXME: manual]
+.\"    Source: [FIXME: source]
+.\"  Language: English
+.\"
+.TH "ZFS\-FUSE" "8" "2010\-06\-09" "[FIXME: source]" "[FIXME: manual]"
+.\" -----------------------------------------------------------------
+.\" * Define some portability stuff
+.\" -----------------------------------------------------------------
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.\" http://bugs.debian.org/507673
+.\" http://lists.gnu.org/archive/html/groff/2009-02/msg00013.html
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.\" -----------------------------------------------------------------
+.\" * set default formatting
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
+.SH "NAME"
+zfs-fuse \- ZFS filesystem daemon
+.SH "SYNOPSIS"
+.HP \w'\fBzfs\-fuse\fR\ 'u
+\fBzfs\-fuse\fR [\fB\-\-pidfile\ \fR\fB\fIfilename\fR\fR] [\fB\-\-no\-daemon\fR] [\fB\-\-no\-kstat\-mount\fR] [\fB\-\-disable\-block\-cache\fR] [\fB\-\-disable\-page\-cache\fR] [\fB\-\-fuse\-attr\-timeout\ \fR\fB\fISECONDS\fR\fR] [\fB\-\-fuse\-entry\-timeout\ \fR\fB\fISECONDS\fR\fR] [\fB\-\-log\-uberblocks\fR] [\fB\-\-max\-arc\-size\ \fR\fB\fIMB\fR\fR] [\fB\-\-fuse\-mount\-options\ \fR\fB\fIOPT,OPT,OPT\&.\&.\&.\fR\fR] [\fB\-\-min\-uberblock\-txg\ \fR\fB\fIMIN\fR\fR] [\fB\-\-stack\-size=\fR\fB\fIsize\fR\fR] [\fB\-\-help\fR]
+.SH "DESCRIPTION"
+.PP
+This manual page documents briefly the
+\fBzfs\-fuse\fR
+command\&.
+.PP
+\fBzfs\-fuse\fR
+is a daemon which provides support for the ZFS filesystem, via fuse\&. Ordinarily this daemon will be invoked from system boot scripts\&.
+.SH "OPTIONS"
+.PP
+This program follows the usual
+GNU
+command line syntax, with long options starting with two dashes (`\-\*(Aq)\&. A summary of options is included below\&. For a complete description, see the
+Info
+files\&.
+.PP
+\fB\-h\fR \fB\-\-help\fR
+.RS 4
+Show summary of options\&.
+.RE
+.PP
+\fB\-p \fR\fB\fIfilename\fR\fR \fB\-\-pidfile \fR\fB\fIfilename\fR\fR
+.RS 4
+Write the daemon\*(Aqs PID to
+\fIfilename\fR
+after daemonizing\&. Ignored if
+\fB\-\-no\-daemon\fR
+is passed\&.
+\fIfilename\fR
+should be a fully\-qualified path\&.
+.RE
+.PP
+\fB\-n\fR \fB\-\-no\-daemon\fR
+.RS 4
+Stay in foreground, don\*(Aqt daemonize\&.
+.RE
+.PP
+\fB\-\-no\-kstat\-mount\fR
+.RS 4
+Do not mount kstats in /zfs\-kstat
+.RE
+.PP
+\fB\-\-disable\-block\-cache\fR
+.RS 4
+Enable direct I/O for disk operations\&. Completely disables caching reads and writes in the kernel block cache\&. Breaks mmap() in ZFS datasets too\&.
+.RE
+.PP
+\fB\-\-disable\-page\-cache\fR
+.RS 4
+Disable the page cache for files residing within ZFS filesystems\&. Not recommended as it slows down I/O operations considerably\&.
+.RE
+.PP
+\fB\-a \fR\fB\fISECONDS\fR\fR \fB\-\-fuse\-attr\-timeout \fR\fB\fISECONDS\fR\fR
+.RS 4
+Sets timeout for caching FUSE attributes in kernel\&. Defaults to 0\&.0\&. Higher values give a 40% performance boost\&.
+.RE
+.PP
+\fB\-e \fR\fB\fISECONDS\fR\fR \fB\-\-fuse\-entry\-timeout \fR\fB\fISECONDS\fR\fR
+.RS 4
+Sets timeout for caching FUSE entries in kernel\&. Defaults to 0\&.0\&. Higher values give a 10000% performance boost but cause file permission checking security issues\&.
+.RE
+.PP
+\fB\-\-log\-uberblocks\fR
+.RS 4
+Logs uberblocks of any mounted filesystem to syslog
+.RE
+.PP
+\fB\-m \fR\fB\fIMB\fR\fR \fB\-\-max\-arc\-size \fR\fB\fIMB\fR\fR
+.RS 4
+Forces the maximum ARC size (in megabytes)\&. Range: 16 to 16384\&.
+.RE
+.PP
+\fB\-o \fR\fB\fIOPT\&.\&.\&.\fR\fR \fB\-\-fuse\-mount\-options \fR\fB\fIOPT,OPT,OPT\&.\&.\&.\fR\fR
+.RS 4
+Sets FUSE mount options for all filesystems\&. Format: comma\-separated string of characters\&.
+.RE
+.PP
+\fB\-u \fR\fB\fIMIN\fR\fR \fB\-\-min\-uberblock\-txg \fR\fB\fIMIN\fR\fR
+.RS 4
+Skips uberblocks with a TXG <
+\fIMIN\fR
+when mounting any fs
+.RE
+.PP
+\fB\-v \fR\fB\fIMB\fR\fR \fB\-\-vdev\-cache\-size \fR\fB\fIMB\fR\fR
+.RS 4
+adjust the size of the vdev cache\&. Default : 10
+.RE
+.PP
+\fB\-\-zfs\-prefetch\-disable\fR
+.RS 4
+Disable the high level prefetch cache in zfs\&. This thing can eat up to 150 Mb of ram, maybe more
+.RE
+.PP
+\fB\-\-stack\-size=\fR\fB\fIsize\fR\fR
+.RS 4
+Limit the stack
+\fIsize\fR
+of threads (in kb)\&. default : no limit (8 Mb for linux)
+.RE
+.PP
+\fB\-h\fR \fB\-\-help\fR
+.RS 4
+Show this usage summary\&.
+.RE
+.SH "REMARKS ON PRECEDENCE"
+.PP
+Note that the parameters passed on the command line take precedence over those supplied through /etc/zfs/zfsrc\&.
+.SH "BUGS/CAVEATS"
+.PP
+The path to the configuration file (/etc/zfs/zfsrc) cannot at this time be configured\&.
+.PP
+Most existing packages suggest settings can be set at the top of their init script\&. These get frequently overridden by a (distribution specific) /etc/default/zfs\-fuse file, if it exists\&. Be sure to look at these places if you want your changes to options to take effect\&.
+.PP
+The /etc/zfs/zfsrc is going to be the recommended approach in the future\&. So, packagers, please refrain from passing commandline parameters within the initscript (except for \-\-pid\-file)\&.
+.SH "SEE ALSO"
+.PP
+zfs (8), zpool (8), zdb(8), zstreamdump(8), /etc/zfs/zfsrc
+.SH "AUTHOR"
+.PP
+This manual page was written by Bryan Donlan
+bdonlan@gmail\&.com
+for the
+Debian(TM)
+system (but may be used by others)\&. Permission is granted to copy, distribute and/or modify this document under the terms of the
+GNU
+General Public License, Version 2 any later version published by the Free Software Foundation, or the Common Development and Distribution License\&.
+.PP
+Revised by Seth Heeren
+zfs\-fuse@sehe\&.nl
+.PP
+On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common\-licenses/GPL\&. The text of the Common Development and Distribution Licence may be found at /usr/share/doc/zfs\-fuse/copyright
+.SH "COPYRIGHT"
+.br
+Copyright \(co 2010 Bryan Donlan
+.br

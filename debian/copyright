@@ -1,68 +1,36 @@
-This package was first debianized by Bryan Donlan <bdonlan@gmail.com> on
-Tue, 17 Apr 2007 16:24:53 -0400.
-Further work by Mike Hommey <glandium@debian.org>
-Further work by Seth Heeren <zfs-fuse@sehe.nl>
+This package was debianized by Bryan Donlan <bdonlan@gmail.com> on
+Tue, 17 Apr 2007 16:24:53 -0400. It was later modified by Filip Brcic
+<brcha@gna.org> and Sébastien Delafond <seb@debian.org>.
 
-It was downloaded from
-(old) https://developer.berlios.de/project/showfiles.php?group_id=6836
-http://git.zfs-fuse.net/official/
+It was downloaded from http://zfs-fuse.net/
 
-The manual pages were downloaded from
-http://dlc.sun.com/osol/man/downloads/current/man-sunosman-20081210.tar.bz2
-and modified to fit the linux environment.
+Upstream Authors:
+  <rudd-o@rudd-o.com>
+  Ricardo Correia <rcorreia@wizy.org>
 
-Upstream Author: Sun Microsystems, Inc., Ricardo Correia and zfs-fuse.net
+Copyright:
 
-Most source files are Copyright 1990-2008 Sun Microsystems, Inc.
-or Copyright 2006-2007 Ricardo Correia (for the fuse adaptations)
-and licensed under the CDDL (see below for the full license text).
+  zfs-fuse's source is a combination of:
+    - Copyright (c) 1992-2001/2004/2006/2007/2008, Sun Microsystems Inc.
+    - Copyright (c) 2006/2007 Ricardo Correia.
+    - Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989 AT&T.
+    - Copyright (c) 1982, 1986, 1988 The Regents of the University of
+      California.
+    - Copyright (c) 1991-2006 Unicode, Inc.
+    - Copyright (c) 1989 by Hewlett-Packard Company & Digital Equipment
+      Corporation.
+    - Copyright (c) 1990-1993, 1996 Open Software Foundation, Inc.
+    - Copyright (c) 1998 Microsoft.
+    - Copyright (c) 2007 Jeremy Teo.
+    - Copyright (c) 2008 Eric Anopolsky
+    - Copyright (c) 2006 OmniTI, Inc.
+  
+The ZFS-FUSE software and manual pages are licenced under the CDDL, which
+is reproduced at the end of this file.
 
-Some portions have some different or additional copyright and are licensed
-under the CDDL:
-Copyright 2008 Eric Anopolsky
-Copyright 2006 OmniTI, Inc.
-Copyright 2007 Jeremy Teo
-Copyright 1983-1989 AT&T
-Copyright 1982, 1986, 1988 The Regents of the University of California
-Copyright 2007 Ramprakash Jelari
-
-Some portions have some different copyright and are Public Domain:
-src/path.py is Copyright 2004 Jason Orendorff <jason.orendorff@gmail.com>
-*/ptrace.c files are Copyright 2004 N. Devillard, V. Chudnovsky
-
-The Debian packaging is (C) 2007, Bryan Donlan <bdonlan@gmail.com>,
-(C) 2008, 2009 Mike Hommey <glandium@debian.org>, and is dual-licensed
-under the GPL (see `/usr/share/common-licenses/GPL'), and the CDDL (see
-below), except src/lib/libsolcompat/generic/atomic.c, which has the
-following license and copyright:
- Copyright (c) 2008 Mike Hommey <glandium@debian.org>
-
- Derived from opensolaris_atomic.c
-
- Copyright (c) 2007 Pawel Jakub Dawidek <pjd@FreeBSD.org>
- All rights reserved.
-
- Redistribution and use in source and binary forms, with or without
- modification, are permitted provided that the following conditions
- are met:
- 1. Redistributions of source code must retain the above copyright
-    notice, this list of conditions and the following disclaimer.
- 2. Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-
- THIS SOFTWARE IS PROVIDED BY THE AUTHORS AND CONTRIBUTORS ``AS IS'' AND
- ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE
- FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- SUCH DAMAGE.
-
+The Debian packaging is Copyright (c) 2007, Bryan Donlan
+<bdonlan@gmail.com> and is dual-licensed under the GPL, see
+`/usr/share/common-licenses/GPL-2', and the CDDL.
 
 The text of the CDDL follows:
 
@@ -85,12 +53,12 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
             Modifications, in each case including portions thereof.
 
             1.4. "Executable" means the Covered Software in any form
-            other than Source Code.
+            other than Source Code. 
 
             1.5. "Initial Developer" means the individual or entity
             that first makes Original Software available under this
-            License.
-
+            License. 
+            
             1.6. "Larger Work" means a work which combines Covered
             Software or portions thereof with code not governed by the
             terms of this License.
@@ -101,29 +69,29 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
             maximum extent possible, whether at the time of the initial
             grant or subsequently acquired, any and all of the rights
             conveyed herein.
-
+            
             1.9. "Modifications" means the Source Code and Executable
-            form of any of the following:
+            form of any of the following: 
 
                   A. Any file that results from an addition to,
                   deletion from or modification of the contents of a
                   file containing Original Software or previous
-                  Modifications;
+                  Modifications; 
 
                   B. Any new file that contains any part of the
-                  Original Software or previous Modification; or
+                  Original Software or previous Modification; or 
 
                   C. Any new file that is contributed or otherwise made
                   available under the terms of this License.
 
             1.10. "Original Software" means the Source Code and
             Executable form of computer software code that is
-            originally released under this License.
+            originally released under this License. 
 
             1.11. "Patent Claims" means any patent claim(s), now owned
             or hereafter acquired, including without limitation,
             method, process, and apparatus claims, in any patent
-            Licensable by grantor.
+            Licensable by grantor. 
 
             1.12. "Source Code" means (a) the common form of computer
             software code in which modifications are made and (b)
@@ -140,40 +108,40 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
             of more than fifty percent (50%) of the outstanding shares
             or beneficial ownership of such entity.
 
-      2. License Grants.
+      2. License Grants. 
 
             2.1. The Initial Developer Grant.
 
             Conditioned upon Your compliance with Section 3.1 below and
             subject to third party intellectual property claims, the
             Initial Developer hereby grants You a world-wide,
-            royalty-free, non-exclusive license:
+            royalty-free, non-exclusive license: 
 
                   (a) under intellectual property rights (other than
                   patent or trademark) Licensable by Initial Developer,
                   to use, reproduce, modify, display, perform,
                   sublicense and distribute the Original Software (or
                   portions thereof), with or without Modifications,
-                  and/or as part of a Larger Work; and
+                  and/or as part of a Larger Work; and 
 
                   (b) under Patent Claims infringed by the making,
                   using or selling of Original Software, to make, have
                   made, use, practice, sell, and offer for sale, and/or
                   otherwise dispose of the Original Software (or
-                  portions thereof).
+                  portions thereof). 
 
                   (c) The licenses granted in Sections 2.1(a) and (b)
                   are effective on the date Initial Developer first
                   distributes or otherwise makes the Original Software
                   available to a third party under the terms of this
-                  License.
+                  License. 
 
                   (d) Notwithstanding Section 2.1(b) above, no patent
                   license is granted: (1) for code that You delete from
                   the Original Software, or (2) for infringements
                   caused by: (i) the modification of the Original
                   Software, or (ii) the combination of the Original
-                  Software with other software or devices.
+                  Software with other software or devices. 
 
             2.2. Contributor Grant.
 
@@ -189,7 +157,7 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
                   Contributor (or portions thereof), either on an
                   unmodified basis, with other Modifications, as
                   Covered Software and/or as part of a Larger Work; and
-
+                  
 
                   (b) under Patent Claims infringed by the making,
                   using, or selling of Modifications made by that
@@ -200,12 +168,12 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
                   Modifications made by that Contributor (or portions
                   thereof); and (2) the combination of Modifications
                   made by that Contributor with its Contributor Version
-                  (or portions of such combination).
+                  (or portions of such combination). 
 
                   (c) The licenses granted in Sections 2.2(a) and
                   2.2(b) are effective on the date Contributor first
                   distributes or otherwise makes the Modifications
-                  available to a third party.
+                  available to a third party. 
 
                   (d) Notwithstanding Section 2.2(b) above, no patent
                   license is granted: (1) for any code that Contributor
@@ -216,7 +184,7 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
                   with other software (except as part of the
                   Contributor Version) or other devices; or (3) under
                   Patent Claims infringed by Covered Software in the
-                  absence of Modifications made by that Contributor.
+                  absence of Modifications made by that Contributor. 
 
       3. Distribution Obligations.
 
@@ -267,7 +235,7 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
             Developer and every Contributor for any liability incurred
             by the Initial Developer or such Contributor as a result of
             warranty, support, indemnity or liability terms You offer.
-
+          
 
             3.5. Distribution of Executable Versions.
 
@@ -294,9 +262,9 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
             with other code not governed by the terms of this License
             and distribute the Larger Work as a single product. In such
             a case, You must make sure the requirements of this License
-            are fulfilled for the Covered Software.
-
-      4. Versions of the License.
+            are fulfilled for the Covered Software. 
+            
+      4. Versions of the License. 
 
             4.1. New Versions.
 
@@ -305,7 +273,7 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
             from time to time. Each version will be given a
             distinguishing version number. Except as provided in
             Section 4.3, no one other than the license steward has the
-            right to modify this License.
+            right to modify this License. 
 
             4.2. Effect of New Versions.
 
@@ -321,7 +289,7 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
             the Covered Software. Otherwise, You may also choose to
             use, distribute or otherwise make the Covered Software
             available under the terms of any subsequent version of the
-            License published by the license steward.
+            License published by the license steward. 
 
             4.3. Modified Versions.
 
@@ -332,7 +300,7 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
             license steward (except to note that the license differs
             from this License); and (b) otherwise make it clear that
             the license contains terms which differ from this License.
-
+            
 
       5. DISCLAIMER OF WARRANTY.
 
@@ -347,9 +315,9 @@ COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0
       ANY NECESSARY SERVICING, REPAIR OR CORRECTION. THIS DISCLAIMER OF
       WARRANTY CONSTITUTES AN ESSENTIAL PART OF THIS LICENSE. NO USE OF
       ANY COVERED SOFTWARE IS AUTHORIZED HEREUNDER EXCEPT UNDER THIS
-      DISCLAIMER.
+      DISCLAIMER. 
 
-      6. TERMINATION.
+      6. TERMINATION. 
 
             6.1. This License and the rights granted hereunder will
             terminate automatically if You fail to comply with terms
