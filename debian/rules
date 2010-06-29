@@ -1,17 +1,19 @@
 #!/usr/bin/make -f
 
+SCONSFLAGS=--no-cache -C src debug=1 optim=-O0
+
 ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
-	OPTIM = -O0
+	SCONSFLAGS+= optim=-O0
 else
-	OPTIM = -O2
+	SCONSFLAGS+= optim=-O2
 endif
 
 override_dh_auto_build:
-	scons -C src debug=1 optim=$(OPTIM)
+	scons $(SCONSFLAGS)
 	xsltproc --nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl debian/zfs-fuse.man.xml
 
 override_dh_auto_clean:
-	scons -c -C src
+	scons $(SCONSFLAGS) -ccc
 	rm -f zfs-fuse.8 src/.sconsign.dblite src/path.pyc
 
 override_dh_auto_install:
