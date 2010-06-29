@@ -1,5 +1,100 @@
-zfs-fuse (0.5.0-1) UNRELEASED; urgency=low
+zfs-fuse (0.6.9-6~1.gbp52ec03) UNRELEASED; urgency=low
 
-  * Initial release (Closes: #419746)
+  ** SNAPSHOT build @52ec037ffa41128d6c70f5b3baed9fdfc26f9fea **
 
- -- Mike Hommey <glandium@debian.org>  Fri, 09 Jan 2009 22:09:07 +0100
+  * SConstruct: incorporate suggested installation prefix as DESTDIR=
+  * SConstruct safely handle optim flag as paramline
+  * Manpage updates
+  * Several improvements to debian/ubuntu zfs-fuse.init
+  * use --no-cache on debian package build
+  * Removing unused path.py
+  * Upstreamed the zfs-fuse man page
+  * Gunzip the manpages. They caused trouble with packaging
+  * Move existing zpool.cache to new location if posisble
+
+ -- Seth Heeren <zfs-fuse@sehe.nl>  Wed, 30 Jun 2010 01:14:06 +0200
+
+zfs-fuse (0.6.9-1) UNRELEASED; urgency=low
+
+  * New upstream release.
+
+ -- Mike Hommey <glandium@debian.org>  Fri, 11 Jun 2010 13:37:13 +0200
+
+zfs-fuse (0.6.0+critical20100301-5) unstable; urgency=low
+
+  * Silence the init script a bit in case zfs-fuse was disabled
+    (Closes: #581668).
+
+ -- Sebastien Delafond <seb@debian.org>  Thu, 20 May 2010 14:36:06 +0200
+
+zfs-fuse (0.6.0+critical20100301-4) unstable; urgency=low
+
+  * Start the daemon with limits removed and LANG unset, and immunize it
+    against the OOM killer, as per
+    http://rudd-o.com/en/linux-and-free-software/starting-zfs-fuse-up-properly.
+
+ -- Sebastien Delafond <seb@debian.org>  Wed, 12 May 2010 12:53:09 +0200
+
+zfs-fuse (0.6.0+critical20100301-3) unstable; urgency=low
+
+  * Disable debug mode, per http://zfs-fuse.net/issues/33 (LP: #538847).
+
+ -- Sebastien Delafond <seb@debian.org>  Tue, 27 Apr 2010 13:59:45 +0200
+
+zfs-fuse (0.6.0+critical20100301-2) unstable; urgency=low
+
+  * Updated Homepage: field, and removed incorrect Vcs-*: info, from
+    control file.
+  * Moved to quilt (3.0) source format.
+
+ -- Sebastien Delafond <seb@debian.org>  Thu, 08 Apr 2010 13:00:04 +0200
+
+zfs-fuse (0.6.0+critical20100301-1) unstable; urgency=low
+
+  * Build from the official/critical branch, which contains several
+    important fixes (Closes: #571978).
+  
+ -- Sebastien Delafond <seb@debian.org>  Mon, 01 Mar 2010 11:34:44 +0100
+  
+zfs-fuse (0.6.0-2) unstable; urgency=low
+
+  * Added a watch file.
+  * Bumped up Standards-Version.
+  * Lintian fixes.
+
+ -- Sebastien Delafond <seb@debian.org>  Sun, 21 Feb 2010 18:36:50 +0100
+
+zfs-fuse (0.6.0-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Sebastien Delafond <seb@debian.org>  Mon, 18 Jan 2010 14:25:14 +0100
+
+zfs-fuse (0.6.0~beta+433snapshot-4) unstable; urgency=low
+
+  * Versioned build-dep on libfuse-dev >= 2.8.1, since before that libfuse
+    didn't set shlibs correctly, per #557143 (Closes: #559970).
+
+ -- Sebastien Delafond <seb@debian.org>  Tue, 08 Dec 2009 09:07:45 +0100
+
+zfs-fuse (0.6.0~beta+433snapshot-3) unstable; urgency=low
+
+  * Start the init.d script a bit later (Closes: #558331).
+  * Include a patch that fixes an out-of-memory error (Closes: #559552).
+  * Add Mike Hommey <glandium@debian.org> to the list of uploaders.
+
+ -- Sebastien Delafond <seb@debian.org>  Mon, 07 Dec 2009 20:40:16 +0100
+
+zfs-fuse (0.6.0~beta+433snapshot-2) unstable; urgency=low
+
+  * Optimistic Arch:any, waiting for potential FTBFS (#556944).
+
+ -- Sebastien Delafond <seb@debian.org>  Wed, 18 Nov 2009 15:49:42 +0100
+
+zfs-fuse (0.6.0~beta+433snapshot-1) unstable; urgency=low
+
+  * Original release, based on Filip Brcic's (<brcha@gna.org>) work
+    (Closes: #419746).
+  
+ -- Sebastien Delafond <seb@debian.org>  Mon, 26 Oct 2009 16:22:44 +0100
+

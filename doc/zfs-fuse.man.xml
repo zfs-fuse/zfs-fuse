@@ -1,0 +1,334 @@
+<?xml version='1.0' encoding='ISO-8859-1'?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd" [
+
+<!--
+
+Process this file with an XSLT processor: `xsltproc \
+-''-nonet /usr/share/sgml/docbook/stylesheet/xsl/nwalsh/\
+manpages/docbook.xsl manpage.dbk'.  A manual page
+<package>.<section> will be generated.  You may view the
+manual page with: nroff -man <package>.<section> | less'.  A
+typical entry in a Makefile or Makefile.am is:
+
+DB2MAN=/usr/share/sgml/docbook/stylesheet/xsl/nwalsh/\
+manpages/docbook.xsl
+XP=xsltproc -''-nonet
+
+manpage.1: manpage.dbk
+        $(XP) $(DB2MAN) $<
+
+The xsltproc binary is found in the xsltproc package.  The
+XSL files are in docbook-xsl.  Please remember that if you
+create the nroff version in one of the debian/rules file
+targets (such as build), you will need to include xsltproc
+and docbook-xsl in your Build-Depends control field.
+
+-->
+
+  <!-- Fill in your name for FIRSTNAME and SURNAME. -->
+  <!ENTITY dhfirstname "<firstname>Bryan</firstname>">
+  <!ENTITY dhsurname   "<surname>Donlan</surname>">
+  <!-- Please adjust the date whenever revising the manpage. -->
+  <!ENTITY dhdate      "<date>2010-06-09</date>">
+  <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
+       allowed: see man(7), man(1). -->
+  <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
+  <!ENTITY dhemail     "<email>bdonlan@gmail.com</email>">
+  <!ENTITY dhusername  "Bryan Donlan">
+  <!ENTITY dhucpackage "<refentrytitle>zfs-fuse</refentrytitle>">
+  <!ENTITY dhpackage   "zfs-fuse">
+
+  <!ENTITY debian      "<productname>Debian</productname>">
+  <!ENTITY gnu         "<acronym>GNU</acronym>">
+  <!ENTITY gpl         "&gnu; <acronym>GPL</acronym>">
+]>
+
+<refentry>
+  <refentryinfo>
+    <address>
+      &dhemail;
+    </address>
+    <copyright>
+      <year>2010</year>
+      <holder>&dhusername;</holder>
+    </copyright>
+    &dhdate;
+  </refentryinfo>
+  <refmeta>
+    &dhucpackage;
+
+    &dhsection;
+  </refmeta>
+  <refnamediv>
+    <refname>&dhpackage;</refname>
+
+    <refpurpose>ZFS filesystem daemon</refpurpose>
+  </refnamediv>
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>&dhpackage;</command>
+
+      <arg><option>--pidfile <replaceable>filename</replaceable></option></arg>
+      <arg><option>--no-daemon</option></arg>
+      <arg><option>--no-kstat-mount</option></arg>
+      <arg><option>--disable-block-cache</option></arg>
+      <arg><option>--disable-page-cache</option></arg>
+      <arg><option>--fuse-attr-timeout <replaceable>SECONDS</replaceable></option></arg>
+      <arg><option>--fuse-entry-timeout <replaceable>SECONDS</replaceable></option></arg>
+      <arg><option>--log-uberblocks</option></arg>
+      <arg><option>--max-arc-size <replaceable>MB</replaceable></option></arg>
+      <arg><option>--fuse-mount-options <replaceable>OPT,OPT,OPT...</replaceable></option></arg>
+      <arg><option>--min-uberblock-txg <replaceable>MIN</replaceable></option></arg>
+      <arg><option>--stack-size=<replaceable>size</replaceable></option></arg>
+      <arg><option>--help</option></arg>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>DESCRIPTION</title>
+
+    <para>This manual page documents briefly the
+      <command>&dhpackage;</command> command.</para>
+
+    <para><command>&dhpackage;</command> is a daemon which provides support for
+        the ZFS filesystem, via fuse. Ordinarily this daemon will be invoked
+        from system boot scripts.</para>
+
+  </refsect1>
+  <refsect1>
+    <title>OPTIONS</title>
+
+    <para>This program follows the usual &gnu; command line syntax,
+      with long options starting with two dashes (`-').  A summary of
+      options is included below.  For a complete description, see the
+      <application>Info</application> files.</para>
+
+    <variablelist>
+      <varlistentry>
+        <term><option>-h</option>
+          <option>--help</option>
+        </term>
+        <listitem>
+          <para>Show summary of options.</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><option>-p <replaceable>filename</replaceable></option>
+            <option>--pidfile <replaceable>filename</replaceable></option>
+        </term>
+        <listitem>
+          <para>Write the daemon's PID to <replaceable>filename</replaceable>
+            after daemonizing. Ignored if <option>--no-daemon</option> is passed.
+            <replaceable>filename</replaceable> should be a fully-qualified path.
+          </para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-n</option>
+              <option>--no-daemon</option>
+          </term>
+          <listitem>
+              <para>Stay in foreground, don't daemonize.</para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--no-kstat-mount</option>
+          </term>
+          <listitem>
+              <para>
+                  Do not mount kstats in /zfs-kstat
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--disable-block-cache</option>
+          </term>
+          <listitem>
+              <para>
+                  Enable direct I/O for disk operations. Completely
+                  disables caching reads and writes in the kernel
+                  block cache.  Breaks mmap() in ZFS datasets too.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--disable-page-cache</option>
+          </term>
+          <listitem>
+              <para>
+                  Disable the page cache for files residing within
+                  ZFS filesystems.  Not recommended as it slows down
+                  I/O operations considerably.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-a <replaceable>SECONDS</replaceable></option>
+              <option>--fuse-attr-timeout <replaceable>SECONDS</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Sets timeout for caching FUSE attributes in kernel.
+                  Defaults to 0.0.
+                  Higher values give a 40% performance boost.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-e <replaceable>SECONDS</replaceable></option>
+              <option>--fuse-entry-timeout <replaceable>SECONDS</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Sets timeout for caching FUSE entries in kernel.
+                  Defaults to 0.0.
+                  Higher values give a 10000% performance boost
+                  but cause file permission checking security issues.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--log-uberblocks</option>
+          </term>
+          <listitem>
+              <para>
+                  Logs uberblocks of any mounted filesystem to syslog
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-m <replaceable>MB</replaceable></option>
+              <option>--max-arc-size <replaceable>MB</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Forces the maximum ARC size (in megabytes).
+                  Range: 16 to 16384.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-o <replaceable>OPT...</replaceable></option>
+              <option>--fuse-mount-options <replaceable>OPT,OPT,OPT...</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Sets FUSE mount options for all filesystems.
+                  Format: comma-separated string of characters.
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-u <replaceable>MIN</replaceable></option>
+              <option>--min-uberblock-txg <replaceable>MIN</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Skips uberblocks with a TXG &lt; <replaceable>MIN</replaceable> when mounting any fs
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-v <replaceable>MB</replaceable></option>
+              <option>--vdev-cache-size <replaceable>MB</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  adjust the size of the vdev cache. Default : 10
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--zfs-prefetch-disable</option>
+          </term>
+          <listitem>
+              <para>
+                  Disable the high level prefetch cache in zfs.
+                  This thing can eat up to 150 Mb of ram, maybe more
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>--stack-size=<replaceable>size</replaceable></option>
+          </term>
+          <listitem>
+              <para>
+                  Limit the stack <replaceable>size</replaceable> of threads (in kb).
+                  default : no limit (8 Mb for linux)
+              </para>
+          </listitem>
+      </varlistentry>
+      <varlistentry>
+          <term>
+              <option>-h</option>
+              <option>--help</option>
+          </term>
+          <listitem>
+              <para>
+                  Show this usage summary.
+              </para>
+          </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+  <refsect1>
+    <title>REMARKS ON PRECEDENCE</title>
+
+    <para>Note that the parameters passed on the command line take precedence
+        over those supplied through /etc/zfs/zfsrc.</para>
+
+  </refsect1>
+  <refsect1>
+      <title>BUGS/CAVEATS</title>
+
+    <para>The path to the configuration file (/etc/zfs/zfsrc) cannot at this
+        time be configured.</para>
+    <para>Most existing packages suggest settings can be set at the top of
+        their init script. These get frequently overridden by a (distribution
+        specific) /etc/default/zfs-fuse file, if it exists. Be sure to look at
+        these places if you want your changes to options to take effect.</para>
+    <para>The /etc/zfs/zfsrc is going to be the recommended approach in the
+        future. So, packagers, please refrain from passing commandline
+        parameters within the initscript (except for --pid-file).</para>
+
+  </refsect1>
+  <refsect1>
+    <title>SEE ALSO</title>
+
+    <para>zfs (8), zpool (8), zdb(8), zstreamdump(8), /etc/zfs/zfsrc</para>
+
+  </refsect1>
+  <refsect1>
+    <title>AUTHOR</title>
+
+    <para>This manual page was written by &dhusername; &dhemail; for
+      the &debian; system (but may be used by others).  Permission is
+      granted to copy, distribute and/or modify this document under
+      the terms of the &gnu; General Public License, Version 2 any
+      later version published by the Free Software Foundation,
+      or the Common Development and Distribution License.
+    </para>
+    <para>Revised by Seth Heeren <email>zfs-fuse@sehe.nl</email></para>
+	<para>
+	  On Debian systems, the complete text of the GNU General Public
+          License can be found in /usr/share/common-licenses/GPL. The text of
+          the Common Development and Distribution Licence may be found at
+          /usr/share/doc/zfs-fuse/copyright
+	</para>
+
+  </refsect1>
+</refentry>
+
