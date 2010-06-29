@@ -55,6 +55,22 @@ fi
 
 FORCE_STOP=no
 
+upgrade_zpool_cache_location()
+{
+	oldcache=/etc/zfs/zpool.cache      # this changed per 0.6.9, only needed when upgrading from earlier versions
+	newcache=/var/lib/zfs/zpool.cache
+
+	if [[ -f $oldcache && ! -e $newcache ]]; then
+		log_action_msg "Moving existing zpool.cache to new location"
+		mkdir -p $(dirname $newcache)
+		mv $oldcache $newcache
+	else
+		if [ -e $oldcache ]; then
+			log_action_msg "Note: old zpool.cache present but no longer used ($oldcache)"
+		fi
+	fi
+}
+
 is_running() {
     ### XXX: this produces output for some reason
 	start-stop-daemon --stop --test --quiet --pidfile \
@@ -111,6 +127,7 @@ do_start() {
         log_action_msg "Disabled by /etc/default/$NAME" >&2
         return 1
     fi
+	upgrade_zpool_cache_location
     log_daemon_msg "Starting $NAME" "zfs-fuse"
     ulimit -v unlimited
     ulimit -c 512000
