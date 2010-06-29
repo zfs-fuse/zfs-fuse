@@ -10,7 +10,6 @@ endif
 
 override_dh_auto_build:
 	scons $(SCONSFLAGS)
-	xsltproc --nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl debian/zfs-fuse.man.xml
 
 override_dh_auto_clean:
 	scons $(SCONSFLAGS) -ccc
@@ -26,9 +25,6 @@ override_dh_installchangelogs:
 
 override_dh_installinit:
 	dh_installinit --no-start -- start 38 S . stop 39 0 6 .
-
-override_dh_installman:
-	dh_installman zfs-fuse.8
 
 %:
 	dh $@
