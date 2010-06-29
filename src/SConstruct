@@ -125,6 +125,7 @@ env.Install(man_dir, '../doc/zdb.8.gz')
 env.Install(man_dir, '../doc/zfs.8.gz')
 env.Install(man_dir, '../doc/zpool.8.gz')
 env.Install(man_dir, '../doc/zstreamdump.8.gz')
+env.Install(man_dir, '../doc/zfs-fuse.8.gz')
 
 if "tags" in sys.argv:
     print "updating tags..."
