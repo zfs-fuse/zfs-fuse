@@ -72,7 +72,7 @@ install -m755 contrib/%{name}.initd.fedora $RPM_BUILD_ROOT%{_initrddir}/%{name}
 install -m644 contrib/%{name}.sysconfig $RPM_BUILD_ROOT%{_sysconfdir}/sysconfig/%{name}
 ln -s %{_sysconfdir}/init.d/%{name} $RPM_BUILD_ROOT%_sbindir/rc%{name}
 mkdir -p $RPM_BUILD_ROOT%{_mandir}/man8
-install -m 644 doc/*.8.gz $RPM_BUILD_ROOT%{_mandir}/man8
+install -m 644 doc/*.8 $RPM_BUILD_ROOT%{_mandir}/man8
 cd src
 scons install install_dir=$RPM_BUILD_ROOT%_sbindir man_dir=$RPM_BUILD_ROOT%_mandir/man8/
 

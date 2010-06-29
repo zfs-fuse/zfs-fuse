@@ -1,5 +1,10 @@
 #!/usr/bin/perl
+# example zfs_pool_alert script
+# ###########################################################################
+# To be copied into /etc/zfs/zfs_pool_alert (and made executable) if you plan
+# on using automatic recovery on vdev failure.
 
+# ###########################################################################
 # zfs_pool_alert : this command is executed everytime a pool passes from the
 # state HEALTHY to DEGRADED, or the other way around.
 # It receives only the pool name as argument.

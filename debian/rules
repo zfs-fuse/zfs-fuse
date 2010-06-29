@@ -18,16 +18,9 @@ endif
 override_dh_auto_build:
 	scons $(SCONSFLAGS)
 
-	touch $@
-
-clean:
-	dh_testdir
-	dh_testroot
-	rm -f build-stamp configure-stamp
-
-	# Add here commands to clean up after the build process.
-	scons -c -C src
-	rm -f zfs-fuse.8 src/.sconsign.dblite src/path.pyc
+override_dh_auto_clean:
+	scons $(SCONSFLAGS) -ccc
+	rm -f src/.sconsign.dblite
 
 override_dh_auto_install:
 	scons $(SCONSFLAGS) DESTDIR=$(CURDIR)/debian/zfs-fuse install_dir=/sbin man_dir=/usr/share/man/man8 install

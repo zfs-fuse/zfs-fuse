@@ -1,7 +1,7 @@
 PAGES=zfs zfs-fuse zdb zstreamdump zpool
 XSLTPROC=$()
 
-all: $(PAGES:=.8.gz)
+all: $(PAGES:=.8)
 
 %.8.gz: %.8
 	cat "$<" | gzip > "$@"
