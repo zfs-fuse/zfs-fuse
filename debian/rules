@@ -13,7 +13,7 @@ override_dh_auto_build:
 
 override_dh_auto_clean:
 	scons $(SCONSFLAGS) -ccc
-	rm -f zfs-fuse.8 src/.sconsign.dblite
+	rm -f src/.sconsign.dblite
 
 override_dh_auto_install:
 	scons $(SCONSFLAGS) DESTDIR=$(CURDIR)/debian/zfs-fuse install_dir=/sbin man_dir=/usr/share/man/man8 install
