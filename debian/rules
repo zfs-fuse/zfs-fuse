@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-SCONSFLAGS=--no-cache -C src debug=1 optim=-O0
+SCONSFLAGS=--no-cache -C src debug=1
 
 ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
 	SCONSFLAGS+= optim=-O0
