@@ -1,4 +1,4 @@
-zfs-fuse (0.6.9-6~1.gbp52ec03) UNRELEASED; urgency=low
+zfs-fuse (0.6.9-7~1.gbp52ec03) lucid; urgency=low
 
   ** SNAPSHOT build @52ec037ffa41128d6c70f5b3baed9fdfc26f9fea **
 
