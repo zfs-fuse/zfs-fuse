@@ -449,6 +449,7 @@ int main(int argc, char *argv[])
     sem_wait(&daemon_shutdown);
 
 	do_exit();
+	sleep(1); // avoids a lockup while shutting down libc with a scrub running; FIXME!!
 
 	return 1;
 }
