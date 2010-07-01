@@ -259,8 +259,8 @@ void do_exit()
 			cmn_err(CE_WARN, "Error in pthread_join().");
 	}
 
-    cmd_listener_fini();
 	zfsfuse_listener_exit();
+    cmd_listener_fini();
 
 	if(ioctl_fd != -1)
 		zfsfuse_socket_close(ioctl_fd);
