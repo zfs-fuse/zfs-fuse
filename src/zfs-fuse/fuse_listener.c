@@ -66,6 +66,7 @@ char *mountpoints[MAX_FDS];
 
 pthread_t fuse_threads[NUM_THREADS];
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t sysmtx = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
 kmem_cache_t *file_info_cache = NULL;
 
@@ -196,6 +197,7 @@ static void new_fs()
  */
 static void destroy_fs(int i)
 {
+	VERIFY(pthread_mutex_lock(&sysmtx) == 0);
     if (fsinfo[i].se) {
 #ifdef DEBUG
 	fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
@@ -207,6 +209,7 @@ static void destroy_fs(int i)
 	fds[i].fd = -1;
 	kmem_free(mountpoints[i],fsinfo[i].mntlen+1);
     }
+	VERIFY(pthread_mutex_unlock(&sysmtx) == 0);
 }
 
 static void *zfsfuse_listener_loop(void *arg)
@@ -238,7 +241,11 @@ static void *zfsfuse_listener_loop(void *arg)
 
 			fds[i].revents = 0;
 
-			ASSERT((rev & POLLNVAL) == 0);
+			if (rev & POLLNVAL) { // already closed
+			    // fuse_unmount_all triggers this
+			    fds[i].fd = -1;
+			    continue;
+			}
 
 			if(!(rev & POLLIN) && !(rev & POLLERR) && !(rev & POLLHUP))
 				continue;
@@ -367,12 +374,15 @@ int zfsfuse_listener_stop()
 }
 
 static void fuse_unmount_all() {
-    VERIFY(pthread_mutex_lock(&mtx) == 0);
+    VERIFY(pthread_mutex_lock(&sysmtx) == 0);
 
     for(int i = nfds-1; i >= 1; i--) {
 	if(fds[i].fd == -1)
 	    continue;
 
+#ifdef DEBUG
+	fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
+#endif
 	/* unmount before shuting down... */
 	fuse_session_remove_chan(fsinfo[i].ch);
 	fuse_session_destroy(fsinfo[i].se);
@@ -384,5 +394,5 @@ static void fuse_unmount_all() {
 
     }
 
-    VERIFY(pthread_mutex_unlock(&mtx) == 0);
+    VERIFY(pthread_mutex_unlock(&sysmtx) == 0);
 }
