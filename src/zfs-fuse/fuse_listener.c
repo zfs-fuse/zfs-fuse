@@ -90,10 +90,10 @@ static void fuse_unmount_all();
 
 void zfsfuse_listener_exit()
 {
+    fuse_unmount_all();
+
     int ret = zfsfuse_listener_stop();
     ASSERT(0 == ret);
-
-    fuse_unmount_all();
 
 	if(file_info_cache != NULL)
 		kmem_cache_destroy(file_info_cache);
