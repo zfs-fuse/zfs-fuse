@@ -1,32 +1,55 @@
-# ZFS FUSE daemon - (c) Chris Samuel 2007
+# /etc/init/zfs-fuse.conf: zfs-fuse daemon
+# ----------------------------------------
+# This simple SysV init-script replacement works very nicely on my boxen
+# Note: zfs-fus 0.6.9 (maint) is assumed here with respect to various
+# init/shutdown improvements made there. In fact you may want to consider the
+# testing branch
 #
-# This service maintains a ZFS FUSE daemon from the point the system is
-# started until it is shut down again.
+# TIP:
+# ----
+# I usually mount one specific mountpoint in post-start and defer the other
+# mounts/imports (if any) to other upstart jobs for quick startup. YMMV
+#
+# TIP:
+# ----
+# If you have e.g. /home on zfs-fuse, you might want to add ' and started
+# zfs-fuse' to the start condition of gdm
+#
+# CREDITS
+# -------
+# Inspired in part by prior art from Chris Samuel in 2007
+description "zfs-fuse"
+version "0.1 beta"
+author "Seth Heeren <zfs-fuse@sehe.nl>"
 
-# Currently don't start on boot, just use on demand..
+start on runlevel [2345]
+stop on runlevel [!2345]
 
-#start on runlevel 2
-#start on runlevel 3
-stop on runlevel 0
-stop on runlevel 1
-stop on runlevel 6
-
-stop on shutdown
-
-# Before we shutdown ZFS..
-pre-stop script
-	# Unmount ZFS filesystems (if possible)
-	/usr/local/zfs/zfs umount -a
-	sleep 5
-end script
-
-# After we start ZFS..
-post-start script
-	# Mount ZFS filesystems
-	sleep 2
-	/usr/local/zfs/zfs mount -a
-	sleep 2
-end script
+## these stanzas, though documented, don't work on Lucid
+# ulimit core unlimited
+# limit memlock unlimited
+# limit stack unlimited
+env LANG=C
+chdir /
 
 respawn
-exec /usr/local/sbin/zfs-fuse --no-daemon
+kill timeout 12
+oom never
+
+script
+	ulimit -v unlimited
+	ulimit -l unlimited
+	ulimit -s unlimited
+##	to enable core files:
+#	ulimit -c 512000
+	exec /usr/local/sbin/zfs-fuse --no-daemon
+end script
+
+post-start script
+	/usr/local/sbin/zfs mount -a
+end script
+
+pre-stop script
+#	/usr/local/sbin/zfs umount -a
+##	simply trusting zfs-fuse to umount seems to be faster and more reliable
+end script
