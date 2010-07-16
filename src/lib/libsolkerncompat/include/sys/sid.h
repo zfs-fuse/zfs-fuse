@@ -98,15 +98,12 @@ typedef struct credsid {
 } credsid_t;
 
 
-uid_t ksid_getid(ksid_t *ks);
-
-#if 0
 const char *ksid_getdomain(ksid_t *);
 uint_t ksid_getrid(ksid_t *);
 
-int ksid_lookupbyuid(zone_t *, uid_t, ksid_t *);
-int ksid_lookupbygid(zone_t *, gid_t, ksid_t *);
 void ksid_rele(ksid_t *);
+
+uid_t ksid_getid(ksid_t *ks);
 
 credsid_t *kcrsid_alloc(void);
 
@@ -124,13 +121,14 @@ void ksidlist_hold(ksidlist_t *);
 
 ksiddomain_t *ksid_lookupdomain(const char *);
 
-ksidlist_t *kcrsid_gidstosids(zone_t *, int, gid_t *);
-#endif
+#if 0 /* TODO: unimplemented methods */
 
-#define ksid_getdomain(d)    (abort(), NULL)
-#define ksid_getrid(d)       (abort(), 0)
-#define ksid_lookupdomain(d) (abort(), NULL)
-#define ksiddomain_rele(d)   (abort())
+int ksid_lookupbyuid(zone_t *, uid_t, ksid_t *);
+int ksid_lookupbygid(zone_t *, gid_t, ksid_t *);
+
+ksidlist_t *kcrsid_gidstosids(zone_t *, int, gid_t *);
+
+#endif /* unimplemented methods */
 
 #else
 
