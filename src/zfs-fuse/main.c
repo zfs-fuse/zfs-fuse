@@ -155,6 +155,11 @@ static struct option longopts[] = {
 	    NULL,
 	    's'
 	},
+	{ "enable-xattr",
+	  0,
+	  &cf_enable_xattr,
+	  0
+	},
 	{ 0, 0, 0, 0 }
 };
 
@@ -209,6 +214,10 @@ void print_usage(int argc, char *argv[]) {
 		"  --stack-size=size\n"
 		"			Limit the stack size of threads (in kb).\n"
 		"			default : no limit (8 Mb for linux)\n"
+  		"  -x, --enable-xattr\n"
+  		"			Enable support for extended attributes. Not generally \n"
+		"			recommended because it currently has a significant \n"
+		"			performance penalty for many small IOPS\n"
 		"  -h, --help\n"
 		"			Show this usage summary.\n"
 		, progname);
@@ -232,7 +241,7 @@ static void parse_args(int argc, char *argv[])
 
 	optind = 0;
 	optarg = NULL;
-	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:no:u:v:s:", longopts, NULL)) != -1) {
+	while ((retval = getopt_long(argc, argv, "-hp:a:e:m:nxo:u:v:s:", longopts, NULL)) != -1) {
 		switch (retval) {
 			case 1: /* non-option argument passed (due to - in optstring) */
 			case 'h':
@@ -329,6 +338,9 @@ static void parse_args(int argc, char *argv[])
 				stack_size=strtoul(optarg,&detecterror,10)<<10;
 				syslog(LOG_WARNING,"stack size for threads %zd",stack_size);
 				break;
+			case 'x':
+				cf_enable_xattr = 1;
+				break;
 			case 0:
 				break; /* flag is not NULL */
 			default:
@@ -418,6 +430,8 @@ int main(int argc, char *argv[])
 	block_cache = cf_disable_block_cache ? 0 : 1;
 	if (cf_disable_page_cache)
 		syslog(LOG_WARNING,"deprecated option used (disable-page-cache); option no longer has an effect");
+	if (cf_enable_xattr)
+		fprintf(stderr, "%s: Warning: enabling xattr support should only be done when really required; performance will be affected\n", argv[0]);
 
 	/* notice about ARC size */
 	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: " FU64 " MiB", max_arc_size>>20);

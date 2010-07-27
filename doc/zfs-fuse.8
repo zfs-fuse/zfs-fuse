@@ -31,7 +31,7 @@
 zfs-fuse \- ZFS filesystem daemon
 .SH "SYNOPSIS"
 .HP \w'\fBzfs\-fuse\fR\ 'u
-\fBzfs\-fuse\fR [\fB\-\-pidfile\ \fR\fB\fIfilename\fR\fR] [\fB\-\-no\-daemon\fR] [\fB\-\-no\-kstat\-mount\fR] [\fB\-\-disable\-block\-cache\fR] [\fB\-\-disable\-page\-cache\fR] [\fB\-\-fuse\-attr\-timeout\ \fR\fB\fISECONDS\fR\fR] [\fB\-\-fuse\-entry\-timeout\ \fR\fB\fISECONDS\fR\fR] [\fB\-\-log\-uberblocks\fR] [\fB\-\-max\-arc\-size\ \fR\fB\fIMB\fR\fR] [\fB\-\-fuse\-mount\-options\ \fR\fB\fIOPT,OPT,OPT\&.\&.\&.\fR\fR] [\fB\-\-min\-uberblock\-txg\ \fR\fB\fIMIN\fR\fR] [\fB\-\-stack\-size=\fR\fB\fIsize\fR\fR] [\fB\-\-help\fR]
+\fBzfs\-fuse\fR [\fB\-\-pidfile\ \fR\fB\fIfilename\fR\fR] [\fB\-\-no\-daemon\fR] [\fB\-\-no\-kstat\-mount\fR] [\fB\-\-disable\-block\-cache\fR] [(\-\-disable\-page\-cache)] [\fB\-\-fuse\-attr\-timeout\ \fR\fB\fISECONDS\fR\fR] [\fB\-\-fuse\-entry\-timeout\ \fR\fB\fISECONDS\fR\fR] [\fB\-\-log\-uberblocks\fR] [\fB\-\-max\-arc\-size\ \fR\fB\fIMB\fR\fR] [\fB\-\-fuse\-mount\-options\ \fR\fB\fIOPT,OPT,OPT\&.\&.\&.\fR\fR] [\fB\-\-min\-uberblock\-txg\ \fR\fB\fIMIN\fR\fR] [\fB\-\-stack\-size=\fR\fB\fIsize\fR\fR] [\fB\-\-enable\-xattr\fR] [\fB\-\-help\fR]
 .SH "DESCRIPTION"
 .PP
 This manual page documents briefly the
@@ -81,7 +81,7 @@ Enable direct I/O for disk operations\&. Completely disables caching reads and w
 .PP
 \fB\-\-disable\-page\-cache\fR
 .RS 4
-Disable the page cache for files residing within ZFS filesystems\&. Not recommended as it slows down I/O operations considerably\&.
+(obsolete; option no longer has any effect)
 .RE
 .PP
 \fB\-a \fR\fB\fISECONDS\fR\fR \fB\-\-fuse\-attr\-timeout \fR\fB\fISECONDS\fR\fR
@@ -131,6 +131,11 @@ Disable the high level prefetch cache in zfs\&. This thing can eat up to 150 Mb 
 Limit the stack
 \fIsize\fR
 of threads (in kb)\&. default : no limit (8 Mb for linux)
+.RE
+.PP
+\fB\-x\fR \fB\-\-enable\-xattr\fR
+.RS 4
+Enable support for extended attributes\&. Not generally recommended because it currently has a significant performance penalty for many small IOPS
 .RE
 .PP
 \fB\-h\fR \fB\-\-help\fR
