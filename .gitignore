@@ -28,3 +28,4 @@ src/lib/libumem/configure.lineno
 src/lib/libumem/libtool
 src/lib/libumem/stamp-h1
 src/lib/libumem/umem.spec
+tags
