@@ -280,6 +280,31 @@ void do_exit()
 uint32_t mounted = 0;
 #endif
 
+static int detect_fuseoption(const char* options, const char* option)
+{
+	if ((!options) || (!option))
+		return 0;
+	ASSERT(NULL == strchr(option, '%'));
+
+	char* spec = 0;
+	VERIFY(asprintf(&spec, "%s%%n", option));
+	ASSERT(spec);
+
+	int pos = -1;
+	int detected = 0;
+	char* tmp = strdup(options);
+	for (char* tok=strtok(tmp, ","); tok && !detected; tok=strtok(NULL, ","))
+		if (sscanf(tok, spec, &pos) >= 0 && (-1!=pos))
+			detected = 1;
+
+	free(tmp);
+	free(spec);
+
+	if (detected)
+		fprintf(stderr, "detected: %s\n", option);
+	return detected;
+}
+
 int do_mount(char *spec, char *dir, int mflag, char *opt)
 {
 	VERIFY(mflag == 0);
@@ -348,8 +373,7 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 		VERIFY(do_umount(vfs, B_FALSE) == 0);
 		return ENOMEM;
 	}
-	if (strstr(fuse_opts,"default_permissions"))
-		has_default_perm = 1;
+	has_default_perm = detect_fuseoption(fuse_opts,"default_permissions");
 	free(fuse_opts);
 
 	struct fuse_chan *ch = fuse_mount(dir, &args);
