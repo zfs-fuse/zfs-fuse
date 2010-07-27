@@ -18,7 +18,8 @@ zfs-prefetch-disable
 # something specific about ARC.
 # disable-block-cache
 
-# disable-page-cache : uncomment this to disable fuse page cache.
+# OBSOLETE: disable-page-cache
+# uncomment this to disable fuse page cache.
 # This cache allows fuse to cache high level read requests
 # there is no reason to disable it usually, except for testing.
 # disable-page-cache
