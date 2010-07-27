@@ -24,6 +24,11 @@ zfs-prefetch-disable
 # there is no reason to disable it usually, except for testing.
 # disable-page-cache
 
+# enable-xattr: uncomment this to enable support for extended attributes
+# Not generally recommended because it currently has a significant performance
+# penalty for many small IOPS
+# enable-xattr
+
 # fuse-*-timeout : sets timeout for caching fuse attributes in kernel (in
 # seconds)
 # These 2 values have a big impact on performance for small io operations
