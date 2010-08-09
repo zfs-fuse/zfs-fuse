@@ -3410,6 +3410,10 @@ zfs_rollback(zfs_handle_t *zhp, zfs_handle_t *snap, boolean_t force)
 		}
 		zfs_close(zhp);
 	}
+	if (!err) {
+	    /* remount the fs to clear page cache */
+	    zfs_remount(zhp);
+	}
 	return (err);
 }
 
