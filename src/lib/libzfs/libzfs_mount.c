@@ -268,6 +268,19 @@ zfs_is_mountable(zfs_handle_t *zhp, char *buf, size_t buflen,
 	return (B_TRUE);
 }
 
+/* zfs_remount: called only from rollback to clear the page cache for now */
+void
+zfs_remount(zfs_handle_t *zhp)
+{
+	char mountpoint[ZFS_MAXPROPLEN];
+	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint), NULL))
+		return;
+	char cmd[3072];
+	snprintf(cmd,3072,"mount -o remount \"%s\" \"%s\"",zfs_get_name(zhp),
+		mountpoint);
+	system(cmd);
+}
+
 /*
  * Mount the given filesystem.
  */
