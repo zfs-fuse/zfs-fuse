@@ -73,7 +73,7 @@ and docbook-xsl in your Build-Depends control field.
       <arg><option>--no-daemon</option></arg>
       <arg><option>--no-kstat-mount</option></arg>
       <arg><option>--disable-block-cache</option></arg>
-      <arg><option>--disable-page-cache</option></arg>
+      <arg>(--disable-page-cache)</arg>
       <arg><option>--fuse-attr-timeout <replaceable>SECONDS</replaceable></option></arg>
       <arg><option>--fuse-entry-timeout <replaceable>SECONDS</replaceable></option></arg>
       <arg><option>--log-uberblocks</option></arg>
@@ -160,11 +160,7 @@ and docbook-xsl in your Build-Depends control field.
               <option>--disable-page-cache</option>
           </term>
           <listitem>
-              <para>
-                  Disable the page cache for files residing within
-                  ZFS filesystems.  Not recommended as it slows down
-                  I/O operations considerably.
-              </para>
+              <para>(obsolete; option no longer has any effect)</para>
           </listitem>
       </varlistentry>
       <varlistentry>
@@ -322,7 +318,7 @@ and docbook-xsl in your Build-Depends control field.
   <refsect1>
     <title>SEE ALSO</title>
 
-    <para>zfs (1), zpool (1), zdb(1), zstreamdump(1), /etc/zfs/zfsrc</para>
+    <para>zfs (8), zpool (8), zdb(8), zstreamdump(8), /etc/zfs/zfsrc</para>
 
   </refsect1>
   <refsect1>

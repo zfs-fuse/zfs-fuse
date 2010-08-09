@@ -10,8 +10,7 @@ Homepage: http://zfs-fuse.net
 Package: zfs-fuse
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, fuse-utils, lsb-base
-Recommends: nfs-kernel-server, bash-completion
-Suggests: kpartx
+Suggests: nfs-kernel-server, kpartx
 Description: ZFS on FUSE
  ZFS is an advanced filesystem from Sun Microsystems, originally developed
  for solaris. It provides a number of advanced features, such as live

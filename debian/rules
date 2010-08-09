@@ -1,17 +1,11 @@
 #!/usr/bin/make -f
-# -*- makefile -*-
-# Sample debian/rules that uses debhelper.
-# This file was originally written by Joey Hess and Craig Small.
-# As a special exception, when this file is copied by dh-make into a
-# dh-make output file, you may use that output file without restriction.
-# This special exception was added by Craig Small in version 0.37 of dh-make.
 
 SCONSFLAGS=--no-cache -C src debug=1
 
 ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
-	OPTIM = -O0
+	SCONSFLAGS+= optim=-O0
 else
-	OPTIM = -O2
+	SCONSFLAGS+= optim=-O2
 endif
 
 override_dh_auto_build:
@@ -26,13 +20,11 @@ override_dh_auto_install:
 	install -m 644 contrib/zfsrc $(CURDIR)/debian/zfs-fuse/etc/zfs
 	install -m 644 -T contrib/zfs_completion.bash $(CURDIR)/debian/zfs-fuse/etc/bash_completion.d/zfs-fuse
 
-install: install-stamp
+override_dh_installchangelogs:
+	dh_installchangelogs CHANGES
 
-install-stamp: build-stamp
-	dh_testdir
-	dh_testroot
-	dh_clean -k 
-	dh_installdirs
+override_dh_installinit:
+	dh_installinit --no-start -- start 38 S . stop 39 0 6 .
 
 %:
 	dh $@

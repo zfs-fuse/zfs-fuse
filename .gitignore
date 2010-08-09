@@ -10,6 +10,7 @@ src/cmd/zdb/zdb
 src/cmd/zfs/zfs
 src/cmd/zpool/zpool
 src/cmd/ztest/ztest
+src/cmd/zstreamdump/zstreamdump
 
 src/lib/libumem/*.l[ao]
 src/lib/libumem/umem_test
