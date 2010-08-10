@@ -158,7 +158,7 @@ static struct option longopts[] = {
 	{ "enable-xattr",
 	  0,
 	  &cf_enable_xattr,
-	  0
+	  1
 	},
 	{ 0, 0, 0, 0 }
 };
@@ -426,6 +426,7 @@ int main(int argc, char *argv[])
 	zfs_vdev_cache_size = 10ULL << 20;         /* 10MB */
 	read_cfg();
 	parse_args(argc, argv);
+	init_xattr();
 	/* we invert the options positively, since they both default to enabled */
 	block_cache = cf_disable_block_cache ? 0 : 1;
 	if (cf_disable_page_cache)

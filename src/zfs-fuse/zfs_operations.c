@@ -246,11 +246,6 @@ static int int_zfs_enter(zfsvfs_t *zfsvfs) {
 
 static void zfsfuse_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 {
-	if (!cf_enable_xattr)
-	{
-		fuse_reply_err(req, ENOSYS);
-		return;
-	}
 	union {
 		char buf[DIRENT64_RECLEN(MAXNAMELEN)];
 		struct dirent64 dirent;
@@ -329,11 +324,6 @@ out:
 
 static void zfsfuse_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name, const char *value, size_t size, int flags)
 {
-	if (!cf_enable_xattr)
-	{
-		fuse_reply_err(req, ENOSYS);
-		return;
-	}
     MY_LOOKUP_XATTR();
     // Now the idea is to create a file inside the xattr directory with the
     // wanted attribute.
@@ -383,11 +373,6 @@ out:
 static void zfsfuse_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
 	size_t size)
 {
-	if (!cf_enable_xattr)
-	{
-		fuse_reply_err(req, ENOSYS);
-		return;
-	}
     MY_LOOKUP_XATTR();
     vnode_t *new_vp = NULL;
     error = VOP_LOOKUP(vp, (char *) name, &new_vp, NULL, 0, NULL, &cred, NULL, NULL, NULL);  
@@ -454,11 +439,6 @@ out:
 
 static void zfsfuse_removexattr(fuse_req_t req, fuse_ino_t ino, const char *name)
 {
-	if (!cf_enable_xattr)
-	{
-		fuse_reply_err(req, ENOSYS);
-		return;
-	}
     MY_LOOKUP_XATTR();
     error = VOP_REMOVE(vp, (char *) name, &cred, NULL, 0);
 
@@ -1878,8 +1858,19 @@ struct fuse_lowlevel_ops zfs_operations =
 	.access     = zfsfuse_access_helper,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
-	.listxattr  = zfsfuse_listxattr,
-	.setxattr   = zfsfuse_setxattr,
-	.getxattr   = zfsfuse_getxattr,
-	.removexattr= zfsfuse_removexattr,
 };
+
+void init_xattr() {
+    if (cf_enable_xattr) {
+	zfs_operations.listxattr  = zfsfuse_listxattr;
+	zfs_operations.setxattr   = zfsfuse_setxattr;
+	zfs_operations.getxattr   = zfsfuse_getxattr;
+	zfs_operations.removexattr= zfsfuse_removexattr;
+    } else {
+	zfs_operations.listxattr  = NULL;
+	zfs_operations.setxattr   = NULL;
+	zfs_operations.getxattr   = NULL;
+	zfs_operations.removexattr= NULL;
+    }
+}
+
