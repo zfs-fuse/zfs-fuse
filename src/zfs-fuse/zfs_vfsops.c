@@ -1065,6 +1065,7 @@ zfs_set_fuid_feature(zfsvfs_t *zfsvfs)
 		vfs_set_feature(zfsvfs->z_vfs, VFSFT_ACEMASKONACCESS);
 		vfs_set_feature(zfsvfs->z_vfs, VFSFT_ACLONCREATE);
 		vfs_set_feature(zfsvfs->z_vfs, VFSFT_ACCESS_FILTER);
+		vfs_set_feature(zfsvfs->z_vfs, VFSFT_REPARSE);
 	}
 }
 
