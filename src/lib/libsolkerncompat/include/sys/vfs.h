@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Copyright 2006 Ricardo Correia.
  * Use is subject to license terms.
  */
@@ -138,6 +138,7 @@ typedef uint64_t        vfs_feature_t;
 #define	VFSFT_SYSATTR_VIEWS	0x100000040	/* Supports sysattr view i/f */
 #define	VFSFT_ACCESS_FILTER	0x100000080	/* dirents filtered by access */
 #define	VFSFT_REPARSE		0x100000100	/* Supports reparse point */
+#define	VFSFT_ZEROCOPY_SUPPORTED	0x100000200
 
 
 /*
