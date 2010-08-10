@@ -73,7 +73,18 @@ while (1) {
 		    $map{$f1} = $list[1];
 		    printf("choosing kerncompat option : $f1\n");
 		} else {
-		    die "new map problem $f1 -> @list (using $file)\n";
+		    my ($dir) = $f1 =~ /^(.+)\//;
+		    my %dirs =
+		    (
+			"usr/src/uts/common/fs/zfs" => "src/lib/libzpool",
+			"usr/src/uts/common/fs/zfs/sys" => "src/lib/libzpool/include/sys",
+		    );
+		    if ($dirs{$dir}) {
+			$map{$f1} = $dirs{$dir}."/$file";
+			print "mapping for new file $map{$f1}\n";
+		    } else {
+			die "new map problem $f1 -> @list (using $file) dir $dir\n";
+		    }
 		}
 	    }
 	} 
