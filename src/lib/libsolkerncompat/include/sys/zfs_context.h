@@ -73,6 +73,7 @@ extern "C" {
 
 extern char *kmem_asprintf(const char *fmt, ...);
 #define	strfree(str) kmem_free((str), strlen(str)+1)
+#define km_strdup(str) strcpy(kmem_alloc(strlen(str)+1,KM_SLEEP),str)
 
 #ifdef	__cplusplus
 }

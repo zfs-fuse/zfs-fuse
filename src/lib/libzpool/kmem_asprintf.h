@@ -6,6 +6,7 @@
  * strfree in a system lib. I'll add them here from zfs_context, and let's
  * hope they won't be needed elsewhere... */
 #define	strfree(str) kmem_free((str), strlen(str)+1)
+#define km_strdup(str) strcpy(kmem_alloc(strlen(str)+1,KM_SLEEP),str)
 
 extern char *kmem_asprintf(const char *fmt, ...);
 #endif
