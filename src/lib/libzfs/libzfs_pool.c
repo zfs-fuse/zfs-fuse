@@ -1228,7 +1228,7 @@ zpool_export_common(zpool_handle_t *zhp, boolean_t force, boolean_t hardforce)
 	zc.zc_cookie = force;
 	zc.zc_guid = hardforce;
 
-#define ZFSFUSE_BUSY_SLEEP_FACTOR 50000 // .5 seconds was chosen ater some tuning
+#define ZFSFUSE_BUSY_SLEEP_FACTOR 500000 // .5 seconds was chosen ater some tuning
 	int retry = 0;
 	int ret;
 	while ((ret = zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_POOL_EXPORT, &zc)) == EBUSY
