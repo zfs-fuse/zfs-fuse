@@ -212,10 +212,10 @@ static void get_value(dir_t *dir, fuse_ino_t ino) {
 	sprintf(kstat_str,"%d\n",file->value.i32);
 	break;
     case KSTAT_DATA_INT64:
-	sprintf(kstat_str,FI64 "\n",file->value.i64);
+	sprintf(kstat_str,"%" FI64 "\n",file->value.i64);
 	break;
     case KSTAT_DATA_UINT64:
-	sprintf(kstat_str,FU64 "\n",file->value.ui64);
+	sprintf(kstat_str,"%" FU64 "\n",file->value.ui64);
 	break;
     default:
 	sprintf(kstat_str,"data type %d not handled\n",file->data_type);

@@ -435,7 +435,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "%s: Warning: enabling xattr support should only be done when really required; performance will be affected\n", argv[0]);
 
 	/* notice about ARC size */
-	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: " FU64 " MiB", max_arc_size>>20);
+	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: %" FU64 " MiB", max_arc_size>>20);
 	else 			syslog(LOG_NOTICE,"ARC caching: maximum ARC size: compiled-in default");
 
 	if (!block_cache) /* direct IO enabled */

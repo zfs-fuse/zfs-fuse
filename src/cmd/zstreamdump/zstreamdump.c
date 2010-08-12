@@ -244,14 +244,14 @@ main(int argc, char *argv[])
 			    pcksum)) {
 				(void) printf("Expected checksum differs from "
 				    "checksum in stream.\n");
-				(void) printf("Expected checksum = "
-				    FX64 "/" FX64 "/" FX64 "/" FX64 "\n",
+				(void) printf("Expected checksum = %"
+				    FX64 "/%" FX64 "/%" FX64 "/%" FX64 "\n",
 				    pcksum.zc_word[0],
 				    pcksum.zc_word[1],
 				    pcksum.zc_word[2],
 				    pcksum.zc_word[3]);
 			}
-			(void) printf("END checksum = " FX64 "/" FX64 "/" FX64 "/" FX64 "\n",
+			(void) printf("END checksum = %" FX64 "/%" FX64 "/%" FX64 "/%" FX64 "\n",
 			    drre->drr_checksum.zc_word[0],
 			    drre->drr_checksum.zc_word[1],
 			    drre->drr_checksum.zc_word[2],

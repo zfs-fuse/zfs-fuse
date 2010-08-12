@@ -712,7 +712,7 @@ dsl_prop_set_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	spa_history_internal_log((source == ZPROP_SRC_NONE ||
 	    source == ZPROP_SRC_INHERITED) ? LOG_DS_INHERIT :
 	    LOG_DS_PROPSET, ds->ds_dir->dd_pool->dp_spa, tx, cr,
-	    "%s=%s dataset = " FU64, propname,
+	    "%s=%s dataset = %" FU64, propname,
 	    (valstr == NULL ? "" : valstr), ds->ds_object);
 
 	if (tbuf != NULL)

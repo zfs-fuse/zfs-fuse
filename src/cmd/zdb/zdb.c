@@ -788,7 +788,7 @@ dump_history(spa_t *spa)
 
 			(void) snprintf(internalstr,
 			    sizeof (internalstr),
-			    "[internal %s txg:" FI64 "] %s",
+			    "[internal %s txg:%" FI64 "] %s",
 			    hist_event_table[ievent], txg,
 			    intstr);
 			cmd = internalstr;

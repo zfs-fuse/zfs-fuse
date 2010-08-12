@@ -2005,7 +2005,7 @@ ztest_od_init(ztest_od_t *od, uint64_t id, char *tag, uint64_t index,
 	od->od_blocksize = 0;
 	od->od_gen = 0;
 
-	(void) snprintf(od->od_name, sizeof (od->od_name), "%s(" FI64 ")[" FU64 "]",
+	(void) snprintf(od->od_name, sizeof (od->od_name), "%s(%" FI64 ")[%" FU64 "]",
 	    tag, id, index);
 }
 
@@ -3008,11 +3008,11 @@ ztest_dsl_dataset_cleanup(char *osname, uint64_t id)
 	char snap3name[MAXNAMELEN];
 	int error;
 
-	(void) snprintf(snap1name, MAXNAMELEN, "%s@s1_" FU64, osname, id);
-	(void) snprintf(clone1name, MAXNAMELEN, "%s/c1_" FU64, osname, id);
-	(void) snprintf(snap2name, MAXNAMELEN, "%s@s2_" FU64, clone1name, id);
-	(void) snprintf(clone2name, MAXNAMELEN, "%s/c2_" FU64, osname, id);
-	(void) snprintf(snap3name, MAXNAMELEN, "%s@s3_" FU64, clone1name, id);
+	(void) snprintf(snap1name, MAXNAMELEN, "%s@s1_%" FU64, osname, id);
+	(void) snprintf(clone1name, MAXNAMELEN, "%s/c1_%" FU64, osname, id);
+	(void) snprintf(snap2name, MAXNAMELEN, "%s@s2_%" FU64, clone1name, id);
+	(void) snprintf(clone2name, MAXNAMELEN, "%s/c2_%" FU64, osname, id);
+	(void) snprintf(snap3name, MAXNAMELEN, "%s@s3_%" FU64, clone1name, id);
 
 	error = dmu_objset_destroy(clone2name, B_FALSE);
 	if (error && error != ENOENT)
@@ -3052,11 +3052,11 @@ ztest_dsl_dataset_promote_busy(ztest_ds_t *zd, uint64_t id)
 
 	ztest_dsl_dataset_cleanup(osname, id);
 
-	(void) snprintf(snap1name, MAXNAMELEN, "%s@s1_" FU64, osname, id);
-	(void) snprintf(clone1name, MAXNAMELEN, "%s/c1_" FU64, osname, id);
-	(void) snprintf(snap2name, MAXNAMELEN, "%s@s2_" FU64, clone1name, id);
-	(void) snprintf(clone2name, MAXNAMELEN, "%s/c2_" FU64, osname, id);
-	(void) snprintf(snap3name, MAXNAMELEN, "%s@s3_" FU64, clone1name, id);
+	(void) snprintf(snap1name, MAXNAMELEN, "%s@s1_%" FU64, osname, id);
+	(void) snprintf(clone1name, MAXNAMELEN, "%s/c1_%" FU64, osname, id);
+	(void) snprintf(snap2name, MAXNAMELEN, "%s@s2_%" FU64, clone1name, id);
+	(void) snprintf(clone2name, MAXNAMELEN, "%s/c2_%" FU64, osname, id);
+	(void) snprintf(snap3name, MAXNAMELEN, "%s@s3_%" FU64, clone1name, id);
 
 	error = dmu_objset_snapshot(osname, strchr(snap1name, '@')+1,
 	    NULL, B_FALSE);
@@ -3296,11 +3296,11 @@ ztest_dmu_read_write(ztest_ds_t *zd, uint64_t id)
 		ASSERT((uintptr_t)bigT - (uintptr_t)bigbuf < bigsize);
 
 		if (pack->bw_txg > txg)
-			fatal(0, "future leak: got " FX64 ", open txg is %lx",
+			fatal(0, "future leak: got %" FX64 ", open txg is %lx",
 			    pack->bw_txg, txg);
 
 		if (pack->bw_data != 0 && pack->bw_index != n + i)
-			fatal(0, "wrong index: got " FX64 ", wanted %lx+%lx",
+			fatal(0, "wrong index: got %" FX64 ", wanted %lx+%lx",
 			    pack->bw_index, n, i);
 
 		if (bcmp(pack, bigH, sizeof (bufwad_t)) != 0)
@@ -3328,8 +3328,8 @@ ztest_dmu_read_write(ztest_ds_t *zd, uint64_t id)
 
 	if (freeit) {
 		if (zopt_verbose >= 7) {
-			(void) printf("freeing offset " FX64 " size " FX64
-			    " txg " FX64 "\n",
+			(void) printf("freeing offset %" FX64 " size %" FX64
+			    " txg %" FX64 "\n",
 			    bigoff,
 			    bigsize,
 			    txg);
@@ -3337,8 +3337,8 @@ ztest_dmu_read_write(ztest_ds_t *zd, uint64_t id)
 		VERIFY(0 == dmu_free_range(os, bigobj, bigoff, bigsize, tx));
 	} else {
 		if (zopt_verbose >= 7) {
-			(void) printf("writing offset " FX64 " size " FX64
-			    " txg " FX64 "\n",
+			(void) printf("writing offset %" FX64 " size %" FX64
+			    " txg %" FX64 "\n",
 			    bigoff,
 			    bigsize,
 			    txg);
@@ -3398,11 +3398,11 @@ compare_and_update_pbbufs(uint64_t s, bufwad_t *packbuf, bufwad_t *bigbuf,
 		ASSERT((uintptr_t)bigT - (uintptr_t)bigbuf < bigsize);
 
 		if (pack->bw_txg > txg)
-			fatal(0, "future leak: got " FX64 ", open txg is " FX64,
+			fatal(0, "future leak: got %" FX64 ", open txg is %" FX64,
 			    pack->bw_txg, txg);
 
 		if (pack->bw_data != 0 && pack->bw_index != n + i)
-			fatal(0, "wrong index: got " FX64 ", wanted %lx+" FX64,
+			fatal(0, "wrong index: got %" FX64 ", wanted %lx+%" FX64,
 			    pack->bw_index, n, i);
 
 		if (bcmp(pack, bigH, sizeof (bufwad_t)) != 0)
@@ -3575,8 +3575,8 @@ ztest_dmu_read_write_zcopy(ztest_ds_t *zd, uint64_t id)
 		 */
 		dmu_write(os, packobj, packoff, packsize, packbuf, tx);
 		if (zopt_verbose >= 7) {
-			(void) printf("writing offset " FX64 " size " FX64
-			    " txg " FX64 "\n",
+			(void) printf("writing offset %" FX64 " size %" FX64
+			    " txg %" FX64 "\n",
 			    bigoff,
 			    bigsize,
 			    txg);
@@ -3765,8 +3765,8 @@ ztest_zap(ztest_ds_t *zd, uint64_t id)
 	ints = MAX(ZTEST_ZAP_MIN_INTS, object % ZTEST_ZAP_MAX_INTS);
 
 	prop = ztest_random(ZTEST_ZAP_MAX_PROPS);
-	(void) sprintf(propname, "prop_" FU64, prop);
-	(void) sprintf(txgname, "txg_" FU64, prop);
+	(void) sprintf(propname, "prop_%" FU64, prop);
+	(void) sprintf(txgname, "txg_%" FU64, prop);
 	bzero(value, sizeof (value));
 	last_txg = 0;
 
@@ -3811,7 +3811,7 @@ ztest_zap(ztest_ds_t *zd, uint64_t id)
 		return;
 
 	if (last_txg > txg)
-		fatal(0, "zap future leak: old %lu new " FU64, last_txg, txg);
+		fatal(0, "zap future leak: old %lu new %" FU64, last_txg, txg);
 
 	for (i = 0; i < ints; i++)
 		value[i] = txg + object + i;
@@ -3827,8 +3827,8 @@ ztest_zap(ztest_ds_t *zd, uint64_t id)
 	 * Remove a random pair of entries.
 	 */
 	prop = ztest_random(ZTEST_ZAP_MAX_PROPS);
-	(void) sprintf(propname, "prop_" FU64, prop);
-	(void) sprintf(txgname, "txg_" FU64, prop);
+	(void) sprintf(propname, "prop_%" FU64, prop);
+	(void) sprintf(txgname, "txg_%" FU64, prop);
 
 	error = zap_length(os, object, txgname, &zl_intsize, &zl_ints);
 
@@ -3875,7 +3875,7 @@ ztest_fzap(ztest_ds_t *zd, uint64_t id)
 		dmu_tx_t *tx;
 		int error;
 
-		(void) snprintf(name, sizeof (name), "fzap-" FU64 "-" FU64,
+		(void) snprintf(name, sizeof (name), "fzap-%" FU64 "-%" FU64,
 		    id, value);
 
 		tx = dmu_tx_create(os);
@@ -4271,10 +4271,10 @@ ztest_dmu_snapshot_hold(ztest_ds_t *zd, uint64_t id)
 
 	dmu_objset_name(os, osname);
 
-	(void) snprintf(snapname, 100, "sh1_" FU64, id);
+	(void) snprintf(snapname, 100, "sh1_%" FU64, id);
 	(void) snprintf(fullname, 100, "%s@%s", osname, snapname);
-	(void) snprintf(clonename, 100, "%s/ch1_" FU64, osname, id);
-	(void) snprintf(tag, 100, "tag_" FU64, id);
+	(void) snprintf(clonename, 100, "%s/ch1_%" FU64, osname, id);
+	(void) snprintf(tag, 100, "tag_%" FU64, id);
 
 	/*
 	 * Clean up from any previous run.
@@ -5018,7 +5018,7 @@ ztest_dataset_open(ztest_shared_t *zs, int d)
 
 	if (zilog->zl_header->zh_claim_lr_seq != 0 &&
 	    zilog->zl_header->zh_claim_lr_seq < committed_seq)
-		fatal(0, "missing log records: claimed " FU64 " < committed " FU64,
+		fatal(0, "missing log records: claimed %" FU64 " < committed %" FU64,
 		    zilog->zl_header->zh_claim_lr_seq, committed_seq);
 
 	ztest_dataset_dirobj_verify(zd);
@@ -5028,7 +5028,7 @@ ztest_dataset_open(ztest_shared_t *zs, int d)
 	ztest_dataset_dirobj_verify(zd);
 
 	if (zopt_verbose >= 6)
-		(void) printf("%s replay " FU64 " blocks, " FU64 " records, seq " FU64 "\n",
+		(void) printf("%s replay %" FU64 " blocks, %" FU64 " records, seq %" FU64 "\n",
 		    zd->zd_name,
 		    zilog->zl_parse_blk_count,
 		    zilog->zl_parse_lr_count,
@@ -5038,7 +5038,7 @@ ztest_dataset_open(ztest_shared_t *zs, int d)
 
 	if (zilog->zl_replaying_seq != 0 &&
 	    zilog->zl_replaying_seq < committed_seq)
-		fatal(0, "missing log records: replayed " FU64 " < committed " FU64,
+		fatal(0, "missing log records: replayed %" FU64 " < committed %" FU64,
 		    zilog->zl_replaying_seq, committed_seq);
 
 	return (0);
@@ -5406,8 +5406,8 @@ main(int argc, char **argv)
 	    PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
 
 	if (zopt_verbose >= 1) {
-		(void) printf("" FU64 " vdevs, %d datasets, %d threads,"
-		    " " FU64 " seconds...\n",
+		(void) printf("%" FU64 " vdevs, %d datasets, %d threads,"
+		    " %" FU64 " seconds...\n",
 		    zopt_vdevs, zopt_datasets, zopt_threads,
 		    zopt_time);
 	}
@@ -5504,7 +5504,7 @@ main(int argc, char **argv)
 			print_time(zs->zs_proc_stop - now, timebuf);
 			nicenum(zs->zs_space, numbuf);
 
-			(void) printf("Pass %3d, %8s, %3llu ENOSPC, "
+			(void) printf("Pass %3d, %8s, %3" FU64  " ENOSPC, "
 			    "%4.1f%% of %5s used, %3.0f%% done, %8s to go\n",
 			    iters,
 			    WIFEXITED(status) ? "Complete" : "SIGKILL",
@@ -5527,7 +5527,7 @@ main(int argc, char **argv)
 				zi = &zs->zs_info[f];
 				print_time(zi->zi_call_time, timebuf);
 				(void) dladdr((void *)zi->zi_func, &dli);
-				(void) printf("%7llu %9s   %s\n",
+				(void) printf("%7" FU64 " %9s   %s\n",
 				    zi->zi_call_count, timebuf,
 				    dli.dli_sname);
 			}

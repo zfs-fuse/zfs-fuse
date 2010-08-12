@@ -81,7 +81,7 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	if (error == ENOENT && vd->vdev_guid) {
 	    // we didn't find it, let's try the uuid then...
 	    char path[64];
-	    sprintf(path,"/dev/disk/by-uuid/" FX64_UP,vd->vdev_guid);
+	    sprintf(path,"/dev/disk/by-uuid/%" FX64_UP,vd->vdev_guid);
 	    error = vn_openat(path + 1, UIO_SYSSPACE,
 		    spa_mode(vd->vdev_spa) | FOFFMAX, 0, &vp, 0, 0, rootdir, -1);
 	}

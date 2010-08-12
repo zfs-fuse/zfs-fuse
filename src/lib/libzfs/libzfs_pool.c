@@ -1314,14 +1314,14 @@ zpool_rewind_exclaim(libzfs_handle_t *hdl, const char *name, boolean_t dryrun,
 		}
 		if (loss > 120) {
 			(void) printf(dgettext(TEXT_DOMAIN,
-			    "%s approximately " FI64 " "),
+			    "%s approximately %" FI64 " "),
 			    dryrun ? "Would discard" : "Discarded",
 			    (loss + 30) / 60);
 			(void) printf(dgettext(TEXT_DOMAIN,
 			    "minutes of transactions.\n"));
 		} else if (loss > 0) {
 			(void) printf(dgettext(TEXT_DOMAIN,
-			    "%s approximately " FI64 " "),
+			    "%s approximately %" FI64 " "),
 			    dryrun ? "Would discard" : "Discarded", loss);
 			(void) printf(dgettext(TEXT_DOMAIN,
 			    "seconds of transactions.\n"));
@@ -1373,11 +1373,11 @@ zpool_explain_recover(libzfs_handle_t *hdl, const char *name, int reason,
 
 	if (loss > 120) {
 		(void) printf(dgettext(TEXT_DOMAIN,
-		    "Approximately " FI64 " minutes of data\n"
+		    "Approximately %" FI64 " minutes of data\n"
 		    "\tmust be discarded, irreversibly.  "), (loss + 30) / 60);
 	} else if (loss > 0) {
 		(void) printf(dgettext(TEXT_DOMAIN,
-		    "Approximately " FI64 " seconds of data\n"
+		    "Approximately %" FI64 " seconds of data\n"
 		    "\tmust be discarded, irreversibly.  "), loss);
 	}
 	if (edata != 0 && edata != UINT64_MAX) {
