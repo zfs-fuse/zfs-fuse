@@ -63,23 +63,29 @@
 #include <syslog.h>
 
 #ifdef	_KERNEL
+#include <sys/callb.h>
 #include <sys/zone.h>
 #endif	/* _KERNEL */
 
 #include "zfs_prop.h"
 #include "zfs_comutil.h"
+#include <pthread.h>
+
+/* zfs-fuse : curproc is disabled everywhere, it doesn't make much sense
+ * in zfs-fuse where all the requests are always processed by the same process
+ */
 
 enum zti_modes {
 	zti_mode_fixed,			/* value is # of threads (min 1) */
 	zti_mode_online_percent,	/* value is % of online CPUs */
-	zti_mode_tune,			/* fill from zio_taskq_tune_* */
+	zti_mode_batch,			/* cpu-intensive; value is ignored */
 	zti_mode_null,			/* don't create a taskq */
 	zti_nmodes
 };
 
 #define	ZTI_FIX(n)	{ zti_mode_fixed, (n) }
 #define	ZTI_PCT(n)	{ zti_mode_online_percent, (n) }
-#define	ZTI_TUNE	{ zti_mode_tune, 0 }
+#define	ZTI_BATCH	{ zti_mode_batch, 0 }
 #define	ZTI_NULL	{ zti_mode_null, 0 }
 
 #define	ZTI_ONE		ZTI_FIX(1)
@@ -90,7 +96,7 @@ typedef struct zio_taskq_info {
 } zio_taskq_info_t;
 
 static const char *const zio_taskq_types[ZIO_TASKQ_TYPES] = {
-		"issue", "issue_high", "intr", "intr_high"
+	"issue", "issue_high", "intr", "intr_high"
 };
 
 /*
@@ -100,18 +106,29 @@ static const char *const zio_taskq_types[ZIO_TASKQ_TYPES] = {
 const zio_taskq_info_t zio_taskqs[ZIO_TYPES][ZIO_TASKQ_TYPES] = {
 	/* ISSUE	ISSUE_HIGH	INTR		INTR_HIGH */
 	{ ZTI_ONE,	ZTI_NULL,	ZTI_ONE,	ZTI_NULL },
-	{ ZTI_FIX(8),	ZTI_NULL,	ZTI_TUNE,	ZTI_NULL },
-	{ ZTI_TUNE,	ZTI_FIX(5),	ZTI_FIX(8),	ZTI_FIX(5) },
+	{ ZTI_FIX(8),	ZTI_NULL,	ZTI_BATCH,	ZTI_NULL },
+	{ ZTI_BATCH,	ZTI_FIX(5),	ZTI_FIX(8),	ZTI_FIX(5) },
 	{ ZTI_FIX(10),	ZTI_NULL,	ZTI_FIX(10),	ZTI_NULL },
 	{ ZTI_ONE,	ZTI_NULL,	ZTI_ONE,	ZTI_NULL },
 	{ ZTI_ONE,	ZTI_NULL,	ZTI_ONE,	ZTI_NULL },
 };
 
-enum zti_modes zio_taskq_tune_mode = zti_mode_online_percent;
-uint_t zio_taskq_tune_value = 80;	/* #threads = 80% of # online CPUs */
-
 static void spa_sync_props(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx);
 static boolean_t spa_has_active_shared_spare(spa_t *spa);
+
+uint_t		zio_taskq_batch_pct = 100;	/* 1 thread per cpu in pset */
+id_t		zio_taskq_psrset_bind = PS_NONE;
+boolean_t	zio_taskq_sysdc = B_TRUE;	/* use SDC scheduling class */
+uint_t		zio_taskq_basedc = 80;		/* base duty cycle */
+
+boolean_t	spa_create_process = B_TRUE;	/* no process ==> no sysdc */
+
+/*
+ * This (illegal) pool name is used when temporarily importing a spa_t in order
+ * to get the vdev stats associated with the imported devices.
+ */
+#define	TRYIMPORT_NAME	"$import"
+
 static int spa_load_impl(spa_t *spa, uint64_t, nvlist_t *config,
     spa_load_state_t state, spa_import_type_t type, boolean_t mosconfig,
     char **ereport);
@@ -587,24 +604,59 @@ spa_get_errlists(spa_t *spa, avl_tree_t *last, avl_tree_t *scrub)
 	    offsetof(spa_error_entry_t, se_avl));
 }
 
-/*
- * Activate an uninitialized pool.
- */
-static void
-spa_activate(spa_t *spa, int mode)
+static taskq_t *
+spa_taskq_create(spa_t *spa, const char *name, enum zti_modes mode,
+    uint_t value)
 {
-	int error;
-	ASSERT(spa->spa_state == POOL_STATE_UNINITIALIZED);
+	uint_t flags = TASKQ_PREPOPULATE;
+	boolean_t batch = B_FALSE;
 
-	spa->spa_state = POOL_STATE_ACTIVE;
-	spa->spa_mode = mode;
+	switch (mode) {
+	case zti_mode_null:
+		return (NULL);		/* no taskq needed */
 
-	spa->spa_normal_class = metaslab_class_create(spa, zfs_metaslab_ops);
-	spa->spa_log_class = metaslab_class_create(spa, zfs_metaslab_ops);
+	case zti_mode_fixed:
+		ASSERT3U(value, >=, 1);
+		value = MAX(value, 1);
+		break;
+
+	case zti_mode_batch:
+		batch = B_TRUE;
+		flags |= TASKQ_THREADS_CPU_PCT;
+		value = zio_taskq_batch_pct;
+		break;
+
+	case zti_mode_online_percent:
+		flags |= TASKQ_THREADS_CPU_PCT;
+		break;
+
+	default:
+		panic("unrecognized mode for %s taskq (%u:%u) in "
+		    "spa_activate()",
+		    name, mode, value);
+		break;
+	}
+
+	/* zfs-fuse : spa_proc can't be different from p0 here 
+	if (zio_taskq_sysdc && spa->spa_proc != &p0) {
+		if (batch)
+			flags |= TASKQ_DC_BATCH;
+
+		return (taskq_create_sysdc(name, value, 50, INT_MAX,
+		    spa->spa_proc, zio_taskq_basedc, flags));
+	} */
+
+	return (taskq_create_proc(name, value, maxclsyspri, 50, INT_MAX,
+	    spa->spa_proc, flags));
+}
+
+static void
+spa_create_zio_taskqs(spa_t *spa)
+{
 
 	/* Initialize async I/O context and thread */
 #ifdef LINUX_AIO
-	error = zio_aio_init(spa);
+	int error = zio_aio_init(spa);
 	if (error)
 		cmn_err(CE_WARN, "error '%i' enabling async I/O for pool '%s'",
 		    error, spa->spa_name);
@@ -620,43 +672,108 @@ spa_activate(spa_t *spa, int mode)
 			(void) snprintf(name, sizeof (name),
 			    "%s_%s", zio_type_name[t], zio_taskq_types[q]);
 
-			if (mode == zti_mode_tune) {
-				mode = zio_taskq_tune_mode;
-				value = zio_taskq_tune_value;
-				if (mode == zti_mode_tune)
-					mode = zti_mode_online_percent;
-			}
-
-			switch (mode) {
-			case zti_mode_fixed:
-				ASSERT3U(value, >=, 1);
-				value = MAX(value, 1);
-
-				spa->spa_zio_taskq[t][q] = taskq_create(name,
-				    value, maxclsyspri, 50, INT_MAX,
-				    TASKQ_PREPOPULATE);
-				break;
-
-			case zti_mode_online_percent:
-				spa->spa_zio_taskq[t][q] = taskq_create(name,
-				    value, maxclsyspri, 50, INT_MAX,
-				    TASKQ_PREPOPULATE | TASKQ_THREADS_CPU_PCT);
-				break;
-
-			case zti_mode_null:
-				spa->spa_zio_taskq[t][q] = NULL;
-				break;
-
-			case zti_mode_tune:
-			default:
-				panic("unrecognized mode for "
-				    "zio_taskqs[%u]->zti_nthreads[%u] (%u:%u) "
-				    "in spa_activate()",
-				    t, q, mode, value);
-				break;
-			}
+			spa->spa_zio_taskq[t][q] =
+			    spa_taskq_create(spa, name, mode, value);
 		}
 	}
+}
+
+#ifdef _KERNEL
+static void
+spa_thread(void *arg)
+{
+	callb_cpr_t cprinfo;
+
+	spa_t *spa = arg;
+	// user_t *pu = PTOU(curproc);
+
+	CALLB_CPR_INIT(&cprinfo, &spa->spa_proc_lock, callb_generic_cpr,
+	    spa->spa_name);
+
+	// ASSERT(curproc != &p0);
+/*	(void) snprintf(pu->u_psargs, sizeof (pu->u_psargs),
+	    "zpool-%s", spa->spa_name);
+	(void) strlcpy(pu->u_comm, pu->u_psargs, sizeof (pu->u_comm)); */
+
+#if 0
+	// zfs-fuse : ???
+	/* bind this thread to the requested psrset */
+	if (zio_taskq_psrset_bind != PS_NONE) {
+		/* pool_lock(); */
+		mutex_enter(&cpu_lock);
+		mutex_enter(&pidlock);
+		// mutex_enter(&curproc->p_lock);
+
+		if (cpupart_bind_thread(curthread, zio_taskq_psrset_bind,
+		    0, NULL, NULL) == 0)  {
+			curthread->t_bind_pset = zio_taskq_psrset_bind;
+		} else {
+			cmn_err(CE_WARN,
+			    "Couldn't bind process for zfs pool \"%s\" to "
+			    "pset %d\n", spa->spa_name, zio_taskq_psrset_bind);
+		}
+
+		// mutex_exit(&curproc->p_lock);
+		mutex_exit(&pidlock);
+		mutex_exit(&cpu_lock);
+		/* pool_unlock(); */
+	}
+#endif
+
+/*	if (zio_taskq_sysdc) {
+		sysdc_thread_enter(curthread, 100, 0);
+	} */
+
+	spa->spa_proc = NULL; // curproc;
+	spa->spa_did = thr_self();
+
+	spa_create_zio_taskqs(spa);
+
+	mutex_enter(&spa->spa_proc_lock);
+	ASSERT(spa->spa_proc_state == SPA_PROC_CREATED);
+
+	spa->spa_proc_state = SPA_PROC_ACTIVE;
+	cv_broadcast(&spa->spa_proc_cv);
+
+	CALLB_CPR_SAFE_BEGIN(&cprinfo);
+	while (spa->spa_proc_state == SPA_PROC_ACTIVE)
+		cv_wait(&spa->spa_proc_cv, &spa->spa_proc_lock);
+	CALLB_CPR_SAFE_END(&cprinfo, &spa->spa_proc_lock);
+
+	ASSERT(spa->spa_proc_state == SPA_PROC_DEACTIVATE);
+	spa->spa_proc_state = SPA_PROC_GONE;
+	spa->spa_proc = 0;
+	cv_broadcast(&spa->spa_proc_cv);
+	CALLB_CPR_EXIT(&cprinfo);	/* drops spa_proc_lock */
+
+	// mutex_enter(&curproc->p_lock);
+	// lwp_exit();
+}
+#endif
+
+/*
+ * Activate an uninitialized pool.
+ */
+static void
+spa_activate(spa_t *spa, int mode)
+{
+	ASSERT(spa->spa_state == POOL_STATE_UNINITIALIZED);
+
+	spa->spa_state = POOL_STATE_ACTIVE;
+	spa->spa_mode = mode;
+
+	spa->spa_normal_class = metaslab_class_create(spa, zfs_metaslab_ops);
+	spa->spa_log_class = metaslab_class_create(spa, zfs_metaslab_ops);
+
+	/* Try to create a covering process */
+	mutex_enter(&spa->spa_proc_lock);
+	ASSERT(spa->spa_proc_state == SPA_PROC_NONE);
+	// ASSERT(spa->spa_proc == &p0);
+	spa->spa_did = 0;
+
+	mutex_exit(&spa->spa_proc_lock);
+
+	spa_create_zio_taskqs(spa);
 
 	list_create(&spa->spa_config_dirty_list, sizeof (vdev_t),
 	    offsetof(vdev_t, vdev_config_dirty_node));
@@ -719,6 +836,33 @@ spa_deactivate(spa_t *spa)
 	avl_destroy(&spa->spa_errlist_last);
 
 	spa->spa_state = POOL_STATE_UNINITIALIZED;
+
+	mutex_enter(&spa->spa_proc_lock);
+	if (spa->spa_proc_state != SPA_PROC_NONE) {
+		ASSERT(spa->spa_proc_state == SPA_PROC_ACTIVE);
+		spa->spa_proc_state = SPA_PROC_DEACTIVATE;
+		cv_broadcast(&spa->spa_proc_cv);
+		while (spa->spa_proc_state == SPA_PROC_DEACTIVATE) {
+			// ASSERT(spa->spa_proc != &p0);
+			cv_wait(&spa->spa_proc_cv, &spa->spa_proc_lock);
+		}
+		ASSERT(spa->spa_proc_state == SPA_PROC_GONE);
+		spa->spa_proc_state = SPA_PROC_NONE;
+	}
+	// ASSERT(spa->spa_proc == &p0);
+	mutex_exit(&spa->spa_proc_lock);
+
+	/*
+	 * We want to make sure spa_thread() has actually exited the ZFS
+	 * module, so that the module can't be unloaded out from underneath
+	 * it.
+	 */
+#if 1
+	if (spa->spa_did != 0) {
+		pthread_join(spa->spa_did,NULL);
+		spa->spa_did = 0;
+	}
+#endif
 }
 
 /*
@@ -3132,13 +3276,6 @@ spa_import(const char *pool, nvlist_t *config, nvlist_t *props)
 
 	return (0);
 }
-
-
-/*
- * This (illegal) pool name is used when temporarily importing a spa_t in order
- * to get the vdev stats associated with the imported devices.
- */
-#define	TRYIMPORT_NAME	"$import"
 
 nvlist_t *
 spa_tryimport(nvlist_t *tryconfig)
