@@ -57,7 +57,7 @@
 #endif
 
  /* the command-line options */
-int block_cache;
+int block_cache, page_cache;
 int cf_enable_xattr = 0;
 float fuse_attr_timeout, fuse_entry_timeout;
 
@@ -917,7 +917,9 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	info->flags = flags;
 
 	fi->fh = (uint64_t) (uintptr_t) info;
-	fi->keep_cache = 0;
+	/* by setting these as int directly, we save one CMP operation per file open. */
+	/* but, honestly, we mostly get readability of the code */
+	fi->keep_cache = page_cache;
 	fi->direct_io = block_cache ? 0 : 1;
 
 	if(flags & FCREAT) {
