@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <stdio.h>
@@ -1241,9 +1240,10 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 	sa_handle_t *hdl;
 	uint64_t xattr, rdev, gen;
 	uint64_t uid, gid, mode, fsize, parent, links;
+	uint64_t pflags;
 	uint64_t acctm[2], modtm[2], chgtm[2], crtm[2];
 	time_t z_crtime, z_atime, z_mtime, z_ctime;
-	sa_bulk_attr_t bulk[11];
+	sa_bulk_attr_t bulk[12];
 	int idx = 0;
 	int error;
 
@@ -1286,6 +1286,8 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 	    crtm, 16);
 	SA_ADD_BULK_ATTR(bulk, idx, sa_attr_table[ZPL_CTIME], NULL,
 	    chgtm, 16);
+	SA_ADD_BULK_ATTR(bulk, idx, sa_attr_table[ZPL_FLAGS], NULL,
+	    &pflags, 8);
 
 	if (sa_bulk_lookup(hdl, bulk, idx)) {
 		(void) sa_handle_destroy(hdl);
@@ -1319,6 +1321,7 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 	(void) printf("\tsize	%llu\n", (u_longlong_t)fsize);
 	(void) printf("\tparent	%llu\n", (u_longlong_t)parent);
 	(void) printf("\tlinks	%llu\n", (u_longlong_t)links);
+	(void) printf("\tpflags	%llx\n", (u_longlong_t)pflags);
 	if (sa_lookup(hdl, sa_attr_table[ZPL_XATTR], &xattr,
 	    sizeof (uint64_t)) == 0)
 		(void) printf("\txattr	%llu\n", (u_longlong_t)xattr);
