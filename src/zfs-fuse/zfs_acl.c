@@ -53,6 +53,7 @@
 #include <sys/sa.h>
 #include "fs/fs_subr.h"
 #include <acl/acl_common.h>
+#include <syslog.h>
 
 #define	ALLOW	ACE_ACCESS_ALLOWED_ACE_TYPE
 #define	DENY	ACE_ACCESS_DENIED_ACE_TYPE
@@ -2385,6 +2386,8 @@ zfs_zaccess_dataset_check(znode_t *zp, uint32_t v4_mode)
 	return (0);
 }
 
+static int warned_broken_acl = 0;
+
 /*
  * The primary usage of this function is to loop through all of the
  * ACEs in the znode, determining what accesses of interest (AoI) to
@@ -2518,9 +2521,14 @@ zfs_zaccess_aces_check(znode_t *zp, uint32_t *working_mode,
 			break;
 	}
 
-#if 0
 	if (*working_mode &&
 		zfs_znode_acl_version(zp) == ZFS_ACL_VERSION_INITIAL) {
+		zfs_acl_phys_t	znode_acl;
+		int		acl_count;
+		int		aclsize;
+		if ((error = zfs_acl_znode_info(zp, &aclsize,
+						&acl_count, &znode_acl)) != 0)
+			return (error);
 		/* Sometimes mac os x has a completely empty acl
 		(0 everywhere). Seems to happen for volumes created with
 		zfs create. Anyway if we don't ignore them, then only root
@@ -2531,16 +2539,15 @@ zfs_zaccess_aces_check(znode_t *zp, uint32_t *working_mode,
 		the part about valid acls. So this is an invalid acl and
 		it should be ignored (normally mac os x zfs driver shouldn't
 		have created it to begin with */
-		int all_zero = 1;
-		int n;
-		for (n=0; n<72; n++)
-			if (zp->z_phys->zp_acl.z_ace_data[n]) {
-				all_zero = 0;
-				break;
+		if (aclsize == 0 && acl_count == 0) {
+			if (!warned_broken_acl) {
+				warned_broken_acl = 1;
+				syslog(LOG_WARNING,
+					"enabled workaround for broken acls");
 			}
-		if (all_zero) *working_mode = 0; // just ignore it then
+			*working_mode = 0; // just ignore it then
+		}
 	}
-#endif
 
 	mutex_exit(&zp->z_acl_lock);
 
