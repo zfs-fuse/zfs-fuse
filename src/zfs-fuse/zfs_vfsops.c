@@ -400,14 +400,6 @@ vscan_changed_cb(void *arg, uint64_t newval)
 }
 
 static void
-acl_mode_changed_cb(void *arg, uint64_t newval)
-{
-	zfsvfs_t *zfsvfs = arg;
-
-	zfsvfs->z_acl_mode = newval;
-}
-
-static void
 acl_inherit_changed_cb(void *arg, uint64_t newval)
 {
 	zfsvfs_t *zfsvfs = arg;
@@ -537,8 +529,6 @@ zfs_register_callbacks(vfs_t *vfsp)
 	error = error ? error : dsl_prop_register(ds,
 	    "snapdir", snapdir_changed_cb, zfsvfs);
 	error = error ? error : dsl_prop_register(ds,
-	    "aclmode", acl_mode_changed_cb, zfsvfs);
-	error = error ? error : dsl_prop_register(ds,
 	    "aclinherit", acl_inherit_changed_cb, zfsvfs);
 	error = error ? error : dsl_prop_register(ds,
 	    "vscan", vscan_changed_cb, zfsvfs);
@@ -579,7 +569,6 @@ unregister:
 	(void) dsl_prop_unregister(ds, "setuid", setuid_changed_cb, zfsvfs);
 	(void) dsl_prop_unregister(ds, "exec", exec_changed_cb, zfsvfs);
 	(void) dsl_prop_unregister(ds, "snapdir", snapdir_changed_cb, zfsvfs);
-	(void) dsl_prop_unregister(ds, "aclmode", acl_mode_changed_cb, zfsvfs);
 	(void) dsl_prop_unregister(ds, "aclinherit", acl_inherit_changed_cb,
 	    zfsvfs);
 	(void) dsl_prop_unregister(ds, "vscan", vscan_changed_cb, zfsvfs);
@@ -1268,9 +1257,6 @@ zfs_unregister_callbacks(zfsvfs_t *zfsvfs)
 		    zfsvfs) == 0);
 
 		VERIFY(dsl_prop_unregister(ds, "snapdir", snapdir_changed_cb,
-		    zfsvfs) == 0);
-
-		VERIFY(dsl_prop_unregister(ds, "aclmode", acl_mode_changed_cb,
 		    zfsvfs) == 0);
 
 		VERIFY(dsl_prop_unregister(ds, "aclinherit",
