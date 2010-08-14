@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 /*
@@ -237,10 +236,10 @@ zvol_minor_lookup(const char *name)
 		if (zv == NULL)
 			continue;
 		if (strcmp(zv->zv_name, name) == 0)
-			break;
+			return (zv);
 	}
 
-	return (zv);
+	return (NULL);
 }
 
 /* extent mapping arg */
@@ -1140,7 +1139,7 @@ zvol_strategy(buf_t *bp)
 	rl_t *rl;
 	int error = 0;
 	boolean_t doread = bp->b_flags & B_READ;
-	boolean_t is_dump = zv->zv_flags & ZVOL_DUMPIFIED;
+	boolean_t is_dump;
 	boolean_t sync;
 
 	if (zv == NULL) {
@@ -1177,6 +1176,7 @@ zvol_strategy(buf_t *bp)
 		return (0);
 	}
 
+	is_dump = zv->zv_flags & ZVOL_DUMPIFIED;
 	sync = !(bp->b_flags & B_ASYNC) && !doread && !is_dump &&
 	    !(zv->zv_flags & ZVOL_WCE) && !zil_disable;
 
