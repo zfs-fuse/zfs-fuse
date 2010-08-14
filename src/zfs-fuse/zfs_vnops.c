@@ -847,8 +847,8 @@ All I can hope is that we can simply disable this code without risk */
 
 		if (abuf == NULL) {
 			tx_bytes = uio->uio_resid;
-			error = dmu_write_uio(zfsvfs->z_os, zp->z_id, uio,
-			    nbytes, tx);
+			error = dmu_write_uio_dbuf(sa_get_db(zp->z_sa_hdl),
+			    uio, nbytes, tx);
 			tx_bytes -= uio->uio_resid;
 		} else {
 			tx_bytes = nbytes;
