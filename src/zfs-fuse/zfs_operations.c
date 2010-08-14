@@ -36,6 +36,7 @@
 #include <sys/mode.h>
 #include <attr/xattr.h>
 #include <sys/fcntl.h>
+#include <sys/sa.h>
 
 #include <string.h>
 #include <errno.h>
@@ -505,7 +506,9 @@ static int zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	if(e.ino == 3)
 		e.ino = 1;
 
-	e.generation = VTOZ(vp)->z_phys->zp_gen;
+	znode_t *zp = VTOZ(vp);
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
+		sizeof(e.generation));
 
 	error = zfsfuse_stat(vp, &e.attr, &cred);
 
@@ -905,10 +908,12 @@ static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_i
 	if(flags & FCREAT) {
 		e.attr_timeout = fuse_attr_timeout;
 		e.entry_timeout = fuse_entry_timeout;
-		e.ino = VTOZ(vp)->z_id;
+		znode_t *zp = VTOZ(vp);
+		e.ino = zp->z_id;
 		if(e.ino == 3)
 			e.ino = 1;
-		e.generation = VTOZ(vp)->z_phys->zp_gen;
+		sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
+			sizeof(e.generation));
 	}
 
 out:
@@ -1110,11 +1115,13 @@ static int zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 	e.attr_timeout = fuse_attr_timeout;
 	e.entry_timeout = fuse_entry_timeout;
 
-	e.ino = VTOZ(vp)->z_id;
+	znode_t *zp = VTOZ(vp);
+	e.ino = zp->z_id;
 	if(e.ino == 3)
 		e.ino = 1;
 
-	e.generation = VTOZ(vp)->z_phys->zp_gen;
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
+		sizeof(e.generation));
 
 	error = zfsfuse_stat(vp, &e.attr, &cred);
 
@@ -1481,11 +1488,13 @@ static int zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 	e.attr_timeout = fuse_attr_timeout;
 	e.entry_timeout = fuse_entry_timeout;
 
-	e.ino = VTOZ(vp)->z_id;
+	znode_t *zp = VTOZ(vp);
+	e.ino = zp->z_id;
 	if(e.ino == 3)
 		e.ino = 1;
 
-	e.generation = VTOZ(vp)->z_phys->zp_gen;
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
+		sizeof(e.generation));
 
 	error = zfsfuse_stat(vp, &e.attr, &cred);
 
@@ -1560,11 +1569,13 @@ static int zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent, 
 	e.attr_timeout = fuse_attr_timeout;
 	e.entry_timeout = fuse_entry_timeout;
 
-	e.ino = VTOZ(vp)->z_id;
+	znode_t *zp = VTOZ(vp);
+	e.ino = zp->z_id;
 	if(e.ino == 3)
 		e.ino = 1;
 
-	e.generation = VTOZ(vp)->z_phys->zp_gen;
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
+		sizeof(e.generation));
 
 	error = zfsfuse_stat(vp, &e.attr, &cred);
 
@@ -1748,11 +1759,13 @@ static int zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, co
 	e.attr_timeout = fuse_attr_timeout;
 	e.entry_timeout = fuse_entry_timeout;
 
-	e.ino = VTOZ(vp)->z_id;
+	znode_t *zp = VTOZ(vp);
+	e.ino = zp->z_id;
 	if(e.ino == 3)
 		e.ino = 1;
 
-	e.generation = VTOZ(vp)->z_phys->zp_gen;
+	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
+		sizeof(e.generation));
 
 	error = zfsfuse_stat(vp, &e.attr, &cred);
 

@@ -60,6 +60,7 @@
 #include <sys/systeminfo.h>
 #include <sys/spa_boot.h>
 #include <sys/zfs_ioctl.h>
+#include <sys/sunddi.h>
 #include <syslog.h>
 
 #ifdef	_KERNEL

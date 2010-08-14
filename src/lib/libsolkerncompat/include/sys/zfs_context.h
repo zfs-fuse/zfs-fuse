@@ -75,6 +75,12 @@ extern char *kmem_asprintf(const char *fmt, ...);
 #define	taskq_create_sysdc(a, b, d, e, p, dc, f) \
 	    (taskq_create(a, b, maxclsyspri, d, e, f))
 
+extern int ddi_strtoul(const char *str, char **nptr, int base,
+    unsigned long *result);
+
+extern int ddi_strtoull(const char *str, char **nptr, int base,
+    u_longlong_t *result);
+
 #ifdef	__cplusplus
 }
 #endif
