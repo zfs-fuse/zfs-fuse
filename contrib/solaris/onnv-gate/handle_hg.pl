@@ -10,6 +10,14 @@ my %map = (
     "usr/src/uts/common/sys/proc.h" => "src/lib/libsolcompat/include/sys/proc.h",
 );
 
+sub skip_diff($) {
+    my $f1 = shift;
+    print "skipping diff for $f1\n";
+    while (<>) {
+	last if (/^diff/); # skip this diff
+    }
+}
+
 my $arg = $ARGV[0];
 open(F,">header");
 open(G,">diff");
@@ -32,10 +40,7 @@ while (1) {
     / a\/(.+) /;  # /
     my $f1 = $1;
     if ($f1 =~ /(\.py$|grub|mapfile-vers$|cmd\/[a-y]|lib\/libc\/|\/fs\/[a-y]|\/vdev_disk.c$|libdiskmgt\/|dumpsubr.c$|zinject|Makefile\.(com|files|lint)$|pkgdefs\/|llib-lzfs$|fsreparse\/|\/xattr\/|libreparse\/|lib(secdb|topo)|zut\/|io\/|smbsrv|common\/syscall)|(llib-lzpool|spa_boot.c)$|zoneadmd\/|tsol\/|src\/(head|Target)|uts\/common\/(disp|brand|os|sys\/class.h)|Makefile|sysdc.*h|startup.c|fth$/) {
-	print "skipping diff for $f1\n";
-	while (<>) {
-	    last if (/^diff/); # skip this diff
-	}
+	skip_diff($f1);
     } else {
 	if (!$map{$f1}) {
 	    my $target = "src/";
@@ -45,7 +50,10 @@ while (1) {
 	    } elsif ($f1 =~ /(lib\/.+?\/)(.+)/) {
 		$target .= $1;
 		my $file = $2;
-		die "lib $target\n" if (! -d $target);
+		if (! -d $target) {
+		    skip_diff($f1);
+		    next;
+		}
 		$file =~ s/^common\///;
 		if ($file =~ /.h$/ && ! -f "$target$file") {
 		    $file = "include/$file";
@@ -63,6 +71,7 @@ while (1) {
 		my @list = glob("src/*/$file");
 		@list = glob("src/*/*/$file") if (!@list);
 		@list = glob("src/*/*/include/$file") if (!@list && $file =~ /h$/);
+		@list = glob("src/*/*/include/*/$file") if (!@list && $file =~ /h$/);
 		if ($#list == 0) {
 #		    print "new map ok $f1 -> @list\n";
 		    $map{$f1} = $list[0];
