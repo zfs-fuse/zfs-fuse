@@ -6,6 +6,7 @@ use strict;
 my %map = (
     "usr/src/lib/libzpool/common/taskq.c" => "src/lib/libzpool/taskq.c",
     "usr/src/uts/common/os/taskq.c" => "src/lib/libsolkerncompat/taskq.c",
+    "usr/src/uts/common/os/policy.c" => "src/lib/libsolkerncompat/policy.c",
     "usr/src/uts/common/sys/cred.h" => "src/lib/libsolcompat/include/sys/cred.h",
     "usr/src/uts/common/sys/proc.h" => "src/lib/libsolcompat/include/sys/proc.h",
 );
@@ -39,7 +40,7 @@ my @files = ();
 while (1) {
     / a\/(.+) /;  # /
     my $f1 = $1;
-    if ($f1 =~ /(\.py$|grub|mapfile-vers$|cmd\/[a-y]|lib\/libc\/|\/fs\/[a-y]|\/vdev_disk.c$|libdiskmgt\/|dumpsubr.c$|zinject|Makefile\.(com|files|lint)$|pkgdefs\/|llib-lzfs$|fsreparse\/|\/xattr\/|libreparse\/|lib(secdb|topo)|zut\/|io\/|smbsrv|common\/syscall)|(llib-lzpool|spa_boot.c)$|zoneadmd\/|tsol\/|src\/(head|Target)|uts\/common\/(disp|brand|os|sys\/class.h)|Makefile|sysdc.*h|startup.c|fth$/) {
+    if ($f1 =~ /(\.py$|grub|mapfile-vers$|cmd\/[a-y]|lib\/libc\/|\/fs\/[a-y]|\/vdev_disk.c$|libdiskmgt\/|dumpsubr.c$|zinject|Makefile\.(com|files|lint)$|pkgdefs\/|llib-lzfs$|fsreparse\/|\/xattr\/|libreparse\/|lib(secdb|topo)|zut\/|io\/|smbsrv|common\/syscall)|(llib-lzpool|spa_boot.c)$|zoneadmd\/|tsol\/|src\/(head|Target)|uts\/common\/(disp|brand|os|sys\/class.h)|Makefile|sysdc.*h|startup.c|fth$/ && !$map{$f1}) {
 	skip_diff($f1);
     } else {
 	if (!$map{$f1}) {
