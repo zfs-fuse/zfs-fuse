@@ -104,7 +104,10 @@ while (1) {
 	print G;
 	do {
 	    $_ = <>;
-	    die "renames must be handled manually (file $f1)\n" if (/^rename/);
+	    if (/^rename/) {
+		my $to = <>;
+		die "renames must be handled manually (file $f1, map: $map{$f1}) $to";
+	    }
 	} while ($_ !~ /^--/);
 	s:$f1:$map{$f1}:g;
 	print G;
