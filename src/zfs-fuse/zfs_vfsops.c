@@ -938,7 +938,10 @@ zfsvfs_create(const char *osname, zfsvfs_t **zvp)
 		sa_obj = 0;
 	}
 
-	zfsvfs->z_attr_table = sa_setup(os, sa_obj, zfs_attr_table, ZPL_END);
+	error = sa_setup(os, sa_obj, zfs_attr_table, ZPL_END,
+	    &zfsvfs->z_attr_table);
+	if (error)
+		goto out;
 
 	if (zfsvfs->z_version >= ZPL_VERSION_SA)
 		sa_register_update_callback(os, zfs_sa_upgrade);
@@ -2074,8 +2077,9 @@ zfs_resume_fs(zfsvfs_t *zfsvfs, const char *osname)
 			goto bail;
 
 
-		zfsvfs->z_attr_table = sa_setup(zfsvfs->z_os, sa_obj,
-		    zfs_attr_table,  ZPL_END);
+		if ((err = sa_setup(zfsvfs->z_os, sa_obj,
+		    zfs_attr_table,  ZPL_END, &zfsvfs->z_attr_table)) != 0)
+			goto bail;
 
 		VERIFY(zfsvfs_setup(zfsvfs, B_FALSE) == 0);
 
