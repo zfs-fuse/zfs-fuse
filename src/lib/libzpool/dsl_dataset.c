@@ -42,6 +42,11 @@
 #include "kmem_asprintf.h"
 
 
+/*
+ * Enable/disable prefetching of dedup-ed blocks which are going to be freed.
+ */
+int zfs_dedup_prefetch = 1;
+
 static char *dsl_reaper = "the grim reaper";
 
 static dsl_checkfunc_t dsl_dataset_destroy_begin_check;
@@ -236,9 +241,16 @@ dsl_dataset_prev_snap_txg(dsl_dataset_t *ds)
 }
 
 boolean_t
-dsl_dataset_block_freeable(dsl_dataset_t *ds, uint64_t blk_birth)
+dsl_dataset_block_freeable(dsl_dataset_t *ds, const blkptr_t *bp,
+    uint64_t blk_birth)
 {
-	return (blk_birth > dsl_dataset_prev_snap_txg(ds));
+	if (blk_birth <= dsl_dataset_prev_snap_txg(ds))
+		return (B_FALSE);
+
+	if (zfs_dedup_prefetch && bp && BP_GET_DEDUP(bp))
+		ddt_prefetch(dsl_dataset_get_spa(ds), bp);
+
+	return (B_TRUE);
 }
 
 /* ARGSUSED */
