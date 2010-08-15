@@ -29,6 +29,7 @@
 #include <getopt.h>
 #include <syslog.h>
 #include <stdlib.h>
+#include <sys/list.h>
 #include <sys/zfs_debug.h>
 #include <semaphore.h>
 

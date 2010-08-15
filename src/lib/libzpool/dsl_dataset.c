@@ -38,6 +38,7 @@
 #include <sys/spa.h>
 #include <sys/zfs_znode.h>
 #include <sys/zvol.h>
+#include <sys/dsl_scan.h>
 #include "kmem_asprintf.h"
 
 
@@ -82,7 +83,7 @@ dsl_dataset_block_born(dsl_dataset_t *ds, const blkptr_t *bp, dmu_tx_t *tx)
 	int uncompressed = BP_GET_UCSIZE(bp);
 	int64_t delta;
 
-	dprintf_bp(bp, "born, ds=%p\n", ds);
+	dprintf_bp(bp, "ds=%p", ds);
 
 	ASSERT(dmu_tx_is_syncing(tx));
 	/* It could have been compressed away to nothing */
@@ -102,6 +103,7 @@ dsl_dataset_block_born(dsl_dataset_t *ds, const blkptr_t *bp, dmu_tx_t *tx)
 		return;
 	}
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
+
 	mutex_enter(&ds->ds_dir->dd_lock);
 	mutex_enter(&ds->ds_lock);
 	delta = parent_delta(ds, used);
@@ -152,7 +154,7 @@ dsl_dataset_block_kill(dsl_dataset_t *ds, const blkptr_t *bp, dmu_tx_t *tx,
 	if (bp->blk_birth > ds->ds_phys->ds_prev_snap_txg) {
 		int64_t delta;
 
-		dprintf_bp(bp, "freeing: %s", "");
+		dprintf_bp(bp, "freeing ds=%llu", ds->ds_object);
 		dsl_free(tx->tx_pool, tx->tx_txg, bp);
 
 		mutex_enter(&ds->ds_dir->dd_lock);
@@ -193,7 +195,7 @@ dsl_dataset_block_kill(dsl_dataset_t *ds, const blkptr_t *bp, dmu_tx_t *tx,
 			ds->ds_prev->ds_phys->ds_unique_bytes += used;
 			mutex_exit(&ds->ds_prev->ds_lock);
 		}
-		if (bp->blk_birth > ds->ds_origin_txg) {
+		if (bp->blk_birth > ds->ds_dir->dd_origin_txg) {
 			dsl_dir_transfer_space(ds->ds_dir, used,
 			    DD_USED_HEAD, DD_USED_SNAP, tx);
 		}
@@ -398,19 +400,6 @@ dsl_dataset_get_ref(dsl_pool_t *dp, uint64_t dsobj, void *tag,
 				err = dsl_dataset_get_ref(dp,
 				    ds->ds_phys->ds_prev_snap_obj,
 				    ds, &ds->ds_prev);
-			}
-
-			if (err == 0 && dsl_dir_is_clone(ds->ds_dir)) {
-				dsl_dataset_t *origin;
-
-				err = dsl_dataset_hold_obj(dp,
-				    ds->ds_dir->dd_phys->dd_origin_obj,
-				    FTAG, &origin);
-				if (err == 0) {
-					ds->ds_origin_txg =
-					    origin->ds_phys->ds_creation_txg;
-					dsl_dataset_rele(origin, FTAG);
-				}
 			}
 		} else {
 			if (zfs_flags & ZFS_DEBUG_SNAPNAMES)
@@ -878,10 +867,6 @@ dsl_snapshot_destroy_one(const char *name, void *arg)
 		struct dsl_ds_destroyarg *dsda;
 
 		dsl_dataset_make_exclusive(ds, da->dstg);
-		if (ds->ds_objset != NULL) {
-			dmu_objset_evict(ds->ds_objset);
-			ds->ds_objset = NULL;
-		}
 		dsda = kmem_zalloc(sizeof (struct dsl_ds_destroyarg), KM_SLEEP);
 		dsda->ds = ds;
 		dsda->defer = da->defer;
@@ -991,11 +976,6 @@ dsl_dataset_origin_rm_prep(struct dsl_ds_destroyarg *dsda, void *tag)
 			return (error);
 		dsda->rm_origin = origin;
 		dsl_dataset_make_exclusive(origin, tag);
-
-		if (origin->ds_objset != NULL) {
-			dmu_objset_evict(origin->ds_objset);
-			origin->ds_objset = NULL;
-		}
 	}
 
 	return (0);
@@ -1022,10 +1002,6 @@ dsl_dataset_destroy(dsl_dataset_t *ds, void *tag, boolean_t defer)
 		/* Destroying a snapshot is simpler */
 		dsl_dataset_make_exclusive(ds, tag);
 
-		if (ds->ds_objset != NULL) {
-			dmu_objset_evict(ds->ds_objset);
-			ds->ds_objset = NULL;
-		}
 		dsda.defer = defer;
 		err = dsl_sync_task_do(ds->ds_dir->dd_pool,
 		    dsl_dataset_destroy_check, dsl_dataset_destroy_sync,
@@ -1098,24 +1074,10 @@ dsl_dataset_destroy(dsl_dataset_t *ds, void *tag, boolean_t defer)
 	if (err)
 		goto out;
 
-	if (ds->ds_objset) {
-		/*
-		 * We need to sync out all in-flight IO before we try
-		 * to evict (the dataset evict func is trying to clear
-		 * the cached entries for this dataset in the ARC).
-		 */
-		txg_wait_synced(dd->dd_pool, 0);
-	}
-
 	/*
 	 * Blow away the dsl_dir + head dataset.
 	 */
 	dsl_dataset_make_exclusive(ds, tag);
-	if (ds->ds_objset) {
-		dmu_objset_evict(ds->ds_objset);
-		ds->ds_objset = NULL;
-	}
-
 	/*
 	 * If we're removing a clone, we might also need to remove its
 	 * origin.
@@ -1222,7 +1184,7 @@ dsl_dataset_recalc_head_uniq(dsl_dataset_t *ds)
 	uint64_t mrs_used;
 	uint64_t dlused, dlcomp, dluncomp;
 
-	ASSERT(ds->ds_object == ds->ds_dir->dd_phys->dd_head_dataset_obj);
+	ASSERT(!dsl_dataset_is_snapshot(ds));
 
 	if (ds->ds_phys->ds_prev_snap_obj != 0)
 		mrs_used = ds->ds_prev->ds_phys->ds_used_bytes;
@@ -1236,19 +1198,9 @@ dsl_dataset_recalc_head_uniq(dsl_dataset_t *ds)
 	ds->ds_phys->ds_unique_bytes =
 	    ds->ds_phys->ds_used_bytes - (mrs_used - dlused);
 
-	if (!DS_UNIQUE_IS_ACCURATE(ds) &&
-	    spa_version(ds->ds_dir->dd_pool->dp_spa) >=
+	if (spa_version(ds->ds_dir->dd_pool->dp_spa) >=
 	    SPA_VERSION_UNIQUE_ACCURATE)
 		ds->ds_phys->ds_flags |= DS_FLAG_UNIQUE_ACCURATE;
-}
-
-static uint64_t
-dsl_dataset_unique(dsl_dataset_t *ds)
-{
-	if (!DS_UNIQUE_IS_ACCURATE(ds) && !dsl_dataset_is_snapshot(ds))
-		dsl_dataset_recalc_head_uniq(ds);
-
-	return (ds->ds_phys->ds_unique_bytes);
 }
 
 struct killarg {
@@ -1258,7 +1210,7 @@ struct killarg {
 
 /* ARGSUSED */
 static int
-kill_blkptr(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
+kill_blkptr(spa_t *spa, zilog_t *zilog, const blkptr_t *bp, arc_buf_t *pbuf,
     const zbookmark_t *zb, const dnode_phys_t *dnp, void *arg)
 {
 	struct killarg *ka = arg;
@@ -1317,7 +1269,7 @@ dsl_dataset_destroy_begin_check(void *arg1, void *arg2, dmu_tx_t *tx)
 
 /* ARGSUSED */
 static void
-dsl_dataset_destroy_begin_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_destroy_begin_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	dsl_pool_t *dp = ds->ds_dir->dd_pool;
@@ -1326,8 +1278,8 @@ dsl_dataset_destroy_begin_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
 	ds->ds_phys->ds_flags |= DS_FLAG_INCONSISTENT;
 
-	spa_history_internal_log(LOG_DS_DESTROY_BEGIN, dp->dp_spa, tx,
-	    cr, "dataset = %llu", ds->ds_object);
+	spa_history_log_internal(LOG_DS_DESTROY_BEGIN, dp->dp_spa, tx,
+	    "dataset = %llu", ds->ds_object);
 }
 
 static int
@@ -1501,7 +1453,7 @@ remove_from_next_clones(dsl_dataset_t *ds, uint64_t obj, dmu_tx_t *tx)
 }
 
 void
-dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_destroy_sync(void *arg1, void *tag, dmu_tx_t *tx)
 {
 	struct dsl_ds_destroyarg *dsda = arg1;
 	dsl_dataset_t *ds = dsda->ds;
@@ -1533,6 +1485,11 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 	cv_broadcast(&ds->ds_exclusive_cv);
 	mutex_exit(&ds->ds_lock);
 
+	if (ds->ds_objset) {
+		dmu_objset_evict(ds->ds_objset);
+		ds->ds_objset = NULL;
+	}
+
 	/* Remove our reservation */
 	if (ds->ds_reserved != 0) {
 		dsl_prop_setarg_t psa;
@@ -1543,13 +1500,13 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		    &value);
 		psa.psa_effective_value = 0;	/* predict default value */
 
-		dsl_dataset_set_reservation_sync(ds, &psa, cr, tx);
+		dsl_dataset_set_reservation_sync(ds, &psa, tx);
 		ASSERT3U(ds->ds_reserved, ==, 0);
 	}
 
 	ASSERT(RW_WRITE_HELD(&dp->dp_config_rwlock));
 
-	dsl_pool_ds_destroyed(ds, tx);
+	dsl_scan_ds_destroyed(ds, tx);
 
 	obj = ds->ds_object;
 
@@ -1598,7 +1555,7 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		}
 	}
 
-	if (ds->ds_phys->ds_next_snap_obj != 0) {
+	if (dsl_dataset_is_snapshot(ds)) {
 		blkptr_t bp;
 		zio_t *pio;
 		dsl_dataset_t *ds_next;
@@ -1610,7 +1567,7 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		    ds->ds_phys->ds_next_snap_obj, FTAG, &ds_next));
 		ASSERT3U(ds_next->ds_phys->ds_prev_snap_obj, ==, obj);
 
-		old_unique = dsl_dataset_unique(ds_next);
+		old_unique = ds_next->ds_phys->ds_unique_bytes;
 
 		dmu_buf_will_dirty(ds_next->ds_dbuf, tx);
 		ds_next->ds_phys->ds_prev_snap_obj =
@@ -1666,7 +1623,7 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		    ds_next->ds_phys->ds_deadlist_obj));
 		ds->ds_phys->ds_deadlist_obj = 0;
 
-		if (ds_next->ds_phys->ds_next_snap_obj != 0) {
+		if (dsl_dataset_is_snapshot(ds_next)) {
 			/*
 			 * Update next's unique to include blocks which
 			 * were previously shared by only this snapshot
@@ -1792,8 +1749,8 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		dsl_dataset_rele(ds_prev, FTAG);
 
 	spa_prop_clear_bootfs(dp->dp_spa, ds->ds_object, tx);
-	spa_history_internal_log(LOG_DS_DESTROY, dp->dp_spa, tx,
-	    cr, "dataset = %llu", ds->ds_object);
+	spa_history_log_internal(LOG_DS_DESTROY, dp->dp_spa, tx,
+	    "dataset = %llu", ds->ds_object);
 
 	if (ds->ds_phys->ds_next_clones_obj != 0) {
 		uint64_t count;
@@ -1818,7 +1775,7 @@ dsl_dataset_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		struct dsl_ds_destroyarg ndsda = {0};
 
 		ndsda.ds = dsda->rm_origin;
-		dsl_dataset_destroy_sync(&ndsda, tag, cr, tx);
+		dsl_dataset_destroy_sync(&ndsda, tag, tx);
 	}
 }
 
@@ -1835,7 +1792,8 @@ dsl_dataset_snapshot_reserve_space(dsl_dataset_t *ds, dmu_tx_t *tx)
 	 * owned by the snapshot dataset must be accommodated by space
 	 * outside of the reservation.
 	 */
-	asize = MIN(dsl_dataset_unique(ds), ds->ds_reserved);
+	ASSERT(ds->ds_reserved == 0 || DS_UNIQUE_IS_ACCURATE(ds));
+	asize = MIN(ds->ds_phys->ds_unique_bytes, ds->ds_reserved);
 	if (asize > dsl_dir_space_available(ds->ds_dir, NULL, 0, FALSE))
 		return (ENOSPC);
 
@@ -1849,7 +1807,6 @@ dsl_dataset_snapshot_reserve_space(dsl_dataset_t *ds, dmu_tx_t *tx)
 	return (0);
 }
 
-/* ARGSUSED */
 int
 dsl_dataset_snapshot_check(void *arg1, void *arg2, dmu_tx_t *tx)
 {
@@ -1890,7 +1847,7 @@ dsl_dataset_snapshot_check(void *arg1, void *arg2, dmu_tx_t *tx)
 }
 
 void
-dsl_dataset_snapshot_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_snapshot_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	const char *snapname = arg2;
@@ -1961,9 +1918,11 @@ dsl_dataset_snapshot_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	 * since our unique space is going to zero.
 	 */
 	if (ds->ds_reserved) {
-		int64_t add = MIN(dsl_dataset_unique(ds), ds->ds_reserved);
+		int64_t delta;
+		ASSERT(DS_UNIQUE_IS_ACCURATE(ds));
+		delta = MIN(ds->ds_phys->ds_unique_bytes, ds->ds_reserved);
 		dsl_dir_diduse_space(ds->ds_dir, DD_USED_REFRSRV,
-		    add, 0, 0, tx);
+		    delta, 0, 0, tx);
 	}
 
 	bplist_close(&ds->ds_deadlist);
@@ -1989,11 +1948,11 @@ dsl_dataset_snapshot_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	VERIFY(0 == dsl_dataset_get_ref(dp,
 	    ds->ds_phys->ds_prev_snap_obj, ds, &ds->ds_prev));
 
-	dsl_pool_ds_snapshotted(ds, tx);
+	dsl_scan_ds_snapshotted(ds, tx);
 
 	dsl_dir_snap_cmtime_update(ds->ds_dir);
 
-	spa_history_internal_log(LOG_DS_SNAPSHOT, dp->dp_spa, tx, cr,
+	spa_history_log_internal(LOG_DS_SNAPSHOT, dp->dp_spa, tx,
 	    "dataset = %llu", dsobj);
 }
 
@@ -2037,7 +1996,7 @@ dsl_dataset_stats(dsl_dataset_t *ds, nvlist_t *nv)
 	dsl_prop_nvlist_add_uint64(nv, ZFS_PROP_GUID,
 	    ds->ds_phys->ds_guid);
 	dsl_prop_nvlist_add_uint64(nv, ZFS_PROP_UNIQUE,
-	    dsl_dataset_unique(ds));
+	    ds->ds_phys->ds_unique_bytes);
 	dsl_prop_nvlist_add_uint64(nv, ZFS_PROP_OBJSETID,
 	    ds->ds_object);
 	dsl_prop_nvlist_add_uint64(nv, ZFS_PROP_USERREFS,
@@ -2165,8 +2124,7 @@ dsl_dataset_snapshot_rename_check(void *arg1, void *arg2, dmu_tx_t *tx)
 }
 
 static void
-dsl_dataset_snapshot_rename_sync(void *arg1, void *arg2,
-    cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_snapshot_rename_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	const char *newsnapname = arg2;
@@ -2190,8 +2148,8 @@ dsl_dataset_snapshot_rename_sync(void *arg1, void *arg2,
 	    ds->ds_snapname, 8, 1, &ds->ds_object, tx);
 	ASSERT3U(err, ==, 0);
 
-	spa_history_internal_log(LOG_DS_RENAME, dd->dd_pool->dp_spa, tx,
-	    cr, "dataset = %llu", ds->ds_object);
+	spa_history_log_internal(LOG_DS_RENAME, dd->dd_pool->dp_spa, tx,
+	    "dataset = %llu", ds->ds_object);
 	dsl_dataset_rele(hds, FTAG);
 }
 
@@ -2373,14 +2331,14 @@ struct promotenode {
 
 struct promotearg {
 	list_t shared_snaps, origin_snaps, clone_snaps;
-	dsl_dataset_t *origin_origin, *origin_head;
+	dsl_dataset_t *origin_origin;
 	uint64_t used, comp, uncomp, unique, cloneusedsnap, originusedsnap;
 	char *err_ds;
 };
 
 static int snaplist_space(list_t *l, uint64_t mintxg, uint64_t *spacep);
+static boolean_t snaplist_unstable(list_t *l);
 
-/* ARGSUSED */
 static int
 dsl_dataset_promote_check(void *arg1, void *arg2, dmu_tx_t *tx)
 {
@@ -2481,19 +2439,19 @@ dsl_dataset_promote_check(void *arg1, void *arg2, dmu_tx_t *tx)
 
 		/*
 		 * Note, typically this will not be a clone of a clone,
-		 * so snap->ds->ds_origin_txg will be < TXG_INITIAL, so
+		 * so dd_origin_txg will be < TXG_INITIAL, so
 		 * these snaplist_space() -> bplist_space_birthrange()
 		 * calls will be fast because they do not have to
 		 * iterate over all bps.
 		 */
 		snap = list_head(&pa->origin_snaps);
 		err = snaplist_space(&pa->shared_snaps,
-		    snap->ds->ds_origin_txg, &pa->cloneusedsnap);
+		    snap->ds->ds_dir->dd_origin_txg, &pa->cloneusedsnap);
 		if (err)
 			return (err);
 
 		err = snaplist_space(&pa->clone_snaps,
-		    snap->ds->ds_origin_txg, &space);
+		    snap->ds->ds_dir->dd_origin_txg, &space);
 		if (err)
 			return (err);
 		pa->cloneusedsnap += space;
@@ -2512,7 +2470,7 @@ out:
 }
 
 static void
-dsl_dataset_promote_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_promote_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *hds = arg1;
 	struct promotearg *pa = arg2;
@@ -2556,10 +2514,11 @@ dsl_dataset_promote_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	dmu_buf_will_dirty(dd->dd_dbuf, tx);
 	ASSERT3U(dd->dd_phys->dd_origin_obj, ==, origin_ds->ds_object);
 	dd->dd_phys->dd_origin_obj = odd->dd_phys->dd_origin_obj;
-	hds->ds_origin_txg = origin_head->ds_origin_txg;
+	dd->dd_origin_txg = origin_head->ds_dir->dd_origin_txg;
 	dmu_buf_will_dirty(odd->dd_dbuf, tx);
 	odd->dd_phys->dd_origin_obj = origin_ds->ds_object;
-	origin_head->ds_origin_txg = origin_ds->ds_phys->ds_creation_txg;
+	origin_head->ds_dir->dd_origin_txg =
+	    origin_ds->ds_phys->ds_creation_txg;
 
 	/* move snapshots to this dir */
 	for (snap = list_head(&pa->shared_snaps); snap;
@@ -2616,8 +2575,8 @@ dsl_dataset_promote_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	origin_ds->ds_phys->ds_unique_bytes = pa->unique;
 
 	/* log history record */
-	spa_history_internal_log(LOG_DS_PROMOTE, dd->dd_pool->dp_spa, tx,
-	    cr, "dataset = %llu", hds->ds_object);
+	spa_history_log_internal(LOG_DS_PROMOTE, dd->dd_pool->dp_spa, tx,
+	    "dataset = %llu", hds->ds_object);
 
 	dsl_dir_close(odd, FTAG);
 }
@@ -2864,7 +2823,7 @@ dsl_dataset_clone_swap_check(void *arg1, void *arg2, dmu_tx_t *tx)
 
 /* ARGSUSED */
 static void
-dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_clone_swap_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	struct cloneswaparg *csa = arg1;
 	dsl_pool_t *dp = csa->cds->ds_dir->dd_pool;
@@ -2939,9 +2898,9 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 		 * changing that affects the snapused).
 		 */
 		VERIFY(0 == bplist_space_birthrange(&csa->cds->ds_deadlist,
-		    csa->ohds->ds_origin_txg, UINT64_MAX, &cdl_used));
+		    csa->ohds->ds_dir->dd_origin_txg, UINT64_MAX, &cdl_used));
 		VERIFY(0 == bplist_space_birthrange(&csa->ohds->ds_deadlist,
-		    csa->ohds->ds_origin_txg, UINT64_MAX, &odl_used));
+		    csa->ohds->ds_dir->dd_origin_txg, UINT64_MAX, &odl_used));
 		dsl_dir_transfer_space(csa->ohds->ds_dir, cdl_used - odl_used,
 		    DD_USED_HEAD, DD_USED_SNAP, tx);
 	}
@@ -2977,7 +2936,7 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	VERIFY(0 == bplist_open(&csa->ohds->ds_deadlist, dp->dp_meta_objset,
 	    csa->ohds->ds_phys->ds_deadlist_obj));
 
-	dsl_pool_ds_clone_swapped(csa->ohds, csa->cds, tx);
+	dsl_scan_ds_clone_swapped(csa->ohds, csa->cds, tx);
 }
 
 /*
@@ -3112,24 +3071,24 @@ dsl_dataset_set_quota_check(void *arg1, void *arg2, dmu_tx_t *tx)
 	return (0);
 }
 
-extern void dsl_prop_set_sync(void *, void *, cred_t *, dmu_tx_t *);
+extern void dsl_prop_set_sync(void *, void *, dmu_tx_t *);
 
 void
-dsl_dataset_set_quota_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_set_quota_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	dsl_prop_setarg_t *psa = arg2;
 	uint64_t effective_value = psa->psa_effective_value;
 
-	dsl_prop_set_sync(ds, psa, cr, tx);
+	dsl_prop_set_sync(ds, psa, tx);
 	DSL_PROP_CHECK_PREDICTION(ds->ds_dir, psa);
 
 	if (ds->ds_quota != effective_value) {
 		dmu_buf_will_dirty(ds->ds_dbuf, tx);
 		ds->ds_quota = effective_value;
 
-		spa_history_internal_log(LOG_DS_REFQUOTA,
-		    ds->ds_dir->dd_pool->dp_spa, tx, cr, "%lld dataset = %llu ",
+		spa_history_log_internal(LOG_DS_REFQUOTA,
+		    ds->ds_dir->dd_pool->dp_spa, tx, "%lld dataset = %llu ",
 		    (longlong_t)ds->ds_quota, ds->ds_object);
 	}
 }
@@ -3190,7 +3149,9 @@ dsl_dataset_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx)
 		return (0);
 
 	mutex_enter(&ds->ds_lock);
-	unique = dsl_dataset_unique(ds);
+	if (!DS_UNIQUE_IS_ACCURATE(ds))
+		dsl_dataset_recalc_head_uniq(ds);
+	unique = ds->ds_phys->ds_unique_bytes;
 	mutex_exit(&ds->ds_lock);
 
 	if (MAX(unique, effective_value) > MAX(unique, ds->ds_reserved)) {
@@ -3207,10 +3168,8 @@ dsl_dataset_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx)
 	return (0);
 }
 
-/* ARGSUSED */
 static void
-dsl_dataset_set_reservation_sync(void *arg1, void *arg2, cred_t *cr,
-    dmu_tx_t *tx)
+dsl_dataset_set_reservation_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	dsl_prop_setarg_t *psa = arg2;
@@ -3218,14 +3177,15 @@ dsl_dataset_set_reservation_sync(void *arg1, void *arg2, cred_t *cr,
 	uint64_t unique;
 	int64_t delta;
 
-	dsl_prop_set_sync(ds, psa, cr, tx);
+	dsl_prop_set_sync(ds, psa, tx);
 	DSL_PROP_CHECK_PREDICTION(ds->ds_dir, psa);
 
 	dmu_buf_will_dirty(ds->ds_dbuf, tx);
 
 	mutex_enter(&ds->ds_dir->dd_lock);
 	mutex_enter(&ds->ds_lock);
-	unique = dsl_dataset_unique(ds);
+	ASSERT(DS_UNIQUE_IS_ACCURATE(ds));
+	unique = ds->ds_phys->ds_unique_bytes;
 	delta = MAX(0, (int64_t)(effective_value - unique)) -
 	    MAX(0, (int64_t)(ds->ds_reserved - unique));
 	ds->ds_reserved = effective_value;
@@ -3234,8 +3194,8 @@ dsl_dataset_set_reservation_sync(void *arg1, void *arg2, cred_t *cr,
 	dsl_dir_diduse_space(ds->ds_dir, DD_USED_REFRSRV, delta, 0, 0, tx);
 	mutex_exit(&ds->ds_dir->dd_lock);
 
-	spa_history_internal_log(LOG_DS_REFRESERV,
-	    ds->ds_dir->dd_pool->dp_spa, tx, cr, "%lld dataset = %llu",
+	spa_history_log_internal(LOG_DS_REFRESERV,
+	    ds->ds_dir->dd_pool->dp_spa, tx, "%lld dataset = %llu",
 	    (longlong_t)effective_value, ds->ds_object);
 }
 
@@ -3313,7 +3273,7 @@ dsl_dataset_user_hold_check(void *arg1, void *arg2, dmu_tx_t *tx)
 }
 
 static void
-dsl_dataset_user_hold_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_user_hold_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	struct dsl_ds_holdarg *ha = arg2;
@@ -3345,8 +3305,8 @@ dsl_dataset_user_hold_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 		    htag, &now, tx));
 	}
 
-	spa_history_internal_log(LOG_DS_USER_HOLD,
-	    dp->dp_spa, tx, cr, "<%s> temp = %d dataset = %llu", htag,
+	spa_history_log_internal(LOG_DS_USER_HOLD,
+	    dp->dp_spa, tx, "<%s> temp = %d dataset = %llu", htag,
 	    (int)ha->temphold, ds->ds_object);
 }
 
@@ -3497,10 +3457,6 @@ dsl_dataset_user_release_check(void *arg1, void *tag, dmu_tx_t *tx)
 			 */
 			if (!ra->own)
 				return (EBUSY);
-			if (ds->ds_objset) {
-				dmu_objset_evict(ds->ds_objset);
-				ds->ds_objset = NULL;
-			}
 		}
 		dsda.ds = ds;
 		dsda.releasing = B_TRUE;
@@ -3511,7 +3467,7 @@ dsl_dataset_user_release_check(void *arg1, void *tag, dmu_tx_t *tx)
 }
 
 static void
-dsl_dataset_user_release_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
+dsl_dataset_user_release_sync(void *arg1, void *tag, dmu_tx_t *tx)
 {
 	struct dsl_ds_releasearg *ra = arg1;
 	dsl_dataset_t *ds = ra->ds;
@@ -3521,6 +3477,11 @@ dsl_dataset_user_release_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 	uint64_t dsobj = ds->ds_object;
 	uint64_t refs;
 	int error;
+
+	if (ds->ds_objset) {
+		dmu_objset_evict(ds->ds_objset);
+		ds->ds_objset = NULL;
+	}
 
 	mutex_enter(&ds->ds_lock);
 	ds->ds_userrefs--;
@@ -3538,11 +3499,11 @@ dsl_dataset_user_release_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 		dsda.ds = ds;
 		dsda.releasing = B_TRUE;
 		/* We already did the destroy_check */
-		dsl_dataset_destroy_sync(&dsda, tag, cr, tx);
+		dsl_dataset_destroy_sync(&dsda, tag, tx);
 	}
 
-	spa_history_internal_log(LOG_DS_USER_RELEASE,
-	    dp->dp_spa, tx, cr, "<%s> %lld dataset = %llu",
+	spa_history_log_internal(LOG_DS_USER_RELEASE,
+	    dp->dp_spa, tx, "<%s> %lld dataset = %llu",
 	    ra->htag, (longlong_t)refs, dsobj);
 }
 

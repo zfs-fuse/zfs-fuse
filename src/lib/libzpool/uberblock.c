@@ -19,11 +19,9 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  */
-
-/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #include <sys/zfs_context.h>
 #include <sys/uberblock_impl.h>
@@ -70,6 +68,7 @@ uberblock_update(uberblock_t *ub, vdev_t *rvd, uint64_t txg)
 	ub->ub_txg = txg;
 	ub->ub_guid_sum = rvd->vdev_guid_sum;
 	ub->ub_timestamp = gethrestime_sec();
+	ub->ub_software_version = SPA_VERSION;
 
 	return (ub->ub_rootbp.blk_birth == txg);
 }

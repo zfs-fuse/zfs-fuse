@@ -30,6 +30,7 @@
 extern "C" {
 #endif
 
+#include <stdarg.h>
 #include <sys/note.h>
 #include <sys/types.h>
 #include <sys/t_lock.h>

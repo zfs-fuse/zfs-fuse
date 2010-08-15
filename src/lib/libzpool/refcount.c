@@ -19,11 +19,9 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  */
-
-/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #include <sys/zfs_context.h>
 #include <sys/refcount.h>

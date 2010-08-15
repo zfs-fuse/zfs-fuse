@@ -151,6 +151,7 @@ usage(void)
 	    "has altroot/not in a cachefile\n");
 	(void) fprintf(stderr, "        -p <path> -- use one or more with "
 	    "-e to specify path to vdev dir\n");
+	(void) fprintf(stderr, "	-P print numbers parsable\n");
 	(void) fprintf(stderr, "        -t <txg> -- highest txg to use when "
 	    "searching for uberblocks\n");
 	(void) fprintf(stderr, "Specify an option more than once (e.g. -bb) "
@@ -195,6 +196,15 @@ dump_packed_nvlist(objset_t *os, uint64_t object, void *data, size_t size)
 	dump_nvlist(nv, 8);
 
 	nvlist_free(nv);
+}
+
+static void
+zdb_nicenum(uint64_t num, char *buf)
+{
+	if (dump_opt['P'])
+		(void) sprintf(buf, "%llu", (longlong_t)num);
+	else
+		nicenum(num, buf);
 }
 
 const char dump_zap_stars[] = "****************************************";
@@ -491,7 +501,7 @@ dump_spacemap(objset_t *os, space_map_obj_t *smo, space_map_t *sm)
 	 */
 	alloc = 0;
 	for (offset = 0; offset < smo->smo_objsize; offset += sizeof (entry)) {
-		VERIFY(0 == dmu_read(os, smo->smo_object, offset,
+		VERIFY3U(0, ==, dmu_read(os, smo->smo_object, offset,
 		    sizeof (entry), &entry, DMU_READ_PREFETCH));
 		if (SM_DEBUG_DECODE(entry)) {
 			(void) printf("\t    [%6llu] %s: txg %llu, pass %llu\n",
@@ -526,12 +536,12 @@ dump_spacemap(objset_t *os, space_map_obj_t *smo, space_map_t *sm)
 static void
 dump_metaslab_stats(metaslab_t *msp)
 {
-	char maxbuf[5];
+	char maxbuf[32];
 	space_map_t *sm = &msp->ms_map;
 	avl_tree_t *t = sm->sm_pp_root;
 	int free_pct = sm->sm_space * 100 / sm->sm_size;
 
-	nicenum(space_map_maxsize(sm), maxbuf);
+	zdb_nicenum(space_map_maxsize(sm), maxbuf);
 
 	(void) printf("\t %25s %10lu   %7s  %6s   %4s %4d%%\n",
 	    "segments", avl_numnodes(t), "maxsize", maxbuf,
@@ -545,9 +555,9 @@ dump_metaslab(metaslab_t *msp)
 	spa_t *spa = vd->vdev_spa;
 	space_map_t *sm = &msp->ms_map;
 	space_map_obj_t *smo = &msp->ms_smo;
-	char freebuf[5];
+	char freebuf[32];
 
-	nicenum(sm->sm_size - smo->smo_alloc, freebuf);
+	zdb_nicenum(sm->sm_size - smo->smo_alloc, freebuf);
 
 	(void) printf(
 	    "\tmetaslab %6llu   offset %12llx   spacemap %6llu   free    %5s\n",
@@ -856,7 +866,7 @@ dump_history(spa_t *spa)
 			(void) snprintf(internalstr,
 			    sizeof (internalstr),
 			    "[internal %s txg:%" FI64 "] %s",
-			    hist_event_table[ievent], txg,
+			    zfs_history_event_names[ievent], txg,
 			    intstr);
 			cmd = internalstr;
 		}
@@ -967,6 +977,7 @@ visit_indirect(spa_t *spa, const dnode_phys_t *dnp,
 		    ZIO_PRIORITY_ASYNC_READ, ZIO_FLAG_CANFAIL, &flags, zb);
 		if (err)
 			return (err);
+		ASSERT(buf->b_data);
 
 		/* recursively visit blocks below this */
 		cbp = buf->b_data;
@@ -1016,7 +1027,7 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 {
 	dsl_dir_phys_t *dd = data;
 	time_t crtime;
-	char nice[6];
+	char nice[32];
 
 	if (dd == NULL)
 		return;
@@ -1033,15 +1044,15 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	    (u_longlong_t)dd->dd_origin_obj);
 	(void) printf("\t\tchild_dir_zapobj = %llu\n",
 	    (u_longlong_t)dd->dd_child_dir_zapobj);
-	nicenum(dd->dd_used_bytes, nice);
+	zdb_nicenum(dd->dd_used_bytes, nice);
 	(void) printf("\t\tused_bytes = %s\n", nice);
-	nicenum(dd->dd_compressed_bytes, nice);
+	zdb_nicenum(dd->dd_compressed_bytes, nice);
 	(void) printf("\t\tcompressed_bytes = %s\n", nice);
-	nicenum(dd->dd_uncompressed_bytes, nice);
+	zdb_nicenum(dd->dd_uncompressed_bytes, nice);
 	(void) printf("\t\tuncompressed_bytes = %s\n", nice);
-	nicenum(dd->dd_quota, nice);
+	zdb_nicenum(dd->dd_quota, nice);
 	(void) printf("\t\tquota = %s\n", nice);
-	nicenum(dd->dd_reserved, nice);
+	zdb_nicenum(dd->dd_reserved, nice);
 	(void) printf("\t\treserved = %s\n", nice);
 	(void) printf("\t\tprops_zapobj = %llu\n",
 	    (u_longlong_t)dd->dd_props_zapobj);
@@ -1051,7 +1062,7 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	    (u_longlong_t)dd->dd_flags);
 
 #define	DO(which) \
-	nicenum(dd->dd_used_breakdown[DD_USED_ ## which], nice); \
+	zdb_nicenum(dd->dd_used_breakdown[DD_USED_ ## which], nice); \
 	(void) printf("\t\tused_breakdown[" #which "] = %s\n", nice)
 	DO(HEAD);
 	DO(SNAP);
@@ -1067,7 +1078,7 @@ dump_dsl_dataset(objset_t *os, uint64_t object, void *data, size_t size)
 {
 	dsl_dataset_phys_t *ds = data;
 	time_t crtime;
-	char used[6], compressed[6], uncompressed[6], unique[6];
+	char used[32], compressed[32], uncompressed[32], unique[32];
 	char blkbuf[BP_SPRINTF_LEN];
 
 	if (ds == NULL)
@@ -1075,10 +1086,10 @@ dump_dsl_dataset(objset_t *os, uint64_t object, void *data, size_t size)
 
 	ASSERT(size == sizeof (*ds));
 	crtime = ds->ds_creation_time;
-	nicenum(ds->ds_used_bytes, used);
-	nicenum(ds->ds_compressed_bytes, compressed);
-	nicenum(ds->ds_uncompressed_bytes, uncompressed);
-	nicenum(ds->ds_unique_bytes, unique);
+	zdb_nicenum(ds->ds_used_bytes, used);
+	zdb_nicenum(ds->ds_compressed_bytes, compressed);
+	zdb_nicenum(ds->ds_uncompressed_bytes, uncompressed);
+	zdb_nicenum(ds->ds_unique_bytes, unique);
 	sprintf_blkptr(blkbuf, &ds->ds_bp);
 
 	(void) printf("\t\tdir_obj = %llu\n",
@@ -1123,9 +1134,9 @@ dump_bplist(objset_t *mos, uint64_t object, char *name)
 	bplist_t bpl = { 0 };
 	blkptr_t blk, *bp = &blk;
 	uint64_t itor = 0;
-	char bytes[6];
-	char comp[6];
-	char uncomp[6];
+	char bytes[32];
+	char comp[32];
+	char uncomp[32];
 
 	if (dump_opt['d'] < 3)
 		return;
@@ -1138,10 +1149,10 @@ dump_bplist(objset_t *mos, uint64_t object, char *name)
 		return;
 	}
 
-	nicenum(bpl.bpl_phys->bpl_bytes, bytes);
+	zdb_nicenum(bpl.bpl_phys->bpl_bytes, bytes);
 	if (bpl.bpl_dbuf->db_size == sizeof (bplist_phys_t)) {
-		nicenum(bpl.bpl_phys->bpl_comp, comp);
-		nicenum(bpl.bpl_phys->bpl_uncomp, uncomp);
+		zdb_nicenum(bpl.bpl_phys->bpl_comp, comp);
+		zdb_nicenum(bpl.bpl_phys->bpl_uncomp, uncomp);
 		(void) printf("\n    %s: %llu entries, %s (%s/%s comp)\n",
 		    name, (u_longlong_t)bpl.bpl_phys->bpl_entries,
 		    bytes, comp, uncomp);
@@ -1392,6 +1403,8 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES + 1] = {
 	dump_zap,		/* SA Master Node		*/
 	dump_sa_attrs,		/* SA attribute registration	*/
 	dump_sa_layouts,	/* SA attribute layouts		*/
+	dump_zap,		/* DSL scrub translations	*/
+	dump_none,		/* fake dedup BP		*/
 	dump_unknown,		/* Unknown type, must be last	*/
 };
 
@@ -1403,7 +1416,8 @@ dump_object(objset_t *os, uint64_t object, int verbosity, int *print_header)
 	dnode_t *dn;
 	void *bonus = NULL;
 	size_t bsize = 0;
-	char iblk[6], dblk[6], lsize[6], asize[6], bonus_size[6], fill[7];
+	char iblk[32], dblk[32], lsize[32], asize[32], fill[32];
+	char bonus_size[32];
 	char aux[50];
 	int error;
 
@@ -1427,11 +1441,11 @@ dump_object(objset_t *os, uint64_t object, int verbosity, int *print_header)
 	}
 	dmu_object_info_from_dnode(dn, &doi);
 
-	nicenum(doi.doi_metadata_block_size, iblk);
-	nicenum(doi.doi_data_block_size, dblk);
-	nicenum(doi.doi_max_offset, lsize);
-	nicenum(doi.doi_physical_blocks_512 << 9, asize);
-	nicenum(doi.doi_bonus_size, bonus_size);
+	zdb_nicenum(doi.doi_metadata_block_size, iblk);
+	zdb_nicenum(doi.doi_data_block_size, dblk);
+	zdb_nicenum(doi.doi_max_offset, lsize);
+	zdb_nicenum(doi.doi_physical_blocks_512 << 9, asize);
+	zdb_nicenum(doi.doi_bonus_size, bonus_size);
 	(void) sprintf(fill, "%6.2f", 100.0 * doi.doi_fill_count *
 	    doi.doi_data_block_size / (object == 0 ? DNODES_PER_BLOCK : 1) /
 	    doi.doi_max_offset);
@@ -1493,7 +1507,7 @@ dump_object(objset_t *os, uint64_t object, int verbosity, int *print_header)
 		}
 
 		for (;;) {
-			char segsize[6];
+			char segsize[32];
 			error = dnode_next_offset(dn,
 			    0, &start, minlvl, blkfill, 0);
 			if (error)
@@ -1501,7 +1515,7 @@ dump_object(objset_t *os, uint64_t object, int verbosity, int *print_header)
 			end = start;
 			error = dnode_next_offset(dn,
 			    DNODE_FIND_HOLE, &end, minlvl, blkfill, 0);
-			nicenum(end - start, segsize);
+			zdb_nicenum(end - start, segsize);
 			(void) printf("\t\tsegment [%016llx, %016llx)"
 			    " size %5s\n", (u_longlong_t)start,
 			    (u_longlong_t)end, segsize);
@@ -1524,7 +1538,7 @@ dump_dir(objset_t *os)
 	dmu_objset_stats_t dds;
 	uint64_t object, object_count;
 	uint64_t refdbytes, usedobjs, scratch;
-	char numbuf[8];
+	char numbuf[32];
 	char blkbuf[BP_SPRINTF_LEN + 20];
 	char osname[MAXNAMELEN];
 	char *type = "UNKNOWN";
@@ -1548,7 +1562,7 @@ dump_dir(objset_t *os)
 
 	ASSERT3U(usedobjs, ==, os->os_rootbp->blk_fill);
 
-	nicenum(refdbytes, numbuf);
+	zdb_nicenum(refdbytes, numbuf);
 
 	if (verbosity >= 4) {
 		(void) sprintf(blkbuf, ", rootbp ");
@@ -1911,8 +1925,9 @@ zdb_count_block(spa_t *spa, zilog_t *zilog, zdb_cb_t *zcb, const blkptr_t *bp,
 	    bp, NULL, NULL, ZIO_FLAG_CANFAIL)), ==, 0);
 }
 
+/* ARGSUSED */
 static int
-zdb_blkptr_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
+zdb_blkptr_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp, arc_buf_t *pbuf,
     const zbookmark_t *zb, const dnode_phys_t *dnp, void *arg)
 {
 	zdb_cb_t *zcb = arg;
@@ -2228,7 +2243,8 @@ dump_block_stats(spa_t *spa)
 		    "\t  avg\t comp\t%%Total\tType\n");
 
 		for (t = 0; t <= ZDB_OT_TOTAL; t++) {
-			char csize[6], lsize[6], psize[6], asize[6], avg[6];
+			char csize[32], lsize[32], psize[32], asize[32];
+			char avg[32];
 			char *typename;
 
 			if (t < DMU_OT_NUMTYPES)
@@ -2264,11 +2280,11 @@ dump_block_stats(spa_t *spa)
 				    zcb.zcb_type[ZB_TOTAL][t].zb_asize)
 					continue;
 
-				nicenum(zb->zb_count, csize);
-				nicenum(zb->zb_lsize, lsize);
-				nicenum(zb->zb_psize, psize);
-				nicenum(zb->zb_asize, asize);
-				nicenum(zb->zb_asize / zb->zb_count, avg);
+				zdb_nicenum(zb->zb_count, csize);
+				zdb_nicenum(zb->zb_lsize, lsize);
+				zdb_nicenum(zb->zb_psize, psize);
+				zdb_nicenum(zb->zb_asize, asize);
+				zdb_nicenum(zb->zb_asize / zb->zb_count, avg);
 
 				(void) printf("%6s\t%5s\t%5s\t%5s\t%5s"
 				    "\t%5.2f\t%6.2f\t",
@@ -2308,7 +2324,7 @@ typedef struct zdb_ddt_entry {
 /* ARGSUSED */
 static int
 zdb_ddt_add_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
-    const zbookmark_t *zb, const dnode_phys_t *dnp, void *arg)
+    arc_buf_t *pbuf, const zbookmark_t *zb, const dnode_phys_t *dnp, void *arg)
 {
 	avl_tree_t *t = arg;
 	avl_index_t where;
@@ -2903,7 +2919,7 @@ main(int argc, char **argv)
 
 	dprintf_setup(&argc, argv);
 
-	while ((c = getopt(argc, argv, "bcdhilmsuCDRSAFLXevp:t:U:")) != -1) {
+	while ((c = getopt(argc, argv, "bcdhilmsuCDRSAFLXevp:t:U:P")) != -1) {
 		switch (c) {
 		case 'b':
 		case 'c':
@@ -2926,6 +2942,7 @@ main(int argc, char **argv)
 		case 'L':
 		case 'X':
 		case 'e':
+		case 'P':
 			dump_opt[c]++;
 			break;
 		case 'v':
@@ -2977,7 +2994,7 @@ main(int argc, char **argv)
 		verbose = MAX(verbose, 1);
 
 	for (c = 0; c < 256; c++) {
-		if (dump_all && !strchr("elAFLRSX", c))
+		if (dump_all && !strchr("elAFLRSXP", c))
 			dump_opt[c] = 1;
 		if (dump_opt[c])
 			dump_opt[c] += verbose;
