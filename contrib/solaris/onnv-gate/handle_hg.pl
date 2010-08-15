@@ -53,7 +53,8 @@ while (1) {
 		my $file = $2;
 		if (! -d $target) {
 		    skip_diff($f1);
-		    next;
+		    next if (/^diff/);
+		    last;
 		}
 		$file =~ s/^common\///;
 		if ($file =~ /.h$/ && ! -f "$target$file") {
