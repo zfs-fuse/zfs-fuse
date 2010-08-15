@@ -1149,9 +1149,6 @@ dmu_objset_do_userquota_updates(objset_t *os, dmu_tx_t *tx)
 		 * a bprewrite.
 		 */
 
-		/*
-		 * The mutex is needed here for interlock with dnode_allocate.
-		 */
 		mutex_enter(&dn->dn_mtx);
 		ASSERT(dn->dn_id_flags);
 		if (dn->dn_id_flags & DN_ID_OLD_EXIST)  {
@@ -1175,7 +1172,7 @@ dmu_objset_do_userquota_updates(objset_t *os, dmu_tx_t *tx)
 			else
 				dn->dn_id_flags |= DN_ID_CHKED_BONUS;
 		}
-		dn->dn_id_flags &= ~(DN_ID_NEW_EXIST|DN_ID_SYNC);
+		dn->dn_id_flags &= ~(DN_ID_NEW_EXIST);
 		mutex_exit(&dn->dn_mtx);
 
 		list_remove(list, dn);
