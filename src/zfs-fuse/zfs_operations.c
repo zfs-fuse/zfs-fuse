@@ -57,6 +57,10 @@
 #define print_debug
 #endif
 
+// these quick-n-dirty macros help if you already hae the zfsvfs pointer
+#define FUSE2ZFS(ino,vfs) ((ino)==1? vfs->z_root : (ino))
+#define ZFS2FUSE(ino,vfs) ((ino)==vfs->z_root? 1 : (ino))
+
  /* the command-line options */
 int block_cache;
 int cf_enable_xattr = 0;
@@ -125,7 +129,7 @@ static void zfsfuse_statfs(fuse_req_t req, fuse_ino_t ino)
 	fuse_reply_statfs(req, &stat);
 }
 
-static int zfsfuse_stat(vnode_t *vp, struct stat *stbuf, cred_t *cred)
+static int zfsfuse_stat(zfsvfs_t* zfsvfs, vnode_t *vp, struct stat *stbuf, cred_t *cred)
 {
 	ASSERT(vp != NULL);
 	ASSERT(stbuf != NULL);
@@ -140,7 +144,7 @@ static int zfsfuse_stat(vnode_t *vp, struct stat *stbuf, cred_t *cred)
 	memset(stbuf, 0, sizeof(struct stat));
 
 	stbuf->st_dev = vattr.va_fsid;
-	stbuf->st_ino = vattr.va_nodeid == 3 ? 1 : vattr.va_nodeid;
+	stbuf->st_ino = ZFS2FUSE(vattr.va_nodeid, zfsvfs);
 	stbuf->st_mode = VTTOIF(vattr.va_type) | vattr.va_mode;
 	stbuf->st_nlink = vattr.va_nlink;
 	stbuf->st_uid = vattr.va_uid;
@@ -177,15 +181,14 @@ static void zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
 	znode_t *znode;
 
 	 error = zfs_zget(zfsvfs, ino, &znode, B_TRUE);
-	if(error) {
+	 if(error) {
 		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
 		error = (error == EEXIST ? ENOENT : error);
@@ -200,7 +203,7 @@ static void zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	zfsfuse_getcred(req, &cred);
 
 	struct stat stbuf;
-	error = zfsfuse_stat(vp, &stbuf, &cred);
+	error = zfsfuse_stat(zfsvfs, vp, &stbuf, &cred);
 
 	VN_RELE(vp);
 out:
@@ -217,7 +220,7 @@ out:
 #define MY_LOOKUP_XATTR() \
     vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);		\
     zfsvfs_t *zfsvfs = vfs->vfs_data;				\
-    if (ino == 1) ino = 3;					\
+    ino = FUSE2ZFS(ino, zfsvfs);					\
 								\
     ZFS_VOID_ENTER(zfsvfs);					\
 								\
@@ -457,13 +460,12 @@ out:
 static void zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 	if(strlen(name) >= MAXNAMELEN) 
-	    ERROR(ENAMETOOLONG);
+		ERROR(ENAMETOOLONG);
 
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (parent == 1) // look for root inode
-	    parent = zfsvfs->z_root;
+	parent = FUSE2ZFS(parent, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -472,9 +474,9 @@ static void zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	error = zfs_zget(zfsvfs, parent, &znode, B_TRUE);
 	if(error) {
 		ZFS_EXIT(zfsvfs);
-		ERROR(error == EEXIST ? ENOENT : error);
 		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		ERROR(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(znode != NULL);
@@ -506,14 +508,13 @@ static void zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 		goto out;
 
 	e.ino = VTOZ(vp)->z_id;
-	if(e.ino == 3)
-		e.ino = 1;
+	e.ino = ZFS2FUSE(e.ino, zfsvfs);
 
 	znode_t *zp = VTOZ(vp);
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(vp, &e.attr, &cred);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred);
 
 out:
 	if(vp != NULL)
@@ -533,8 +534,7 @@ static void zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -604,8 +604,7 @@ static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -618,14 +617,15 @@ static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	zfsfuse_getcred(req, &cred);
 
 	error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
-    if (error)
-        syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
+	if (error)
+		syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
 
 	VN_RELE(info->vp);
 
 	kmem_cache_free(file_info_cache, info);
 
 	ZFS_EXIT(zfsvfs);
+	/* Release events always reply_err */
 	fuse_reply_err(req, error);
 }
 
@@ -633,15 +633,14 @@ static void zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t o
 {
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 	vnode_t *vp = ((file_info_t *)(uintptr_t) fi->fh)->vp;
 	ASSERT(vp != NULL);
 	ASSERT(VTOZ(vp) != NULL);
 	ASSERT(VTOZ(vp)->z_id == ino);
 
 	if(vp->v_type != VDIR) 
-	    ERROR( ENOTDIR);
+		ERROR( ENOTDIR);
 
     print_debug("function %s\n",__FUNCTION__);
 
@@ -725,8 +724,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -858,7 +856,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 	struct fuse_entry_param e = { 0 };
 
 	if(flags & FCREAT) {
-		error = zfsfuse_stat(vp, &e.attr, &cred);
+		error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred);
 		if(error)
 			goto out;
 	}
@@ -883,8 +881,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 		e.entry_timeout = fuse_entry_timeout;
 		znode_t *zp = VTOZ(vp);
 		e.ino = zp->z_id;
-		if(e.ino == 3)
-			e.ino = 1;
+		e.ino = ZFS2FUSE(e.ino, zfsvfs);
 		sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 			sizeof(e.generation));
 	}
@@ -913,7 +910,7 @@ static void zfsfuse_open_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file
 
 static void zfsfuse_create_helper(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, struct fuse_file_info *fi)
 {
-    zfsfuse_opencreate(req, parent, fi, fi->flags | O_CREAT, mode, name);
+	zfsfuse_opencreate(req, parent, fi, fi->flags | O_CREAT, mode, name);
 }
 
 static void zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
@@ -921,8 +918,7 @@ static void zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -974,8 +970,7 @@ static void zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 {
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
 
 	vnode_t *vp = info->vp;
@@ -1027,8 +1022,7 @@ static void zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (parent == 1) // look for root inode
-	    parent = zfsvfs->z_root;
+	parent = FUSE2ZFS(parent, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1069,13 +1063,12 @@ static void zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 
 	znode_t *zp = VTOZ(vp);
 	e.ino = zp->z_id;
-	if(e.ino == 3)
-		e.ino = 1;
+	e.ino = ZFS2FUSE(e.ino, zfsvfs);
 
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(vp, &e.attr, &cred);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred);
 
 out:
 	if(vp != NULL)
@@ -1097,8 +1090,7 @@ static void zfsfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (parent == 1) // look for root inode
-	    parent = zfsvfs->z_root;
+	parent = FUSE2ZFS(parent, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1138,8 +1130,7 @@ static void zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, i
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1248,7 +1239,7 @@ out: ;
 	struct stat stat_reply;
 
 	if(!error)
-		error = zfsfuse_stat(vp, &stat_reply, &cred);
+		error = zfsfuse_stat(zfsvfs, vp, &stat_reply, &cred);
 
 	/* Do not release if vp was an opened inode */
 	if(release)
@@ -1270,8 +1261,7 @@ static void zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (parent == 1) // look for root inode
-	    parent = zfsvfs->z_root;
+	parent = FUSE2ZFS(parent, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1305,8 +1295,7 @@ static void zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_
 {
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
 
 	vnode_t *vp = info->vp;
@@ -1354,8 +1343,7 @@ static void zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, m
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (parent == 1) // look for root inode
-	    parent = zfsvfs->z_root;
+	parent = FUSE2ZFS(parent, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1405,13 +1393,12 @@ static void zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, m
 
 	znode_t *zp = VTOZ(vp);
 	e.ino = zp->z_id;
-	if(e.ino == 3)
-		e.ino = 1;
+	e.ino = ZFS2FUSE(e.ino, zfsvfs);
 
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(vp, &e.attr, &cred);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred);
 
 out:
 	if(vp != NULL)
@@ -1432,8 +1419,7 @@ static void zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (parent == 1) // look for root inode
-	    parent = zfsvfs->z_root;
+	parent = FUSE2ZFS(parent, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1479,13 +1465,12 @@ static void zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
 
 	znode_t *zp = VTOZ(vp);
 	e.ino = zp->z_id;
-	if(e.ino == 3)
-		e.ino = 1;
+	e.ino = ZFS2FUSE(e.ino, zfsvfs);
 
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(vp, &e.attr, &cred);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred);
 
 out:
 	if(vp != NULL)
@@ -1513,10 +1498,8 @@ static void zfsfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name, 
 	/* Here, it's probably over zealous, there are no chances to rename
 	 * the root znode. It's more to do like for all the other inodes
 	 * manipulations... */
-	if (parent == 1) // look for root inode
-	    parent = zfsvfs->z_root;
-	if (newparent == 1)
-	    newparent = zfsvfs->z_root;
+	parent = FUSE2ZFS(parent, zfsvfs);
+	newparent = FUSE2ZFS(newparent,zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1567,8 +1550,7 @@ static void zfsfuse_fsync(fuse_req_t req, fuse_ino_t ino, int datasync, struct f
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1598,10 +1580,8 @@ static void zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, c
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
-	if (newparent == 1) // look for root inode
-	    newparent = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
+	newparent = FUSE2ZFS(newparent, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -1654,13 +1634,12 @@ static void zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, c
 
 	znode_t *zp = VTOZ(vp);
 	e.ino = zp->z_id;
-	if(e.ino == 3)
-		e.ino = 1;
+	e.ino = ZFS2FUSE(e.ino, zfsvfs);
 
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(vp, &e.attr, &cred);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred);
 
 out:
 	if(vp != NULL)
@@ -1681,8 +1660,7 @@ static void zfsfuse_access(fuse_req_t req, fuse_ino_t ino, int mask)
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	if (ino == 1) // look for root inode
-	    ino = zfsvfs->z_root;
+	ino = FUSE2ZFS(ino, zfsvfs);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
