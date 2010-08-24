@@ -754,24 +754,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 		flags = FREAD;
 	}
 
-	if(fflags & O_CREAT)
-		flags |= FCREAT;
-	if(fflags & O_SYNC)
-		flags |= FSYNC;
-	if(fflags & O_DSYNC)
-		flags |= FDSYNC;
-	if(fflags & O_RSYNC)
-		flags |= FRSYNC;
-	if(fflags & O_APPEND)
-		flags |= FAPPEND;
-	if(fflags & O_LARGEFILE)
-		flags |= FOFFMAX;
-	if(fflags & O_NOFOLLOW)
-		flags |= FNOFOLLOW;
-	if(fflags & O_TRUNC)
-		flags |= FTRUNC;
-	if(fflags & O_EXCL)
-		flags |= FEXCL;
+	flags |= (fflags & (~3)); // copy all the other flags (except r/w)
 
 	znode_t *znode;
 
