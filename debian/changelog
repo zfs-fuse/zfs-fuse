@@ -1,6 +1,4 @@
-zfs-fuse (0.6.9-7~1.gbp52ec03) lucid; urgency=low
-
-  ** SNAPSHOT build @52ec037ffa41128d6c70f5b3baed9fdfc26f9fea **
+zfs-fuse (0.6.9-7) lucid; urgency=low
 
   * SConstruct: incorporate suggested installation prefix as DESTDIR=
   * SConstruct safely handle optim flag as paramline
@@ -11,8 +9,37 @@ zfs-fuse (0.6.9-7~1.gbp52ec03) lucid; urgency=low
   * Upstreamed the zfs-fuse man page
   * Gunzip the manpages. They caused trouble with packaging
   * Move existing zpool.cache to new location if posisble
+  * #56 — Wording change in fedora init script comment
+  * fixed zfsrc parse error when no line-end on last line
+  * Disabling the use of keep_cache in zfsfuse_opencreate
+  * valgrind spotted a bad mem ref in do_mount
+  * Debian snapshot 0.6.9-6~1.gbp52ec03
+  * Removed DAEMON_OPTS fom debian/zfs-fuse.default
+  * debian/changelog for zfs-fuse 0.6.9-7~1.gbp52ec03 in ubuntu lucid
+    RELEASE
+  * removed braindead leftover -O0 flag
+  * Fixed delay by order of magnitude
+  * issue #72 — SConstruct should offer build with debug info (symbols)
+    and
 
- -- Seth Heeren <zfs-fuse@sehe.nl>  Wed, 30 Jun 2010 01:14:06 +0200
+  [ Seth Heeren ]
+  * #56 — Wording change in fedora init script comment
+  * fixed zfsrc parse error when no line-end on last line
+  * Disabling the use of keep_cache in zfsfuse_opencreate
+  * valgrind spotted a bad mem ref in do_mount
+  * Debian snapshot 0.6.9-6~1.gbp52ec03
+  * Removed DAEMON_OPTS fom debian/zfs-fuse.default
+  * debian/changelog for zfs-fuse 0.6.9-7~1.gbp52ec03 in ubuntu lucid
+    RELEASE
+  * removed braindead leftover -O0 flag
+  * Fixed delay by order of magnitude
+  * issue #72 — SConstruct should offer build with debug info (symbols)
+    and
+
+  [ Seth Heeren ]
+  ** SNAPSHOT build @0.6.9-maint1 **
+
+ -- Seth Heeren <zfs-fuse@sehe.nl>  Mon, 20 Sep 2010 00:49:01 +0200
 
 zfs-fuse (0.6.9-1) UNRELEASED; urgency=low
 
