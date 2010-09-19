@@ -4,7 +4,8 @@ import os, sys, re
 # Accepted parameters (and defaults):
 #
 #   install_dir=/usr/local/sbin - directory where the install target copies the binaries
-#   debug=1 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
+#   debug=0 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
+#   optim="-pipe -O2 -march=native" to override the optimization flags (useful when building debug=1 for packaging)
 
 DESTDIR = ARGUMENTS.get('DESTDIR')
 
