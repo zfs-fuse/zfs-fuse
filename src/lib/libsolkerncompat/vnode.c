@@ -545,7 +545,7 @@ vn_open(char *path, enum uio_seg x1, int flags, int mode, vnode_t **vpp, enum cr
 		old_umask = umask(0);
 
 	if (!(flags & FCREAT) && S_ISBLK(st.st_mode)) {
-		flags |= O_DIRECT | O_SYNC;
+		flags |= O_DIRECT;
 		/* O_EXCL can't be passed for hot spares : they can be shared
 		 * between pools */
 	/*	if (flags & FWRITE)
