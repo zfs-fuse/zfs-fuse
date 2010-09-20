@@ -1,7 +1,7 @@
 # Release tag is supposed to be 0. for prerelease, X. for serial number in this version and alphatag XXXsvn.
 
 Name:          zfs-fuse
-Version:       0.6.9
+Version:       0.7.0
 Release:       snapshot
 Summary:       The last word in filesystems
 License:       GPL
@@ -94,7 +94,10 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir man_dir=$RPM_BUILD_ROOT%_mand
 %{_sbindir}/zstreamdump
 
 %changelog
-* Tue Jun 01 2010 Seth Heeren <sgheeren@hotmail.com> 0.6.9-0
+* Fri Oct 01 2010 Seth Heeren <zfs-fuse@sehe.nl> 0.7.0-0
+- Release 0.7.0
+
+* Tue Jun 01 2010 Seth Heeren <zfs-fuse@sehe.nl> 0.6.9-0
 - Release 0.6.9 as is in preparation for 0.7.0
 
 * Sun Dec 06 2009 Manuel Amador (Rudd-O) <rudd-o@rudd-o.com> 0.6.0-1
