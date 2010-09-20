@@ -268,19 +268,6 @@ zfs_is_mountable(zfs_handle_t *zhp, char *buf, size_t buflen,
 	return (B_TRUE);
 }
 
-/* zfs_remount: called only from rollback to clear the page cache for now */
-void
-zfs_remount(zfs_handle_t *zhp)
-{
-	char mountpoint[ZFS_MAXPROPLEN];
-	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint), NULL))
-		return;
-	char cmd[3072];
-	snprintf(cmd,3072,"mount -o remount \"%s\" \"%s\"",zfs_get_name(zhp),
-		mountpoint);
-	system(cmd);
-}
-
 /*
  * Mount the given filesystem.
  */
@@ -1486,4 +1473,25 @@ out:
 	free(mountpoints);
 
 	return (ret);
+}
+
+/* zfs_remount: called only from rollback to clear the page cache for now */
+int
+zfs_remount(zfs_handle_t *zhp)
+{
+	char* mountpoint = 0;
+	if (!zfs_is_mounted(zhp, &mountpoint))
+		return 0;
+	VERIFY(0 != mountpoint);
+
+	int result = 0;
+#undef mount
+	if (0 != mount(zfs_get_name(zhp), mountpoint, MNTTYPE_ZFS/*ignored*/, MS_REMOUNT, 0))
+		result = errno;
+#define mount __bogus__ // don't accidentally move my cheese
+
+	if (mountpoint)
+		free(mountpoint);
+
+	return result;
 }
