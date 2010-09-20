@@ -1,8 +1,6 @@
 In no particular order:
 
 - Implement missing STATUS features.
-- Use getopt to parse zfs-fuse command line args.
-- Support simultaneous ioctls.
 - Provide zpool/zfs SIGINT detection to ioctls (so that zfs send/recv terminates on Ctrl-C).
 - Get EFI labels working, necessary for whole disk support.
 - Device in use detection?
