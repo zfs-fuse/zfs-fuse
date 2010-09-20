@@ -1,7 +1,7 @@
 # /etc/init/zfs-fuse.conf: zfs-fuse daemon
 # ----------------------------------------
 # This simple SysV init-script replacement works very nicely on my boxen
-# Note: zfs-fus 0.6.9 (maint) is assumed here with respect to various
+# Note: zfs-fuse 0.6.9 (maint) is assumed here with respect to various
 # init/shutdown improvements made there. In fact you may want to consider the
 # testing branch
 #
