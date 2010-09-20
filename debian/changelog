@@ -1,5 +1,8 @@
-zfs-fuse (0.6.9-6~1.gbp52ec03) UNRELEASED; urgency=low
+zfs-fuse (0.6.9-6~2.gbp417532) UNRELEASED; urgency=low
 
+  ** SNAPSHOT build @417532196fd6e8ddbf3937601a15aedc25504612 **
+
+  [ Seth Heeren ]
   ** SNAPSHOT build @52ec037ffa41128d6c70f5b3baed9fdfc26f9fea **
 
   * SConstruct: incorporate suggested installation prefix as DESTDIR=
@@ -11,8 +14,61 @@ zfs-fuse (0.6.9-6~1.gbp52ec03) UNRELEASED; urgency=low
   * Upstreamed the zfs-fuse man page
   * Gunzip the manpages. They caused trouble with packaging
   * Move existing zpool.cache to new location if posisble
+  * Cleanup of shutdown logic
+  * fixed zfsrc parse error when no line-end on last line
+  * allow pretty diffs of gzipped manpages (use git config
+    diff.gzip.textconv zcat)
+  * Disabling the use of keep_cache in zfsfuse_opencreate
+  * option disable-page-cache deprecated
+  * deprecated DAEMON_OPTS in init scripts
+  * Update zfs-fuse manpage to reflect obsoletion of disable-page-cache
+  * call pthread_attr_destroy where appropriate
+  * valgrind spotted a bad mem ref in do_mount
+  * more: option disable-page-cache deprecated
+  * compiler warning
+  * Issue #67 Improve parsing of /etc/zfs/zfsrc
+  * Debian snapshot 0.6.9-6~1.gbp52ec03
+  * Removed DAEMON_OPTS fom debian/zfs-fuse.default
+  * removed braindead leftover -O0 flag
+  * shutdown ioctl handlers after zfsfuse listener
+  * deadlock in fuse_unmount_all because listeners already gone
+  * fuse_unmount_all could be starved for the mtx lock
+  * Upstart script for 0.6.9+ on Lucid
 
- -- Seth Heeren <zfs-fuse@sehe.nl>  Wed, 30 Jun 2010 01:14:06 +0200
+  [ Emmanuel Anne ]
+  * remove unused bitmap.c (thanks to Sandeep for noticing)
+
+  [ Eric Astor ]
+  * sid implementation from bsd
+
+  [ Emmanuel Anne ]
+  * Update waf support
+
+  [ Seth Heeren ]
+  * add tags to .gitignore
+  * improved comment in zfsrc
+  * improved detection of default_permissions option
+  * Dynamically enable xattr support (--enable-xattr)
+  * Fixed delay by order of magnitude
+
+  [ Emmanuel Anne ]
+  * better handling of new files
+  * Remount the fs after a rollback
+
+  [ Seth Heeren ]
+  * Reenabling the keep_cache flag on zfsfuse_opencreate
+
+  [ Emmanuel Anne ]
+  * prevent calling autoconf/autoheader/automake from makefile
+
+  [ Seth Heeren ]
+  * mountpoints in /etc/mtab should list file system as "fuse.zfs" not
+    just "fuse"
+  * issue #72 — SConstruct should offer build with debug info (symbols)
+    and
+  * issues #72,#73 debug= and optim= behaviours
+
+ -- Seth Heeren <zfs-fuse@sehe.nl>  Mon, 20 Sep 2010 02:13:55 +0200
 
 zfs-fuse (0.6.9-1) UNRELEASED; urgency=low
 
