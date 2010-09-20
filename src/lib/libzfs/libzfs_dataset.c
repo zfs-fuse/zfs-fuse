@@ -3387,6 +3387,13 @@ zfs_rollback(zfs_handle_t *zhp, zfs_handle_t *snap, boolean_t force)
 	 * snapshot since we verified that this was the most recent.
 	 *
 	 */
+	/* remount the fs to clear page cache */
+	if ((!err) && (err = zfs_remount(zhp)) != 0) {
+		(void) zfs_standard_error_fmt(zhp->zfs_hdl, err,
+				dgettext(TEXT_DOMAIN, "cannot remount '%s'"),
+				zhp->zfs_name);
+		return (err);
+	}
 	if ((err = zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_ROLLBACK, &zc)) != 0) {
 		(void) zfs_standard_error_fmt(zhp->zfs_hdl, errno,
 		    dgettext(TEXT_DOMAIN, "cannot rollback '%s'"),
@@ -3409,10 +3416,6 @@ zfs_rollback(zfs_handle_t *zhp, zfs_handle_t *snap, boolean_t force)
 				    new_volsize);
 		}
 		zfs_close(zhp);
-	}
-	if (!err) {
-	    /* remount the fs to clear page cache */
-	    zfs_remount(zhp);
 	}
 	return (err);
 }
