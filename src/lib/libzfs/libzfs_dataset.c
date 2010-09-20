@@ -3328,6 +3328,26 @@ rollback_destroy(zfs_handle_t *zhp, void *data)
 	return (0);
 }
 
+static int linux_drop_caches()
+{
+	/* brute force method to avoid obvious data corruption traps on rollback
+	 *
+	 * this is a workaround; see issue #65
+	 */
+	int fd = open("/proc/sys/vm/drop_caches", O_WRONLY, O_SYNC);
+	if (-1 == fd)
+		return errno;
+
+	int written = write(fd, "3", 1);
+	if (-1 == written)
+		return errno;
+
+	if (-1 == close(fd))
+		return errno;
+
+	return (1==written)? 0 : EPERM;
+}
+
 /*
  * Given a dataset, rollback to a specific snapshot, discarding any
  * data changes since then and making it the active dataset.
@@ -3387,6 +3407,13 @@ zfs_rollback(zfs_handle_t *zhp, zfs_handle_t *snap, boolean_t force)
 	 * snapshot since we verified that this was the most recent.
 	 *
 	 */
+#if 0
+	/* BROKEN LOGIC
+	 * Unfortunately, pending file locks (and possibly other open handles) can
+	 * cause this to have no effect and that is undetectable. See issue #65
+	 *
+	 * Therefore we get out the big guns (linux_drop_caches, below)
+	 */
 	/* remount the fs to clear page cache */
 	if ((!err) && (err = zfs_remount(zhp)) != 0) {
 		(void) zfs_standard_error_fmt(zhp->zfs_hdl, err,
@@ -3394,11 +3421,16 @@ zfs_rollback(zfs_handle_t *zhp, zfs_handle_t *snap, boolean_t force)
 				zhp->zfs_name);
 		return (err);
 	}
+#endif
 	if ((err = zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_ROLLBACK, &zc)) != 0) {
 		(void) zfs_standard_error_fmt(zhp->zfs_hdl, errno,
 		    dgettext(TEXT_DOMAIN, "cannot rollback '%s'"),
 		    zhp->zfs_name);
 		return (err);
+	}
+	if ((err = linux_drop_caches()) != 0) {
+		(void) zfs_standard_error_fmt(zhp->zfs_hdl, err,
+				dgettext(TEXT_DOMAIN, "drop_caches failed"));
 	}
 
 	/*
