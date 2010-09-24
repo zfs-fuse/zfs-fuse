@@ -1488,3 +1488,24 @@ out:
 
 	return (ret);
 }
+
+/* zfs_remount: called only from rollback to clear the page cache for now */
+int
+zfs_remount(zfs_handle_t *zhp)
+{
+	char* mountpoint = 0;
+	if (!zfs_is_mounted(zhp, &mountpoint))
+		return 0;
+	VERIFY(0 != mountpoint);
+
+	int result = 0;
+#undef mount
+	if (0 != mount(zfs_get_name(zhp), mountpoint, MNTTYPE_ZFS/*ignored*/, MS_REMOUNT, 0))
+		result = errno;
+#define mount __bogus__ // don't accidentally move my cheese
+
+	if (mountpoint)
+		free(mountpoint);
+
+	return result;
+}

@@ -106,7 +106,7 @@ static struct option longopts[] = {
 	  &cf_disable_block_cache,
 	  1
 	},
-	{ "disable-page-cache", // obsolete (broken)
+	{ "disable-page-cache", // obsolete
 	  0,
 	  &cf_disable_page_cache,
 	  1
@@ -183,11 +183,10 @@ void print_usage(int argc, char *argv[]) {
 		"			Enable direct I/O for disk operations. Completely\n"
 		"			disables caching reads and writes in the kernel\n"
 		"			block cache.  Breaks mmap() in ZFS datasets too.\n"
-// deprecated: didn't work as advertised; http://zfs-fuse.net/issues/65
-//		"  --disable-page-cache\n"
-//		"			Disable the page cache for files residing within\n"
-//		"			ZFS filesystems.  Not recommended as it slows down\n"
-//		"			I/O operations considerably.\n"
+		"  --disable-page-cache\n"
+		"			Disable the page cache for files residing within\n"
+		"			ZFS filesystems.  Not recommended as it slows down\n"
+		"			I/O operations considerably.\n"
 		"  -a SECONDS, --fuse-attr-timeout SECONDS\n"
 		"			Sets timeout for caching FUSE attributes in kernel.\n"
 		"			Defaults to 0.0.\n"
@@ -430,8 +429,7 @@ int main(int argc, char *argv[])
 	init_xattr();
 	/* we invert the options positively, since they both default to enabled */
 	block_cache = cf_disable_block_cache ? 0 : 1;
-	if (cf_disable_page_cache)
-		syslog(LOG_WARNING,"deprecated option used (disable-page-cache); option no longer has an effect");
+	page_cache  = cf_disable_page_cache  ? 0 : 1;
 	if (cf_enable_xattr)
 		fprintf(stderr, "%s: Warning: enabling xattr support should only be done when really required; performance will be affected\n", argv[0]);
 

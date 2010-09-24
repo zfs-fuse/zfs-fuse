@@ -4,7 +4,8 @@ import os, sys, re
 # Accepted parameters (and defaults):
 #
 #   install_dir=/usr/local/sbin - directory where the install target copies the binaries
-#   debug=1 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
+#   debug=0 - compilation style: 0 = optimize and strip, 1 = optimize with debug info, 2 = debug info, 3 = instrument functions
+#   optim="-pipe -O2 -march=native" to override the optimization flags (useful when building debug=1 for packaging)
 
 DESTDIR = ARGUMENTS.get('DESTDIR')
 
@@ -42,13 +43,13 @@ optim = ARGUMENTS.get('optim', '-O2')
 
 if not debug:
 	env.Append(LINKFLAGS = ['-s'])
-	env.Append(CCFLAGS = ['-s', optim, '-DNDEBUG'])
+	env.Append(CCFLAGS = Split(" ".join(["-s -DNDEBUG", optim])));
 else:
 	env.Append(LINKFLAGS = ['-ggdb'])
 	env.Append(CCFLAGS = ['-ggdb'])
 # Be careful here, one of DEBUG or NDEBUG must be defined, if you undef both, you'll get unexpected results
 	if debug == 1:
-		env.Append(CCFLAGS = [optim, '-DDEBUG'])
+		env.Append(CCFLAGS = Split(" ".join(["-DNDEBUG", optim])));
 	elif debug == 2:
 		env.Append(CCFLAGS = ['-DDEBUG'])
 	elif debug == 3:

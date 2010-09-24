@@ -1,3 +1,7 @@
+????-??-?? - Release 0.7.0 (beta)
+--------------------------------------------------
+	* mountpoints now use fuse subtype 'zfs' (i.e. listing as fuse.zfs)
+
 ????-??-?? - Release 0.5.1
 --------------------------------------------------
 	* Updated ZFS code to pool version 16 (OpenGrok repository 2009-06-03)

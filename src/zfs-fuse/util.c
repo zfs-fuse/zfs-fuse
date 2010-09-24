@@ -274,7 +274,7 @@ void do_exit()
 
 /* big_writes added if fuse 2.8 is detected at runtime */
 /* other mount options are added if specified in the command line */
-#define FUSE_OPTIONS "fsname=%s,subtype=zfs,allow_other,suid,dev%s" // ,big_writes"
+#define FUSE_OPTIONS "subtype=zfs,fsname=%s,allow_other,suid,dev%s" // ,big_writes"
 
 #ifdef DEBUG
 uint32_t mounted = 0;
