@@ -29,7 +29,6 @@
 #include <errno.h>
 #include <libgen.h>
 #include <libintl.h>
-#include <libuutil.h>
 #include <libnvpair.h>
 #include <locale.h>
 #include <stddef.h>

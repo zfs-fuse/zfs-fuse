@@ -49,8 +49,6 @@
 #include <sys/ddt.h>
 #include <sys/socket.h>
 
-#include <sys/zio_checksum.h>
-
 /* in libzfs_dataset.c */
 extern void zfs_setprop_error(libzfs_handle_t *, zfs_prop_t, int, char *);
 

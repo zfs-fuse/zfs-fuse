@@ -40,7 +40,6 @@
 #include <priv.h>
 #include <pwd.h>
 #include <grp.h>
-#include <stddef.h>
 #include <ucred.h>
 #include <aclutils.h>
 #include <acl_impl.h>
