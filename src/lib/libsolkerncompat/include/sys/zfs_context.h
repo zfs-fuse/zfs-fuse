@@ -50,14 +50,12 @@ extern "C" {
 #include <sys/debug.h>
 #include <sys/random.h>
 #include <sys/byteorder.h>
-#include <sys/systm.h>
 #include <sys/list.h>
 #include <sys/uio.h>
 #include <sys/dirent.h>
 #include <sys/time.h>
 #include <vm/seg_kmem.h>
 #include <sys/zone.h>
-#include <sys/uio.h>
 #include <sys/zfs_debug.h>
 #include <sys/sysevent.h>
 #include <sys/sysevent/eventdefs.h>

@@ -34,8 +34,6 @@
 #ifndef _SYS_CRED_H
 #define	_SYS_CRED_H
 
-#include <sys/types.h>
-
 #ifdef	__cplusplus
 extern "C" {
 #endif

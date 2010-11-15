@@ -63,7 +63,6 @@
 #include <sys/zvol.h>
 #include <sys/dsl_scan.h>
 #include <sharefs/share.h>
-#include <sys/dmu_objset.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
