@@ -1817,7 +1817,7 @@ dump_label(const char *dev)
 		nvlist_t *config = NULL;
 
 		(void) printf("--------------------------------------------\n");
-		(void) printf("LABEL %d\n", l);
+		(void) printf("LABEL %d offset %" FI64 " size %d\n", l,vdev_label_offset(psize, l, 0),sizeof(label));
 		(void) printf("--------------------------------------------\n");
 
 		if (pread64(fd, &label, sizeof (label),

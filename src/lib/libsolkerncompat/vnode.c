@@ -49,7 +49,6 @@
 #include <sys/cmn_err.h>
 #include <sys/atomic.h>
 #include <sys/types.h>
-#include <sys/atomic.h>
 #include <sys/pathname.h>
 #include <fs/fs_subr.h>
 
