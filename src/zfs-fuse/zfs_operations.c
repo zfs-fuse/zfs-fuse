@@ -647,10 +647,12 @@ static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
 	if (error)
 		syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
+	else
+	{
+		VN_RELE(info->vp);
 
-	VN_RELE(info->vp);
-
-	kmem_cache_free(file_info_cache, info);
+		kmem_cache_free(file_info_cache, info);
+	}
 
 	ZFS_EXIT(zfsvfs);
 	/* Release events always reply_err */
