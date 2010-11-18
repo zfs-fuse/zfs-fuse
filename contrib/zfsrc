@@ -37,7 +37,7 @@ zfs-prefetch-disable
 #    2 as high as you want (that's the case here). It's probably the best option
 # 2) Otherwise if you still want to keep posix file permissions without loosing
 #    too much speed, set these 2 to at least 1s.
-# 3) Last case : you want perfect posix conformance, wihtout default_permissions
+# 3) Last case : you want perfect posix conformance, without default_permissions
 #    in this case set these to 0, but be ready to loose quite some speed !
 # Default is to use default_permissions, so these as high as you want.
 fuse-attr-timeout = 3600
