@@ -592,6 +592,8 @@ static void zfsfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 
 		info->vp = vp;
 		info->flags = FREAD;
+		info->alloc = info->used = 0;
+		info->buffer = NULL;
 
 		fi->fh = (uint64_t) (uintptr_t) info;
 	}
@@ -605,36 +607,6 @@ out:
 		fuse_reply_open(req, fi);
 	else
 		fuse_reply_err(req, error);
-}
-
-static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
-{
-    print_debug("function %s\n",__FUNCTION__);
-	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
-	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	ino = FUSE2ZFS(ino, zfsvfs);
-
-	ZFS_VOID_ENTER(zfsvfs);
-
-	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
-	ASSERT(info->vp != NULL);
-	ASSERT(VTOZ(info->vp) != NULL);
-	ASSERT(VTOZ(info->vp)->z_id == ino);
-
-	cred_t cred;
-	zfsfuse_getcred(req, &cred);
-
-	error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
-	if (error)
-		syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
-
-	VN_RELE(info->vp);
-
-	kmem_cache_free(file_info_cache, info);
-
-	ZFS_EXIT(zfsvfs);
-	/* Release events always reply_err */
-	fuse_reply_err(req, error);
 }
 
 static void zfsfuse_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
@@ -861,6 +833,8 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 
 	info->vp = vp;
 	info->flags = flags;
+	info->alloc = info->used = 0;
+	info->buffer = NULL;
 
 	fi->fh = (uint64_t) (uintptr_t) info;
 	/* keep_cache is forced to 1.
@@ -957,55 +931,6 @@ static void zfsfuse_readlink(fuse_req_t req, fuse_ino_t ino)
 		fuse_reply_readlink(req, buffer);
 	} else
 		fuse_reply_err(req, error);
-}
-
-static void zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
-{
-	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
-	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	ino = FUSE2ZFS(ino, zfsvfs);
-	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
-
-	vnode_t *vp = info->vp;
-	ASSERT(vp != NULL);
-	ASSERT(VTOZ(vp) != NULL);
-	ASSERT(VTOZ(vp)->z_id == ino);
-
-    print_debug("function %s\n",__FUNCTION__);
-
-	char *outbuf = kmem_alloc(size, KM_NOSLEEP);
-	if(outbuf == NULL)
-		ERROR( ENOMEM);
-
-	ZFS_VOID_ENTER(zfsvfs);
-
-	iovec_t iovec;
-	uio_t uio;
-	uio.uio_iov = &iovec;
-	uio.uio_iovcnt = 1;
-	uio.uio_segflg = UIO_SYSSPACE;
-	uio.uio_fmode = FREAD;
-	uio.uio_llimit = RLIM64_INFINITY;
-	uio.uio_extflg = UIO_COPY_CACHED;
-
-	iovec.iov_base = outbuf;
-	iovec.iov_len = size;
-	uio.uio_resid = iovec.iov_len;
-	uio.uio_loffset = off;
-
-	cred_t cred;
-	zfsfuse_getcred(req, &cred);
-
-	error = VOP_READ(vp, &uio, info->flags, &cred, NULL);
-
-	ZFS_EXIT(zfsvfs);
-
-	if(!error)
-		fuse_reply_buf(req, outbuf, uio.uio_loffset - off);
-	else
-		fuse_reply_err(req, error);
-
-	kmem_free(outbuf, size);
 }
 
 static void zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
@@ -1285,21 +1210,28 @@ static void zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 	fuse_reply_err(req, error);
 }
 
-static void zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, struct fuse_file_info *fi)
+static int zfs_enter(zfsvfs_t *zfsvfs) {
+	ZFS_ENTER(zfsvfs);
+	return 0;
+}
+
+static int basic_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, file_info_t *info)
 {
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	ino = FUSE2ZFS(ino, zfsvfs);
-	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
 
 	vnode_t *vp = info->vp;
+#if DEBUG
+	ino = FUSE2ZFS(ino, zfsvfs);
 	ASSERT(vp != NULL);
 	ASSERT(VTOZ(vp) != NULL);
 	ASSERT(VTOZ(vp)->z_id == ino);
+#endif
 
     print_debug("function %s\n",__FUNCTION__);
 
-	ZFS_VOID_ENTER(zfsvfs);
+	int error = zfs_enter(zfsvfs);
+	if (error) return -error;
 
 	iovec_t iovec;
 	uio_t uio;
@@ -1317,19 +1249,147 @@ static void zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_
 
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
-/*
-	xuio_t xuio;
-	uio.uio_extflg = UIO_XUIO;
-	xuio.xu_uio = uio;
-	xuio.xu_type = UIOTYPE_ZEROCOPY; */
 
 	error = VOP_WRITE(vp, &uio, info->flags, &cred, NULL);
 
 	ZFS_EXIT(zfsvfs);
+	return error;
+}
+
+static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+    print_debug("function %s\n",__FUNCTION__);
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+	ino = FUSE2ZFS(ino, zfsvfs);
+
+	ZFS_VOID_ENTER(zfsvfs);
+
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+	if (info->used) {
+		basic_write(req,ino,info->buffer,info->used,info->last_off-info->used,info);
+	}
+	if (info->alloc) {
+		free(info->buffer);
+	}
+	ASSERT(info->vp != NULL);
+	ASSERT(VTOZ(info->vp) != NULL);
+	ASSERT(VTOZ(info->vp)->z_id == ino);
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
+	if (error)
+		syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
+
+	VN_RELE(info->vp);
+
+	kmem_cache_free(file_info_cache, info);
+
+	ZFS_EXIT(zfsvfs);
+	/* Release events always reply_err */
+	fuse_reply_err(req, error);
+}
+
+static void zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+	ino = FUSE2ZFS(ino, zfsvfs);
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+	if (info->used) {
+		basic_write(req,ino,info->buffer,info->used,info->last_off-info->used,info);
+		info->used = 0;
+	}
+
+	vnode_t *vp = info->vp;
+	ASSERT(vp != NULL);
+	ASSERT(VTOZ(vp) != NULL);
+	ASSERT(VTOZ(vp)->z_id == ino);
+
+    print_debug("function %s\n",__FUNCTION__);
+
+	char *outbuf = kmem_alloc(size, KM_NOSLEEP);
+	if(outbuf == NULL)
+		ERROR( ENOMEM);
+
+	ZFS_VOID_ENTER(zfsvfs);
+
+	iovec_t iovec;
+	uio_t uio;
+	uio.uio_iov = &iovec;
+	uio.uio_iovcnt = 1;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_fmode = FREAD;
+	uio.uio_llimit = RLIM64_INFINITY;
+	uio.uio_extflg = UIO_COPY_CACHED;
+
+	iovec.iov_base = outbuf;
+	iovec.iov_len = size;
+	uio.uio_resid = iovec.iov_len;
+	uio.uio_loffset = off;
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	error = VOP_READ(vp, &uio, info->flags, &cred, NULL);
+
+	ZFS_EXIT(zfsvfs);
+
+	if(!error)
+		fuse_reply_buf(req, outbuf, uio.uio_loffset - off);
+	else
+		fuse_reply_err(req, error);
+
+	kmem_free(outbuf, size);
+}
+
+static void push(fuse_req_t req, fuse_ino_t ino, file_info_t *info, const char *buf, size_t size, off_t off)
+{
+	if (info->used + size < 128<<10) {
+		if (!info->used || info->last_off == off) {
+			if (info->alloc < info->used + size) {
+				int plus = info->used + size - info->alloc;
+				if (plus < 4096) plus = 4096;
+				info->alloc += plus;
+				info->buffer = realloc(info->buffer,info->alloc);
+			}
+			memcpy(&info->buffer[info->used],buf,size);
+			info->used += size;
+			info->last_off = off + size;
+			return;
+		} else { // offset just changed, need to flush
+          basic_write(req,ino,info->buffer,info->used,info->last_off-info->used,info);
+		  info->used = 0;
+		  push(req,ino,info,buf,size,off);
+		  return;
+		}
+	} else {
+		// to write + buffer > 128k, need to flush everything
+		if (info->used + size > info->alloc) {
+			info->alloc = info->used + size;
+			info->buffer = realloc(info->buffer,info->alloc);
+		}
+		memcpy(&info->buffer[info->used],buf,size);
+		basic_write(req,ino,info->buffer,info->used,info->last_off-info->used,info);
+		info->used = 0;
+	}
+}
+
+static void zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, struct fuse_file_info *fi)
+{
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+	if (size < 4096 || info->used) {
+		push(req,ino,info,buf,size,off);
+		fuse_reply_write(req, size /* - uio.uio_resid */);
+		return;
+	}
+	
+	int error = basic_write(req, ino, buf, size, off, info);
 
 	if(!error) {
 		/* When not using direct_io, we must always write 'size' bytes */
-		VERIFY(uio.uio_resid == 0);
 		fuse_reply_write(req, size /* - uio.uio_resid */);
 	} else
 		fuse_reply_err(req, error);
