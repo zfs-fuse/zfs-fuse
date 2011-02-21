@@ -1610,14 +1610,20 @@ static void zfsfuse_fsync(fuse_req_t req, fuse_ino_t ino, int datasync, struct f
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
-	ino = FUSE2ZFS(ino, zfsvfs);
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+	if (info->used) {
+		basic_write(req,ino,info->buffer,info->used,info->last_off-info->used,info);
+		info->used = 0;
+	}
 
 	ZFS_VOID_ENTER(zfsvfs);
 
-	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+#if DEBUG
+	ino = FUSE2ZFS(ino, zfsvfs);
 	ASSERT(info->vp != NULL);
 	ASSERT(VTOZ(info->vp) != NULL);
 	ASSERT(VTOZ(info->vp)->z_id == ino);
+#endif
 
 	vnode_t *vp = info->vp;
 
