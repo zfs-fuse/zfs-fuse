@@ -47,8 +47,6 @@
 #include "fuse_listener.h"
 #include <syslog.h>
 
-#define ZFS_MAGIC 0x2f52f5
-
 // #define VERBOSE
 
 #ifdef VERBOSE
@@ -66,13 +64,92 @@ int block_cache;
 int cf_enable_xattr = 0;
 float fuse_attr_timeout, fuse_entry_timeout;
 
-static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
+typedef struct {
+	ino_t ino;
+	file_info_t *info;
+	zfsvfs_t *zfsvfs;
+	/* pid is here to try to guess if get_info should really get this info
+	 * or not. Maybe a little paranoid ? It won't hurt anyway */
+	pid_t pid;
+} rec_t;
+
+/* This whole fi thing is really too much for what I want
+ * if fuse passes a correct fi parameter to _getattr one day, all this
+ * will become useless. The idea is to get the info field from a given
+ * inode */
+struct {
+	rec_t *rec;
+	int alloc,used;
+	/* A lock. I would have prefered to do without
+	 * but it's clear that if lots of open operations come at the same time
+	 * from different fs, then there are race conditions possibilities */
+	pthread_mutex_t lock;
+} fi;
+
+static void add_fi(pid_t pid,zfsvfs_t *zfsvfs, ino_t ino,file_info_t *info) {
+	pthread_mutex_lock(&fi.lock);
+	if (fi.used == fi.alloc) {
+		fi.alloc += 10;
+		fi.rec = realloc(fi.rec,sizeof(rec_t)*fi.alloc);
+	}
+	fi.rec[fi.used].zfsvfs = zfsvfs;
+	fi.rec[fi.used].ino = ino;
+	fi.rec[fi.used].pid = pid;
+	fi.rec[fi.used++].info = info;
+	pthread_mutex_unlock(&fi.lock);
+}
+
+static file_info_t *get_info(pid_t pid,zfsvfs_t *zfsvfs, ino_t ino) {
+	pthread_mutex_lock(&fi.lock);
+	int n;
+	/* It's to return info out of context. From getattr actually
+	 * but the problem is that getattr can also be called from
+	 * another process or another thread. In this case it must not
+	 * get the right info record or bad things happen */
+	for (n=0; n<fi.used; n++) {
+		if (fi.rec[n].ino == ino && fi.rec[n].zfsvfs == zfsvfs &&
+				fi.rec[n].pid == pid) {
+			/* This is a paranoid version, the mutex will be
+			 * returned only after info has been used */
+			return fi.rec[n].info;
+		}
+	}
+	pthread_mutex_unlock(&fi.lock);
+	return NULL;
+}
+
+static void release_info()
+{
+	pthread_mutex_unlock(&fi.lock);
+}
+
+static void free_fi(zfsvfs_t *zfsvfs, ino_t ino, file_info_t *info) {
+	pthread_mutex_lock(&fi.lock);
+	int n;
+	for (n=0; n<fi.used; n++) {
+		if (fi.rec[n].ino == ino && fi.rec[n].zfsvfs == zfsvfs) {
+			if (fi.rec[n].info == info) {
+				if (n < fi.used-1) 
+					memmove(&fi.rec[n],&fi.rec[n+1],(fi.used-1-n)*sizeof(rec_t));
+				fi.used--;
+				pthread_mutex_unlock(&fi.lock);
+				return;
+			}
+		}
+	}
+	// since _release is shared by release and releasedir there are
+	// cases where the ino/info pair won't be finden
+	pthread_mutex_unlock(&fi.lock);
+}
+
+static pid_t zfsfuse_getcred(fuse_req_t req, cred_t *cred)
 {
 	const struct fuse_ctx *ctx = fuse_req_ctx(req);
 
 	cred->cr_uid = ctx->uid;
 	cred->cr_gid = ctx->gid;
 	cred->req = req;
+	return ctx->pid;
 }
 
 static void zfsfuse_destroy(void *userdata)
@@ -176,12 +253,72 @@ static int int_zfs_enter(zfsvfs_t *zfsvfs) {
     int error; \
     if ((error = int_zfs_enter(zfsvfs)) != 0) ERROR( error);
 
+static int zfs_enter(zfsvfs_t *zfsvfs) {
+	ZFS_ENTER(zfsvfs);
+	return 0;
+}
+
+static int basic_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, file_info_t *info)
+{
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	vnode_t *vp = info->vp;
+#if DEBUG
+	ino = FUSE2ZFS(ino, zfsvfs);
+	ASSERT(vp != NULL);
+	ASSERT(VTOZ(vp) != NULL);
+	ASSERT(VTOZ(vp)->z_id == ino);
+#endif
+
+    print_debug("function %s\n",__FUNCTION__);
+
+	int error = zfs_enter(zfsvfs);
+	if (error) return -error;
+
+	iovec_t iovec;
+	uio_t uio;
+	uio.uio_iov = &iovec;
+	uio.uio_iovcnt = 1;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_fmode = FWRITE;
+	uio.uio_llimit = RLIM64_INFINITY;
+
+	iovec.iov_base = (void *) buf;
+	iovec.iov_len = size;
+	uio.uio_resid = iovec.iov_len;
+	uio.uio_loffset = off;
+	uio.uio_extflg = UIO_COPY_DEFAULT;
+
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+
+	error = VOP_WRITE(vp, &uio, info->flags, &cred, NULL);
+
+	ZFS_EXIT(zfsvfs);
+	return error;
+}
+
 static void zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 	ino = FUSE2ZFS(ino, zfsvfs);
+
+	cred_t cred;
+	pid_t pid = zfsfuse_getcred(req, &cred);
+	file_info_t *info;
+	info = get_info(pid,zfsvfs,ino);
+	if (info && info->used) {
+		/* We can't just adjust the size here because the writes are not
+		   always at the end of the file and it would be tedious to guess
+		   the right size without flushing */
+		basic_write(req,ino,info->buffer,info->used,info->last_off-info->used,info);
+		info->used = 0;
+	}
+	if (info)
+		release_info();
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -198,9 +335,6 @@ static void zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
-
-	cred_t cred;
-	zfsfuse_getcred(req, &cred);
 
 	struct stat stbuf;
 	error = zfsfuse_stat(zfsvfs, vp, &stbuf, &cred);
@@ -710,7 +844,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 	ZFS_VOID_ENTER(zfsvfs);
 
 	cred_t cred;
-	zfsfuse_getcred(req, &cred);
+	pid_t pid = zfsfuse_getcred(req, &cred);
 
 	/* Map flags */
 	int mode, flags;
@@ -835,6 +969,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 	info->flags = flags;
 	info->alloc = info->used = 0;
 	info->buffer = NULL;
+	add_fi(pid,zfsvfs,VTOZ(vp)->z_id,info);
 
 	fi->fh = (uint64_t) (uintptr_t) info;
 	/* keep_cache is forced to 1.
@@ -1210,60 +1345,12 @@ static void zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 	fuse_reply_err(req, error);
 }
 
-static int zfs_enter(zfsvfs_t *zfsvfs) {
-	ZFS_ENTER(zfsvfs);
-	return 0;
-}
-
-static int basic_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, file_info_t *info)
-{
-	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
-	zfsvfs_t *zfsvfs = vfs->vfs_data;
-
-	vnode_t *vp = info->vp;
-#if DEBUG
-	ino = FUSE2ZFS(ino, zfsvfs);
-	ASSERT(vp != NULL);
-	ASSERT(VTOZ(vp) != NULL);
-	ASSERT(VTOZ(vp)->z_id == ino);
-#endif
-
-    print_debug("function %s\n",__FUNCTION__);
-
-	int error = zfs_enter(zfsvfs);
-	if (error) return -error;
-
-	iovec_t iovec;
-	uio_t uio;
-	uio.uio_iov = &iovec;
-	uio.uio_iovcnt = 1;
-	uio.uio_segflg = UIO_SYSSPACE;
-	uio.uio_fmode = FWRITE;
-	uio.uio_llimit = RLIM64_INFINITY;
-
-	iovec.iov_base = (void *) buf;
-	iovec.iov_len = size;
-	uio.uio_resid = iovec.iov_len;
-	uio.uio_loffset = off;
-	uio.uio_extflg = UIO_COPY_DEFAULT;
-
-	cred_t cred;
-	zfsfuse_getcred(req, &cred);
-
-	error = VOP_WRITE(vp, &uio, info->flags, &cred, NULL);
-
-	ZFS_EXIT(zfsvfs);
-	return error;
-}
-
 static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
     print_debug("function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 	ino = FUSE2ZFS(ino, zfsvfs);
-
-	ZFS_VOID_ENTER(zfsvfs);
 
 	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
 	if (info->used) {
@@ -1272,6 +1359,10 @@ static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	if (info->alloc) {
 		free(info->buffer);
 	}
+	// an ino always has an entry even if it does not use buffers
+	free_fi(zfsvfs,ino,info);
+	ZFS_VOID_ENTER(zfsvfs);
+
 	ASSERT(info->vp != NULL);
 	ASSERT(VTOZ(info->vp) != NULL);
 	ASSERT(VTOZ(info->vp)->z_id == ino);
@@ -1345,6 +1436,8 @@ static void zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 	kmem_free(outbuf, size);
 }
 
+int no_buffers = 0; // command line switch: no-buffers
+
 static void push(fuse_req_t req, fuse_ino_t ino, file_info_t *info, const char *buf, size_t size, off_t off)
 {
 	if (info->used + size < 128<<10) {
@@ -1380,7 +1473,13 @@ static void push(fuse_req_t req, fuse_ino_t ino, file_info_t *info, const char *
 static void zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, struct fuse_file_info *fi)
 {
 	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
-	if (size < 4096 || info->used) {
+	if (fi->flush || info->flags & FSYNC) {
+		if (info->used) {
+			basic_write(req,ino,info->buffer,info->used,info->last_off-info->used,info);
+			info->used = 0;
+		}
+	}
+	if (!no_buffers && !(fi->flush || (info->flags & FSYNC)) && (size < 4096 || info->used)) {
 		push(req,ino,info,buf,size,off);
 		fuse_reply_write(req, size /* - uio.uio_resid */);
 		return;
@@ -1794,6 +1893,8 @@ struct fuse_lowlevel_ops zfs_operations =
 };
 
 void init_xattr() {
+    fi.alloc = fi.used = 0;
+	pthread_mutex_init(&fi.lock,NULL);
     if (cf_enable_xattr) {
 	zfs_operations.listxattr  = zfsfuse_listxattr;
 	zfs_operations.setxattr   = zfsfuse_setxattr;
