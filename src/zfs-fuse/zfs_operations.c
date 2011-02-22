@@ -51,7 +51,8 @@
 // 1 : functions calls
 // 2 : lookup
 // 4 : buffers
-// #define DEBUG_LEVEL (4 | 2)
+// 8 : read and write calls
+// #define DEBUG_LEVEL (4 | 2 | 8)
 
 #if DEBUG_LEVEL
 static void print_debug(int debug_level,const char *format, ...)
@@ -83,9 +84,6 @@ typedef struct {
 	ino_t ino;
 	file_info_t *info;
 	zfsvfs_t *zfsvfs;
-	/* pid is here to try to guess if get_info should really get this info
-	 * or not. Maybe a little paranoid ? It won't hurt anyway */
-	pid_t pid;
 } rec_t;
 
 /* This whole fi thing is really too much for what I want
@@ -101,7 +99,7 @@ struct {
 	pthread_mutex_t lock;
 } fi;
 
-static void add_fi(pid_t pid,zfsvfs_t *zfsvfs, ino_t ino,file_info_t *info) {
+static void add_fi(zfsvfs_t *zfsvfs, ino_t ino,file_info_t *info) {
 	pthread_mutex_lock(&fi.lock);
 	if (fi.used == fi.alloc) {
 		fi.alloc += 10;
@@ -109,12 +107,11 @@ static void add_fi(pid_t pid,zfsvfs_t *zfsvfs, ino_t ino,file_info_t *info) {
 	}
 	fi.rec[fi.used].zfsvfs = zfsvfs;
 	fi.rec[fi.used].ino = ino;
-	fi.rec[fi.used].pid = pid;
 	fi.rec[fi.used++].info = info;
 	pthread_mutex_unlock(&fi.lock);
 }
 
-static file_info_t *get_info(pid_t pid,zfsvfs_t *zfsvfs, ino_t ino) {
+static file_info_t *get_info(zfsvfs_t *zfsvfs, ino_t ino) {
 	pthread_mutex_lock(&fi.lock);
 	int n;
 	/* It's to return info out of context. From getattr actually
@@ -122,8 +119,7 @@ static file_info_t *get_info(pid_t pid,zfsvfs_t *zfsvfs, ino_t ino) {
 	 * another process or another thread. In this case it must not
 	 * get the right info record or bad things happen */
 	for (n=0; n<fi.used; n++) {
-		if (fi.rec[n].ino == ino && fi.rec[n].zfsvfs == zfsvfs &&
-				fi.rec[n].pid == pid) {
+		if (fi.rec[n].ino == ino && fi.rec[n].zfsvfs == zfsvfs) {
 			/* This is a paranoid version, the mutex will be
 			 * returned only after info has been used */
 			return fi.rec[n].info;
@@ -157,14 +153,13 @@ static void free_fi(zfsvfs_t *zfsvfs, ino_t ino, file_info_t *info) {
 	pthread_mutex_unlock(&fi.lock);
 }
 
-static pid_t zfsfuse_getcred(fuse_req_t req, cred_t *cred)
+static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
 {
 	const struct fuse_ctx *ctx = fuse_req_ctx(req);
 
 	cred->cr_uid = ctx->uid;
 	cred->cr_gid = ctx->gid;
 	cred->req = req;
-	return ctx->pid;
 }
 
 static void zfsfuse_destroy(void *userdata)
@@ -239,7 +234,10 @@ static int basic_write(zfsvfs_t *zfsvfs, cred_t *cred, fuse_ino_t ino, const cha
     print_debug(1,"function %s\n",__FUNCTION__);
 
 	int error = zfs_enter(zfsvfs);
-	if (error) return -error;
+	if (error) {
+		print_debug(4,"basic_write: error on zfs_enter\n");
+		return -error;
+	}
 
 	iovec_t iovec;
 	uio_t uio;
@@ -256,18 +254,21 @@ static int basic_write(zfsvfs_t *zfsvfs, cred_t *cred, fuse_ino_t ino, const cha
 	uio.uio_extflg = UIO_COPY_DEFAULT;
 
 	error = VOP_WRITE(vp, &uio, info->flags, cred, NULL);
+	if (error) {
+		print_debug(4,"basic_write: error on write %d\n",error);
+	}
 
 	ZFS_EXIT(zfsvfs);
 	return error;
 }
 
-static int zfsfuse_stat(zfsvfs_t* zfsvfs, vnode_t *vp, struct stat *stbuf, cred_t *cred, pid_t pid)
+static int zfsfuse_stat(zfsvfs_t* zfsvfs, vnode_t *vp, struct stat *stbuf, cred_t *cred)
 {
 	ASSERT(vp != NULL);
 	ASSERT(stbuf != NULL);
 	file_info_t *info;
 	ino_t ino = VTOZ(vp)->z_id;
-	info = get_info(pid,zfsvfs,ino);
+	info = get_info(zfsvfs,ino);
 	if (info && info->used) {
 		/* We can't just adjust the size here because the writes are not
 		   always at the end of the file and it would be tedious to guess
@@ -329,7 +330,7 @@ static void zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	ino = FUSE2ZFS(ino, zfsvfs);
 
 	cred_t cred;
-	pid_t pid = zfsfuse_getcred(req, &cred);
+	zfsfuse_getcred(req, &cred);
 
 	ZFS_VOID_ENTER(zfsvfs);
 
@@ -348,7 +349,7 @@ static void zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	ASSERT(vp != NULL);
 
 	struct stat stbuf;
-	error = zfsfuse_stat(zfsvfs, vp, &stbuf, &cred, pid);
+	error = zfsfuse_stat(zfsvfs, vp, &stbuf, &cred);
 
 	print_debug(2,"getattr: ino %ld got size %zd\n",ino,stbuf.st_size);
 
@@ -641,8 +642,7 @@ static void zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	vnode_t *vp = NULL;
 
 	cred_t cred;
-	pid_t pid;
-	pid = zfsfuse_getcred(req, &cred);
+	zfsfuse_getcred(req, &cred);
 	struct fuse_entry_param e = { 0 };
 
 	 /* > 0.0 gives a 40% performance boost in bonnie 0-byte file tests */
@@ -670,7 +670,7 @@ static void zfsfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred, pid);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred);
 	print_debug(2,"%s -> %ld size %zd\n",name,e.ino,e.attr.st_size);
 
 out:
@@ -860,7 +860,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 	ZFS_VOID_ENTER(zfsvfs);
 
 	cred_t cred;
-	pid_t pid = zfsfuse_getcred(req, &cred);
+	zfsfuse_getcred(req, &cred);
 
 	/* Map flags */
 	int mode, flags;
@@ -970,7 +970,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 	struct fuse_entry_param e = { 0 };
 
 	if(flags & FCREAT) {
-		error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred, pid);
+		error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred );
 		if(error)
 			goto out;
 		print_debug(2,"opencreat: ino %ld stat got size %zd on create\n",ino,e.attr.st_size);
@@ -986,7 +986,7 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 	info->flags = flags;
 	info->alloc = info->used = 0;
 	info->buffer = NULL;
-	add_fi(pid,zfsvfs,VTOZ(vp)->z_id,info);
+	add_fi(zfsvfs,VTOZ(vp)->z_id,info);
 
 	fi->fh = (uint64_t) (uintptr_t) info;
 	/* keep_cache is forced to 1.
@@ -1119,7 +1119,7 @@ static void zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 	vattr.va_mask = AT_TYPE | AT_MODE;
 
 	cred_t cred;
-	pid_t pid = zfsfuse_getcred(req, &cred);
+	zfsfuse_getcred(req, &cred);
 
 	error = VOP_MKDIR(dvp, (char *) name, &vattr, &vp, &cred, NULL, 0, NULL);
 	if(error)
@@ -1139,7 +1139,7 @@ static void zfsfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred, pid);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred);
 
 out:
 	if(vp != NULL)
@@ -1209,7 +1209,7 @@ static void zfsfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, i
 	boolean_t release;
 
 	cred_t cred;
-	pid_t pid = zfsfuse_getcred(req, &cred);
+	zfsfuse_getcred(req, &cred);
 
 	if(fi == NULL) {
 		znode_t *znode;
@@ -1310,7 +1310,7 @@ out: ;
 	struct stat stat_reply;
 
 	if(!error)
-		error = zfsfuse_stat(zfsvfs, vp, &stat_reply, &cred, pid);
+		error = zfsfuse_stat(zfsvfs, vp, &stat_reply, &cred );
 
 	/* Do not release if vp was an opened inode */
 	if(release)
@@ -1420,6 +1420,7 @@ static void zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 	ASSERT(VTOZ(vp)->z_id == ino);
 
     print_debug(1,"function %s\n",__FUNCTION__);
+    print_debug(8,"read ino %ld size %zd off %zd\n",ino,size,off);
 
 	char *outbuf = kmem_alloc(size, KM_NOSLEEP);
 	if(outbuf == NULL)
@@ -1487,9 +1488,8 @@ static void push(zfsvfs_t *zfsvfs, cred_t *cred, fuse_ino_t ino, file_info_t *in
 			info->buffer = realloc(info->buffer,info->alloc);
 		}
 		memcpy(&info->buffer[info->used],buf,size);
-		info->used += size;
 		print_debug(4,"push: ino %ld flushing full buffer size %zd\n",ino,info->used,info->used+size);
-		basic_write(zfsvfs,cred,ino,info->buffer,info->used,info->last_off-info->used,info);
+		basic_write(zfsvfs,cred,ino,info->buffer,info->used+size,info->last_off-info->used,info);
 		info->used = 0;
 	}
 }
@@ -1513,6 +1513,7 @@ static void zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_
 		fuse_reply_write(req, size /* - uio.uio_resid */);
 		return;
 	}
+	print_debug(8,"write ino %ld size %zd off %zd\n",ino,size,off);
 	
 	int error = basic_write(zfsvfs,&cred, ino, buf, size, off, info);
 
@@ -1550,7 +1551,7 @@ static void zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, m
 	ASSERT(dvp != NULL);
 
 	cred_t cred;
-	pid_t pid = zfsfuse_getcred(req, &cred);
+	zfsfuse_getcred(req, &cred);
 
 	vattr_t vattr;
 	vattr.va_type = IFTOVT(mode);
@@ -1586,7 +1587,7 @@ static void zfsfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, m
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred, pid);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred );
 
 out:
 	if(vp != NULL)
@@ -1626,7 +1627,7 @@ static void zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
 	ASSERT(dvp != NULL);
 
 	cred_t cred;
-	pid_t pid = zfsfuse_getcred(req, &cred);
+	zfsfuse_getcred(req, &cred);
 
 	vattr_t vattr;
 	vattr.va_type = VLNK;
@@ -1658,7 +1659,7 @@ static void zfsfuse_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred, pid);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred );
 
 out:
 	if(vp != NULL)
@@ -1806,7 +1807,7 @@ static void zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, c
 	ASSERT(tdvp != NULL);
 
 	cred_t cred;
-	pid_t pid = zfsfuse_getcred(req, &cred);
+	zfsfuse_getcred(req, &cred);
 
 	error = VOP_LINK(tdvp, svp, (char *) newname, &cred, NULL, 0);
 
@@ -1833,7 +1834,7 @@ static void zfsfuse_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent, c
 	sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zp->z_zfsvfs), &e.generation,
 		sizeof(e.generation));
 
-	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred, pid);
+	error = zfsfuse_stat(zfsvfs, vp, &e.attr, &cred );
 
 out:
 	if(vp != NULL)
