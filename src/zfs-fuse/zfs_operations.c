@@ -65,6 +65,7 @@ static void print_debug(int debug_level,const char *format, ...)
       vsprintf(debug_str,format,ap);
       va_end(ap);
       printf("%d:%s",debug_level,debug_str);
+      fflush(stdout);
   }
 }
 #else
@@ -150,6 +151,10 @@ static void free_fi(zfsvfs_t *zfsvfs, ino_t ino, file_info_t *info) {
 	}
 	// since _release is shared by release and releasedir there are
 	// cases where the ino/info pair won't be finden
+	if (info->used) {
+		printf("should not happen, bye bye\n");
+		abort();
+	}
 	pthread_mutex_unlock(&fi.lock);
 }
 
@@ -1372,15 +1377,18 @@ static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	zfsfuse_getcred(req, &cred);
 
 	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+	// an ino always has an entry even if it does not use buffers
+	// Free it before freeing buffer in case another thread
+	// calls zfsfuse_stat on it at the same time !
+	free_fi(zfsvfs,ino,info);
 	if (info->used) {
 		print_debug(4,"release: flush ino %ld size %zd off %zd\n",ino,info->used,info->last_off-info->used);
 		basic_write(zfsvfs,&cred,ino,info->buffer,info->used,info->last_off-info->used,info);
 	}
 	if (info->alloc) {
+		print_debug(4,"release: ino %ld freeing buffer\n",ino);
 		free(info->buffer);
 	}
-	// an ino always has an entry even if it does not use buffers
-	free_fi(zfsvfs,ino,info);
 	ZFS_VOID_ENTER(zfsvfs);
 
 	ASSERT(info->vp != NULL);
@@ -1488,7 +1496,7 @@ static void push(zfsvfs_t *zfsvfs, cred_t *cred, fuse_ino_t ino, file_info_t *in
 			info->buffer = realloc(info->buffer,info->alloc);
 		}
 		memcpy(&info->buffer[info->used],buf,size);
-		print_debug(4,"push: ino %ld flushing full buffer size %zd\n",ino,info->used,info->used+size);
+		print_debug(4,"push: ino %ld flushing full buffer size %zd\n",ino,info->used+size);
 		basic_write(zfsvfs,cred,ino,info->buffer,info->used+size,info->last_off-info->used,info);
 		info->used = 0;
 	}
