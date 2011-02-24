@@ -81,85 +81,6 @@ int block_cache;
 int cf_enable_xattr = 0;
 float fuse_attr_timeout, fuse_entry_timeout;
 
-typedef struct {
-	ino_t ino;
-	file_info_t *info;
-	zfsvfs_t *zfsvfs;
-} rec_t;
-
-/* This whole fi thing is really too much for what I want
- * if fuse passes a correct fi parameter to _getattr one day, all this
- * will become useless. The idea is to get the info field from a given
- * inode */
-struct {
-	rec_t *rec;
-	int alloc,used;
-	/* A lock. I would have prefered to do without
-	 * but it's clear that if lots of open operations come at the same time
-	 * from different fs, then there are race conditions possibilities */
-	pthread_mutex_t lock;
-} fi;
-
-static void add_fi(zfsvfs_t *zfsvfs, ino_t ino,file_info_t *info) {
-	pthread_mutex_lock(&fi.lock);
-	if (fi.used == fi.alloc) {
-		fi.alloc += 10;
-		fi.rec = realloc(fi.rec,sizeof(rec_t)*fi.alloc);
-	}
-	fi.rec[fi.used].zfsvfs = zfsvfs;
-	fi.rec[fi.used].ino = ino;
-	fi.rec[fi.used++].info = info;
-	pthread_mutex_unlock(&fi.lock);
-}
-
-static file_info_t *get_info(zfsvfs_t *zfsvfs, ino_t ino) {
-	pthread_mutex_lock(&fi.lock);
-	int n;
-	/* It's to return info out of context. From getattr actually
-	 * but the problem is that getattr can also be called from
-	 * another process or another thread. In this case it must not
-	 * get the right info record or bad things happen */
-	for (n=0; n<fi.used; n++) {
-		if (fi.rec[n].ino == ino && fi.rec[n].zfsvfs == zfsvfs) {
-			/* This is a paranoid version, the mutex will be
-			 * returned only after info has been used */
-			pthread_mutex_lock(&fi.rec[n].info->lock);
-			return fi.rec[n].info;
-		}
-	}
-	pthread_mutex_unlock(&fi.lock);
-	return NULL;
-}
-
-static void release_info(file_info_t *info)
-{
-	pthread_mutex_unlock(&info->lock);
-	pthread_mutex_unlock(&fi.lock);
-}
-
-static void free_fi(zfsvfs_t *zfsvfs, ino_t ino, file_info_t *info) {
-	pthread_mutex_lock(&fi.lock);
-	int n;
-	for (n=0; n<fi.used; n++) {
-		if (fi.rec[n].ino == ino && fi.rec[n].zfsvfs == zfsvfs) {
-			if (fi.rec[n].info == info) {
-				if (n < fi.used-1) 
-					memmove(&fi.rec[n],&fi.rec[n+1],(fi.used-1-n)*sizeof(rec_t));
-				fi.used--;
-				pthread_mutex_unlock(&fi.lock);
-				return;
-			}
-		}
-	}
-	// since _release is shared by release and releasedir there are
-	// cases where the ino/info pair won't be finden
-	if (info->used) {
-		printf("should not happen, bye bye\n");
-		abort();
-	}
-	pthread_mutex_unlock(&fi.lock);
-}
-
 static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
 {
 	const struct fuse_ctx *ctx = fuse_req_ctx(req);
@@ -275,17 +196,6 @@ static int zfsfuse_stat(zfsvfs_t* zfsvfs, vnode_t *vp, struct stat *stbuf, cred_
 	ASSERT(stbuf != NULL);
 	file_info_t *info;
 	ino_t ino = VTOZ(vp)->z_id;
-	info = get_info(zfsvfs,ino);
-	if (info && info->used) {
-		/* We can't just adjust the size here because the writes are not
-		   always at the end of the file and it would be tedious to guess
-		   the right size without flushing */
-		print_debug(4,"zfsfuse_stat: flush ino %ld buffer size %zd off %zd\n",ino,info->used,info->last_off-info->used);
-		basic_write(zfsvfs,cred,ino,info->buffer,info->used,info->last_off-info->used,info);
-		info->used = 0;
-	}
-	if (info)
-		release_info(info);
 
 	vattr_t vattr;
 	vattr.va_mask = AT_STAT | AT_NBLOCKS | AT_BLKSIZE | AT_SIZE;
@@ -1010,7 +920,6 @@ static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_
 	info->flags = flags;
 	info->alloc = info->used = 0;
 	info->buffer = NULL;
-	add_fi(zfsvfs,VTOZ(vp)->z_id,info);
 
 	fi->fh = (uint64_t) (uintptr_t) info;
 	/* keep_cache is forced to 1.
@@ -1426,10 +1335,6 @@ static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	zfsfuse_getcred(req, &cred);
 
 	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
-	// an ino always has an entry even if it does not use buffers
-	// Free it before freeing buffer in case another thread
-	// calls zfsfuse_stat on it at the same time !
-	free_fi(zfsvfs,ino,info);
 	if (info->used) {
 		print_debug(4,"release: flush ino %ld size %zd off %zd\n",ino,info->used,info->last_off-info->used);
 		basic_write(zfsvfs,&cred,ino,info->buffer,info->used,info->last_off-info->used,info);
@@ -1965,8 +1870,6 @@ struct fuse_lowlevel_ops zfs_operations =
 };
 
 void init_xattr() {
-    fi.alloc = fi.used = 0;
-	pthread_mutex_init(&fi.lock,NULL);
     if (cf_enable_xattr) {
 	zfs_operations.listxattr  = zfsfuse_listxattr;
 	zfs_operations.setxattr   = zfsfuse_setxattr;
