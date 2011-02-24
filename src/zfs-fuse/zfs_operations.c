@@ -52,7 +52,7 @@
 // 2 : lookup
 // 4 : buffers
 // 8 : read and write calls
-// #define DEBUG_LEVEL (4 | 2 | 8)
+#define DEBUG_LEVEL (4 | 2 | 8)
 
 #if DEBUG_LEVEL
 static void print_debug(int debug_level,const char *format, ...)
@@ -123,6 +123,7 @@ static file_info_t *get_info(zfsvfs_t *zfsvfs, ino_t ino) {
 		if (fi.rec[n].ino == ino && fi.rec[n].zfsvfs == zfsvfs) {
 			/* This is a paranoid version, the mutex will be
 			 * returned only after info has been used */
+			pthread_mutex_lock(&fi.rec[n].info->lock);
 			return fi.rec[n].info;
 		}
 	}
@@ -130,8 +131,9 @@ static file_info_t *get_info(zfsvfs_t *zfsvfs, ino_t ino) {
 	return NULL;
 }
 
-static void release_info()
+static void release_info(file_info_t *info)
 {
+	pthread_mutex_unlock(&info->lock);
 	pthread_mutex_unlock(&fi.lock);
 }
 
@@ -283,7 +285,7 @@ static int zfsfuse_stat(zfsvfs_t* zfsvfs, vnode_t *vp, struct stat *stbuf, cred_
 		info->used = 0;
 	}
 	if (info)
-		release_info();
+		release_info(info);
 
 	vattr_t vattr;
 	vattr.va_mask = AT_STAT | AT_NBLOCKS | AT_BLKSIZE | AT_SIZE;
@@ -852,6 +854,23 @@ out:
 	kmem_free(outbuf, size);
 }
 
+static void zfsfuse_flush(fuse_req_t req, fuse_ino_t ino,
+		       struct fuse_file_info *fi)
+{
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+	ino = FUSE2ZFS(ino, zfsvfs);
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+	if (info->used) {
+		print_debug(4,"flush: flush ino %ld size %zd off %zd\n",ino,info->used,info->last_off-info->used);
+		basic_write(zfsvfs,&cred,ino,info->buffer,info->used,info->last_off-info->used,info);
+		info->used = 0;
+	}
+	fuse_reply_err(req,0);
+}
+
 static void zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi, int fflags, mode_t createmode, const char *name)
 {
 	if(name && strlen(name) >= MAXNAMELEN)
@@ -1367,8 +1386,38 @@ static void zfsfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 	fuse_reply_err(req, error);
 }
 
+static void release_common(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+	/* Shared code between release and releasedir */
+	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+	ino = FUSE2ZFS(ino, zfsvfs);
+	cred_t cred;
+	zfsfuse_getcred(req, &cred);
+	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
+
+	ZFS_VOID_ENTER(zfsvfs);
+
+	ASSERT(info->vp != NULL);
+	ASSERT(VTOZ(info->vp) != NULL);
+	ASSERT(VTOZ(info->vp)->z_id == ino);
+
+	error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
+	if (error)
+		syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
+
+	VN_RELE(info->vp);
+
+	kmem_cache_free(file_info_cache, info);
+
+	ZFS_EXIT(zfsvfs);
+	/* Release events always reply_err */
+	fuse_reply_err(req, error);
+}
+
 static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
+	/* Specific code to release : handling of rec, buffer and lock */
     print_debug(1,"function %s\n",__FUNCTION__);
 	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
@@ -1389,23 +1438,7 @@ static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 		print_debug(4,"release: ino %ld freeing buffer\n",ino);
 		free(info->buffer);
 	}
-	ZFS_VOID_ENTER(zfsvfs);
-
-	ASSERT(info->vp != NULL);
-	ASSERT(VTOZ(info->vp) != NULL);
-	ASSERT(VTOZ(info->vp)->z_id == ino);
-
-	error = VOP_CLOSE(info->vp, info->flags, 1, (offset_t) 0, &cred, NULL);
-	if (error)
-		syslog(LOG_WARNING, "zfsfuse_release: stale inode (%s)?", strerror(error));
-
-	VN_RELE(info->vp);
-
-	kmem_cache_free(file_info_cache, info);
-
-	ZFS_EXIT(zfsvfs);
-	/* Release events always reply_err */
-	fuse_reply_err(req, error);
+	release_common(req,ino,fi);
 }
 
 static void zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi)
@@ -1496,7 +1529,7 @@ static void push(zfsvfs_t *zfsvfs, cred_t *cred, fuse_ino_t ino, file_info_t *in
 			info->buffer = realloc(info->buffer,info->alloc);
 		}
 		memcpy(&info->buffer[info->used],buf,size);
-		print_debug(4,"push: ino %ld flushing full buffer size %zd\n",ino,info->used+size);
+		print_debug(4,"push: ino %ld flushing full buffer size %zd off %zd\n",ino,info->used+size,info->last_off-info->used);
 		basic_write(zfsvfs,cred,ino,info->buffer,info->used+size,info->last_off-info->used,info);
 		info->used = 0;
 	}
@@ -1910,7 +1943,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.release    = zfsfuse_release,
 	.opendir    = zfsfuse_opendir,
 	.readdir    = zfsfuse_readdir,
-	.releasedir = zfsfuse_release,
+	.releasedir = release_common,
 	.lookup     = zfsfuse_lookup,
 	.getattr    = zfsfuse_getattr,
 	.readlink   = zfsfuse_readlink,
@@ -1928,6 +1961,7 @@ struct fuse_lowlevel_ops zfs_operations =
 	.access     = zfsfuse_access,
 	.statfs     = zfsfuse_statfs,
 	.destroy    = zfsfuse_destroy,
+	.flush	    = zfsfuse_flush,
 };
 
 void init_xattr() {
