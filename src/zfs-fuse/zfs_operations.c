@@ -52,7 +52,63 @@
 // 2 : lookup
 // 4 : buffers
 // 8 : read and write calls
-#define DEBUG_LEVEL (4 | 2 | 8)
+// #define DEBUG_LEVEL (4 | 2 | 8)
+
+static struct {
+	file_info_t **info;
+	int alloc,used;
+	pthread_mutex_t lock;
+} infos;
+
+static void add_info(file_info_t *info) {
+	int n;
+	pthread_mutex_lock(&infos.lock);
+	for (n=0; n<infos.used; n++)
+		if (infos.info[n] == info) {
+			pthread_mutex_unlock(&infos.lock);
+			return;
+		}
+	if (infos.used == infos.alloc) {
+		infos.alloc += 10;
+		infos.info = realloc(infos.info,sizeof(file_info_t*)*infos.alloc);
+	}
+	infos.info[infos.used++] = info;
+	pthread_mutex_unlock(&infos.lock);
+}
+
+static file_info_t *get_info(vfs_t *vfs, ino_t ino) {
+	pthread_mutex_lock(&infos.lock);
+	int n;
+	for (n=0; n<infos.used; n++) {
+		vnode_t *vn = infos.info[n]->vp;
+		if (vn->v_vfsp == vfs && VTOZ(vn)->z_id == ino) {
+			pthread_mutex_unlock(&infos.lock);
+			return infos.info[n];
+		}
+	}
+	pthread_mutex_unlock(&infos.lock);
+	return NULL;
+}
+
+static void free_info(file_info_t *info) {
+	pthread_mutex_lock(&infos.lock);
+	int n;
+	for (n=0; n<infos.used; n++) {
+		if (infos.info[n] == info) {
+			if (n < infos.used-1)
+				memmove(&infos.info[n],&infos.info[n+1],
+						sizeof(file_info_t*)*(infos.used-1-n));
+			infos.used--;
+			if (infos.used == 0) {
+				infos.alloc = 0;
+				free(infos.info);
+				infos.info = NULL;
+			}
+			break;
+		}
+	}
+	pthread_mutex_unlock(&infos.lock);
+}
 
 #if DEBUG_LEVEL
 static void print_debug(int debug_level,const char *format, ...)
@@ -267,6 +323,17 @@ static void zfsfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 
 	struct stat stbuf;
 	error = zfsfuse_stat(zfsvfs, vp, &stbuf, &cred);
+
+	file_info_t *info = get_info(vfs,ino);
+	/* Some programs use stat or equivalent to get the file size while writing to
+	 * it instead of ftell. Well apparently fuse didn't think about that, there
+	 * is no way to get the fi parameter passed to open from getattr().
+	 * So I'll try to do this as lightly as possible : we get info, then if a
+	 * buffer exists for the file and if when written it will increase the size
+	 * of the file then fix it */
+	if (info && info->used && info->last_off > stbuf.st_size) {
+		stbuf.st_size = info->last_off;
+	}
 
 	print_debug(2,"getattr: ino %ld got size %zd\n",ino,stbuf.st_size);
 
@@ -777,6 +844,8 @@ static void zfsfuse_flush(fuse_req_t req, fuse_ino_t ino,
 		print_debug(4,"flush: flush ino %ld size %zd off %zd\n",ino,info->used,info->last_off-info->used);
 		basic_write(zfsvfs,&cred,ino,info->buffer,info->used,info->last_off-info->used,info);
 		info->used = 0;
+	} else {
+		print_debug(4,"flush: no info for ino %ld\n",ino);
 	}
 	fuse_reply_err(req,0);
 }
@@ -1341,6 +1410,7 @@ static void zfsfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 	}
 	if (info->alloc) {
 		print_debug(4,"release: ino %ld freeing buffer\n",ino);
+		free_info(info);
 		free(info->buffer);
 	}
 	release_common(req,ino,fi);
@@ -1409,6 +1479,7 @@ static void push(zfsvfs_t *zfsvfs, cred_t *cred, fuse_ino_t ino, file_info_t *in
 			if (info->alloc < info->used + size) {
 				int plus = info->used + size - info->alloc;
 				if (plus < 4096) plus = 4096;
+				if (!info->alloc) add_info(info);
 				info->alloc += plus;
 				info->buffer = realloc(info->buffer,info->alloc);
 			}
@@ -1692,6 +1763,8 @@ static void zfsfuse_fsync(fuse_req_t req, fuse_ino_t ino, int datasync, struct f
 		print_debug(4,"fsync: flushing ino %ld size %zd off %zd\n",ino,info->used,info->last_off-info->used,info);
 		basic_write(zfsvfs,&cred,ino,info->buffer,info->used,info->last_off-info->used,info);
 		info->used = 0;
+	} else {
+		print_debug(4,"fsync: no info ino %ld\n",ino);
 	}
 
 	ZFS_VOID_ENTER(zfsvfs);
@@ -1870,6 +1943,8 @@ struct fuse_lowlevel_ops zfs_operations =
 };
 
 void init_xattr() {
+	memset(&infos,0,sizeof(infos));
+	pthread_mutex_init(&infos.lock,NULL);
     if (cf_enable_xattr) {
 	zfs_operations.listxattr  = zfsfuse_listxattr;
 	zfs_operations.setxattr   = zfsfuse_setxattr;
