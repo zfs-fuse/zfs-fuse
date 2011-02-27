@@ -86,17 +86,22 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	 * to local zone users, so the underlying devices should be as well.
 	 */
 	ASSERT(vd->vdev_path != NULL && vd->vdev_path[0] == '/');
-	error = vn_openat(vd->vdev_path + 1, UIO_SYSSPACE,
-	    spa_mode(vd->vdev_spa) | FOFFMAX, 0, &vp, 0, 0, rootdir, -1);
-
-	if (error == ENOENT && vd->vdev_guid) {
-	    // we didn't find it, let's try the uuid then...
+	if (vd->vdev_guid) {
+		// Try first the /dev/by-uuid path because it's always reliable
 	    char path[64];
-	    sprintf(path,"/dev/disk/by-uuid/%" FX64_UP,vd->vdev_guid);
+	    // Notice that util-linux chose to display the guid in decimal instead of hex
+	    sprintf(path,"/dev/disk/by-uuid/%" FU64,vd->vdev_guid);
+	    dprintf("trying to open pool with %s\n",path+1);
 	    error = vn_openat(path + 1, UIO_SYSSPACE,
 		    spa_mode(vd->vdev_spa) | FOFFMAX, 0, &vp, 0, 0, rootdir, -1);
 	}
 
+
+	if (error == ENOENT) {
+		// Then try the path recorded in the pool
+		error = vn_openat(vd->vdev_path + 1, UIO_SYSSPACE,
+				spa_mode(vd->vdev_spa) | FOFFMAX, 0, &vp, 0, 0, rootdir, -1);
+	}
 	if (error) {
 		dprintf("vn_openat() returned error %i\n", error);
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
