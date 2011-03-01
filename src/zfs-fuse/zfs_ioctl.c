@@ -1018,7 +1018,7 @@ getzfsvfs(const char *dsname, zfsvfs_t **zfvp)
  * case its z_vfs will be NULL, and it will be opened as the owner.
  */
 static int
-zfsvfs_hold(const char *name, void *tag, zfsvfs_t **zfvp)
+zfsvfs_hold(const char *name, void *tag, zfsvfs_t **zfvp, boolean_t writer)
 {
 	int error = 0;
 
@@ -1922,7 +1922,7 @@ zfs_prop_set_userquota(const char *dsname, nvpair_t *pair)
 	rid = valary[1];
 	quota = valary[2];
 
-	err = zfsvfs_hold(dsname, FTAG, &zfsvfs);
+	err = zfsvfs_hold(dsname, FTAG, &zfsvfs, B_FALSE);
 	if (err == 0) {
 		err = zfs_set_userquota(zfsvfs, type, domain, rid, quota);
 		zfsvfs_rele(zfsvfs, FTAG);
@@ -1990,7 +1990,7 @@ zfs_prop_set_special(const char *dsname, zprop_source_t source,
 	{
 		zfsvfs_t *zfsvfs;
 
-		if ((err = zfsvfs_hold(dsname, FTAG, &zfsvfs)) != 0)
+		if ((err = zfsvfs_hold(dsname, FTAG, &zfsvfs, B_TRUE)) != 0)
 			break;
 
 		err = zfs_set_version(zfsvfs, intval);
@@ -3829,7 +3829,7 @@ zfs_ioc_userspace_one(zfs_cmd_t *zc)
 	if (zc->zc_objset_type >= ZFS_NUM_USERQUOTA_PROPS)
 		return (EINVAL);
 
-	error = zfsvfs_hold(zc->zc_name, FTAG, &zfsvfs);
+	error = zfsvfs_hold(zc->zc_name, FTAG, &zfsvfs, B_FALSE);
 	if (error)
 		return (error);
 
@@ -3860,7 +3860,7 @@ zfs_ioc_userspace_many(zfs_cmd_t *zc)
 	if (bufsize <= 0)
 		return (ENOMEM);
 
-	int error = zfsvfs_hold(zc->zc_name, FTAG, &zfsvfs);
+	int error = zfsvfs_hold(zc->zc_name, FTAG, &zfsvfs, B_FALSE);
 	if (error)
 		return (error);
 
