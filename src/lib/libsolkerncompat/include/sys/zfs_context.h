@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #ifndef _SYS_ZFS_CONTEXT_H
@@ -66,6 +65,21 @@ extern "C" {
 #include <sys/sunddi.h>
 
 #define	CPU_SEQID (thr_self() & (max_ncpus - 1))
+
+typedef enum kmem_cbrc {
+	KMEM_CBRC_YES,
+	KMEM_CBRC_NO,
+	KMEM_CBRC_LATER,
+	KMEM_CBRC_DONT_NEED,
+	KMEM_CBRC_DONT_KNOW
+} kmem_cbrc_t;
+
+#define	kmem_cache_set_move(_c, _cb)	/* nothing */
+
+#undef MUTEX_HELD
+#undef	MUTEX_NOT_HELD
+#define	MUTEX_HELD(m) ((m)->m_owner == curthread)
+#define	MUTEX_NOT_HELD(m) (!MUTEX_HELD(m))
 
 extern char *kmem_asprintf(const char *fmt, ...);
 #define	strfree(str) kmem_free((str), strlen(str)+1)
