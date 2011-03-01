@@ -3222,6 +3222,8 @@ spa_import(const char *pool, nvlist_t *config, nvlist_t *props)
 		return (error);
 	}
 
+	spa_async_resume(spa);
+
 	/*
 	 * Override any spares and level 2 cache devices as specified by
 	 * the user, as these may have correct device names/devids, etc.
@@ -3271,8 +3273,6 @@ spa_import(const char *pool, nvlist_t *config, nvlist_t *props)
 		 */
 		spa_config_update(spa, SPA_CONFIG_UPDATE_POOL);
 	}
-
-	spa_async_resume(spa);
 
 	/*
 	 * It's possible that the pool was expanded while it was exported.

@@ -40,6 +40,7 @@ extern uint64_t physmem;
 
 #define	lbolt	(gethrtime() >> 23)
 #define	lbolt64	(gethrtime() >> 23)
+#define	ddi_get_lbolt64()	(gethrtime() >> 23)
 #define	hz	119	/* frequency when using gethrtime() >> 23 for lbolt */
 
 extern struct vnode *rootdir;	/* pointer to vnode of root directory */

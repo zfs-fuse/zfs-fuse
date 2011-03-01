@@ -858,7 +858,7 @@ zfs_owner_overquota(zfsvfs_t *zfsvfs, znode_t *zp, boolean_t isgroup)
 }
 
 int
-zfsvfs_create(const char *osname, zfsvfs_t **zvp)
+zfsvfs_create(const char *osname, zfsvfs_t **zfvp)
 {
 	objset_t *os;
 	zfsvfs_t *zfsvfs;
@@ -938,7 +938,10 @@ zfsvfs_create(const char *osname, zfsvfs_t **zvp)
 		sa_obj = 0;
 	}
 
-	zfsvfs->z_attr_table = sa_setup(os, sa_obj, zfs_attr_table, ZPL_END);
+	error = sa_setup(os, sa_obj, zfs_attr_table, ZPL_END,
+	    &zfsvfs->z_attr_table);
+	if (error)
+		goto out;
 
 	if (zfsvfs->z_version >= ZPL_VERSION_SA)
 		sa_register_update_callback(os, zfs_sa_upgrade);
@@ -986,12 +989,12 @@ zfsvfs_create(const char *osname, zfsvfs_t **zvp)
 	for (i = 0; i != ZFS_OBJ_MTX_SZ; i++)
 		mutex_init(&zfsvfs->z_hold_mtx[i], NULL, MUTEX_DEFAULT, NULL);
 
-	*zvp = zfsvfs;
+	*zfvp = zfsvfs;
 	return (0);
 
 out:
 	dmu_objset_disown(os, zfsvfs);
-	*zvp = NULL;
+	*zfvp = NULL;
 	kmem_free(zfsvfs, sizeof (zfsvfs_t));
 	return (error);
 }
@@ -1191,6 +1194,7 @@ zfs_domount(vfs_t *vfsp, char *osname)
 			goto out;
 		xattr_changed_cb(zfsvfs, pval);
 		zfsvfs->z_issnap = B_TRUE;
+		zfsvfs->z_os->os_sync = ZFS_SYNC_DISABLED;
 
 		mutex_enter(&zfsvfs->z_os->os_user_ptr_lock);
 		dmu_objset_set_user(zfsvfs->z_os, zfsvfs);
@@ -2074,8 +2078,9 @@ zfs_resume_fs(zfsvfs_t *zfsvfs, const char *osname)
 			goto bail;
 
 
-		zfsvfs->z_attr_table = sa_setup(zfsvfs->z_os, sa_obj,
-		    zfs_attr_table,  ZPL_END);
+		if ((err = sa_setup(zfsvfs->z_os, sa_obj,
+		    zfs_attr_table,  ZPL_END, &zfsvfs->z_attr_table)) != 0)
+			goto bail;
 
 		VERIFY(zfsvfs_setup(zfsvfs, B_FALSE) == 0);
 
@@ -2320,7 +2325,7 @@ static vfsdef_t vfw = {
 	MNTTYPE_ZFS,
 	zfs_vfsinit,
 	VSW_HASPROTO|VSW_CANRWRO|VSW_CANREMOUNT|VSW_VOLATILEDEV|VSW_STATS|
-	    VSW_XID,
+	    VSW_XID|VSW_ZMOUNT,
 	&zfs_mntopts
 };
 

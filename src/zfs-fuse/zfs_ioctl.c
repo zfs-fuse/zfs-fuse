@@ -988,7 +988,7 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 }
 
 static int
-getzfsvfs(const char *dsname, zfsvfs_t **zvp)
+getzfsvfs(const char *dsname, zfsvfs_t **zfvp)
 {
 	objset_t *os;
 	int error;
@@ -1002,9 +1002,9 @@ getzfsvfs(const char *dsname, zfsvfs_t **zvp)
 	}
 
 	mutex_enter(&os->os_user_ptr_lock);
-	*zvp = dmu_objset_get_user(os);
-	if (*zvp) {
-		VFS_HOLD((*zvp)->z_vfs);
+	*zfvp = dmu_objset_get_user(os);
+	if (*zfvp) {
+		VFS_HOLD((*zfvp)->z_vfs);
 	} else {
 		error = ESRCH;
 	}
@@ -1018,21 +1018,21 @@ getzfsvfs(const char *dsname, zfsvfs_t **zvp)
  * case its z_vfs will be NULL, and it will be opened as the owner.
  */
 static int
-zfsvfs_hold(const char *name, void *tag, zfsvfs_t **zvp)
+zfsvfs_hold(const char *name, void *tag, zfsvfs_t **zfvp, boolean_t writer)
 {
 	int error = 0;
 
-	if (getzfsvfs(name, zvp) != 0)
-		error = zfsvfs_create(name, zvp);
+	if (getzfsvfs(name, zfvp) != 0)
+		error = zfsvfs_create(name, zfvp);
 	if (error == 0) {
-		rrw_enter(&(*zvp)->z_teardown_lock, RW_READER, tag);
-		if ((*zvp)->z_unmounted) {
+		rrw_enter(&(*zfvp)->z_teardown_lock, RW_READER, tag);
+		if ((*zfvp)->z_unmounted) {
 			/*
 			 * XXX we could probably try again, since the unmounting
 			 * thread should be just about to disassociate the
 			 * objset from the zfsvfs.
 			 */
-			rrw_exit(&(*zvp)->z_teardown_lock, tag);
+			rrw_exit(&(*zfvp)->z_teardown_lock, tag);
 			return (EBUSY);
 		}
 	}
@@ -1922,7 +1922,7 @@ zfs_prop_set_userquota(const char *dsname, nvpair_t *pair)
 	rid = valary[1];
 	quota = valary[2];
 
-	err = zfsvfs_hold(dsname, FTAG, &zfsvfs);
+	err = zfsvfs_hold(dsname, FTAG, &zfsvfs, B_FALSE);
 	if (err == 0) {
 		err = zfs_set_userquota(zfsvfs, type, domain, rid, quota);
 		zfsvfs_rele(zfsvfs, FTAG);
@@ -1990,7 +1990,7 @@ zfs_prop_set_special(const char *dsname, zprop_source_t source,
 	{
 		zfsvfs_t *zfsvfs;
 
-		if ((err = zfsvfs_hold(dsname, FTAG, &zfsvfs)) != 0)
+		if ((err = zfsvfs_hold(dsname, FTAG, &zfsvfs, B_TRUE)) != 0)
 			break;
 
 		err = zfs_set_version(zfsvfs, intval);
@@ -3829,7 +3829,7 @@ zfs_ioc_userspace_one(zfs_cmd_t *zc)
 	if (zc->zc_objset_type >= ZFS_NUM_USERQUOTA_PROPS)
 		return (EINVAL);
 
-	error = zfsvfs_hold(zc->zc_name, FTAG, &zfsvfs);
+	error = zfsvfs_hold(zc->zc_name, FTAG, &zfsvfs, B_FALSE);
 	if (error)
 		return (error);
 
@@ -3860,7 +3860,7 @@ zfs_ioc_userspace_many(zfs_cmd_t *zc)
 	if (bufsize <= 0)
 		return (ENOMEM);
 
-	int error = zfsvfs_hold(zc->zc_name, FTAG, &zfsvfs);
+	int error = zfsvfs_hold(zc->zc_name, FTAG, &zfsvfs, B_FALSE);
 	if (error)
 		return (error);
 
