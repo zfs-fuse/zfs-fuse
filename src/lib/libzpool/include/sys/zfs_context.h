@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #ifndef _SYS_ZFS_CONTEXT_H
@@ -241,7 +240,9 @@ typedef struct kmutex {
 
 #define	MUTEX_DEFAULT	USYNC_THREAD
 #undef MUTEX_HELD
+#undef	MUTEX_NOT_HELD
 #define	MUTEX_HELD(m) ((m)->m_owner == curthread)
+#define	MUTEX_NOT_HELD(m) (!MUTEX_HELD(m))
 
 #define	mutex_init(mp, b, c, d)		zmutex_init((kmutex_t *)(mp))
 #define	mutex_destroy(mp)		zmutex_destroy((kmutex_t *)(mp))
@@ -328,9 +329,20 @@ extern void kstat_delete(kstat_t *);
 #define	kmem_cache_alloc(_c, _f) umem_cache_alloc(_c, _f)
 #define	kmem_cache_free(_c, _b)	umem_cache_free(_c, _b)
 #define	kmem_debugging()	0
-#define	kmem_cache_reap_now(c)
+#define	kmem_cache_reap_now(_c)		/* nothing */
+#define	kmem_cache_set_move(_c, _cb)	/* nothing */
+#define	POINTER_INVALIDATE(_pp)		/* nothing */
+#define	POINTER_IS_VALID(_p)	0
 
 typedef umem_cache_t kmem_cache_t;
+
+typedef enum kmem_cbrc {
+	KMEM_CBRC_YES,
+	KMEM_CBRC_NO,
+	KMEM_CBRC_LATER,
+	KMEM_CBRC_DONT_NEED,
+	KMEM_CBRC_DONT_KNOW
+} kmem_cbrc_t;
 
 /*
  * Task queues
