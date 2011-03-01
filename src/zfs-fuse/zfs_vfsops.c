@@ -858,7 +858,7 @@ zfs_owner_overquota(zfsvfs_t *zfsvfs, znode_t *zp, boolean_t isgroup)
 }
 
 int
-zfsvfs_create(const char *osname, zfsvfs_t **zvp)
+zfsvfs_create(const char *osname, zfsvfs_t **zfvp)
 {
 	objset_t *os;
 	zfsvfs_t *zfsvfs;
@@ -989,12 +989,12 @@ zfsvfs_create(const char *osname, zfsvfs_t **zvp)
 	for (i = 0; i != ZFS_OBJ_MTX_SZ; i++)
 		mutex_init(&zfsvfs->z_hold_mtx[i], NULL, MUTEX_DEFAULT, NULL);
 
-	*zvp = zfsvfs;
+	*zfvp = zfsvfs;
 	return (0);
 
 out:
 	dmu_objset_disown(os, zfsvfs);
-	*zvp = NULL;
+	*zfvp = NULL;
 	kmem_free(zfsvfs, sizeof (zfsvfs_t));
 	return (error);
 }
