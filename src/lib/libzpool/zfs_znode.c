@@ -140,6 +140,7 @@ zfs_znode_cache_constructor(void *buf, void *arg, int kmflags)
 
 	zp->z_dirlocks = NULL;
 	zp->z_acl_cached = NULL;
+	zp->z_moved = 0;
 	return (0);
 }
 
@@ -200,7 +201,6 @@ zfs_znode_move_impl(znode_t *ozp, znode_t *nzp)
 	nzp->z_blksz = ozp->z_blksz;
 	nzp->z_seq = ozp->z_seq;
 	nzp->z_mapcnt = ozp->z_mapcnt;
-	nzp->z_last_itx = ozp->z_last_itx;
 	nzp->z_gen = ozp->z_gen;
 	nzp->z_sync_cnt = ozp->z_sync_cnt;
 	nzp->z_is_sa = ozp->z_is_sa;
@@ -232,6 +232,12 @@ zfs_znode_move_impl(znode_t *ozp, znode_t *nzp)
 	 */
 	ozp->z_sa_hdl = NULL;
 	// POINTER_INVALIDATE(&ozp->z_zfsvfs);
+
+	/*
+	 * Mark the znode.
+	 */
+	nzp->z_moved = 1;
+	ozp->z_moved = (uint8_t)-1;
 }
 
 /* zfs-fuse : not supported */
@@ -485,6 +491,8 @@ zfs_create_share_dir(zfsvfs_t *zfsvfs, dmu_tx_t *tx)
 	vattr.va_gid = crgetgid(kcred);
 
 	sharezp = kmem_cache_alloc(znode_cache, KM_SLEEP);
+	// ASSERT(!POINTER_IS_VALID(sharezp->z_zfsvfs));
+	sharezp->z_moved = 0;
 	sharezp->z_unlinked = 0;
 	sharezp->z_atime_dirty = 0;
 	sharezp->z_zfsvfs = zfsvfs;
@@ -634,6 +642,7 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
   
   	ASSERT(zp->z_dirlocks == NULL);
   	// ASSERT(!POINTER_IS_VALID(zp->z_zfsvfs));
+	zp->z_moved = 0;
   
   	/*
   	 * Defer setting z_zfsvfs until the znode is ready to be a candidate for
@@ -643,7 +652,6 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 	zp->z_unlinked = 0;
 	zp->z_atime_dirty = 0;
 	zp->z_mapcnt = 0;
-	zp->z_last_itx = 0;
 	zp->z_id = db->db_object;
 	zp->z_blksz = blksz;
 	zp->z_seq = 0x7A4653;
@@ -801,7 +809,7 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, dmu_tx_t *tx, cred_t *cr,
 	 */
 	/*
 	 * There's currently no mechanism for pre-reading the blocks that will
-	 * be to needed allocate a new object, so we accept the small chance
+	 * be needed to allocate a new object, so we accept the small chance
 	 * that there will be an i/o error and we will fail one of the
 	 * assertions below.
 	 */
@@ -1820,6 +1828,8 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 	vattr.va_gid = crgetgid(cr);
 
 	rootzp = kmem_cache_alloc(znode_cache, KM_SLEEP);
+	// ASSERT(!POINTER_IS_VALID(rootzp->z_zfsvfs));
+	rootzp->z_moved = 0;
 	rootzp->z_unlinked = 0;
 	rootzp->z_atime_dirty = 0;
 	rootzp->z_is_sa = USE_SA(version, os);
@@ -1856,7 +1866,6 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 	for (i = 0; i != ZFS_OBJ_MTX_SZ; i++)
 		mutex_init(&zfsvfs.z_hold_mtx[i], NULL, MUTEX_DEFAULT, NULL);
 
-	// ASSERT(!POINTER_IS_VALID(rootzp->z_zfsvfs));
 	rootzp->z_zfsvfs = &zfsvfs;
 	VERIFY(0 == zfs_acl_ids_create(rootzp, IS_ROOT_NODE, &vattr,
 	    cr, NULL, &acl_ids));

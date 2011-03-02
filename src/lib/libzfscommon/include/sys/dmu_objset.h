@@ -40,6 +40,8 @@
 extern "C" {
 #endif
 
+extern krwlock_t os_lock;
+
 struct dsl_dataset;
 struct dmu_tx;
 
@@ -68,9 +70,15 @@ struct objset {
 	spa_t *os_spa;
 	arc_buf_t *os_phys_buf;
 	objset_phys_t *os_phys;
-	dnode_t *os_meta_dnode;
-	dnode_t *os_userused_dnode;
-	dnode_t *os_groupused_dnode;
+	/*
+	 * The following "special" dnodes have no parent and are exempt from
+	 * dnode_move(), but they root their descendents in this objset using
+	 * handles anyway, so that all access to dnodes from dbufs consistently
+	 * uses handles.
+	 */
+	dnode_handle_t os_meta_dnode;
+	dnode_handle_t os_userused_dnode;
+	dnode_handle_t os_groupused_dnode;
 	zilog_t *os_zil;
 
 	/* can change, under dsl_dir's locks: */
@@ -113,6 +121,9 @@ struct objset {
 #define	DMU_META_OBJSET		0
 #define	DMU_META_DNODE_OBJECT	0
 #define	DMU_OBJECT_IS_SPECIAL(obj) ((int64_t)(obj) <= 0)
+#define	DMU_META_DNODE(os)	((os)->os_meta_dnode.dnh_dnode)
+#define	DMU_USERUSED_DNODE(os)	((os)->os_userused_dnode.dnh_dnode)
+#define	DMU_GROUPUSED_DNODE(os)	((os)->os_groupused_dnode.dnh_dnode)
 
 #define	DMU_OS_IS_L2CACHEABLE(os)				\
 	((os)->os_secondary_cache == ZFS_CACHE_ALL ||		\
@@ -150,6 +161,7 @@ timestruc_t dmu_objset_snap_cmtime(objset_t *os);
 /* called from dsl */
 void dmu_objset_sync(objset_t *os, zio_t *zio, dmu_tx_t *tx);
 boolean_t dmu_objset_is_dirty(objset_t *os, uint64_t txg);
+boolean_t dmu_objset_is_dirty_anywhere(objset_t *os);
 objset_t *dmu_objset_create_impl(spa_t *spa, struct dsl_dataset *ds,
     blkptr_t *bp, dmu_objset_type_t type, dmu_tx_t *tx);
 int dmu_objset_open_impl(spa_t *spa, struct dsl_dataset *ds, blkptr_t *bp,
@@ -160,6 +172,9 @@ void dmu_objset_userquota_get_ids(dnode_t *dn, boolean_t before, dmu_tx_t *tx);
 boolean_t dmu_objset_userused_enabled(objset_t *os);
 int dmu_objset_userspace_upgrade(objset_t *os);
 boolean_t dmu_objset_userspace_present(objset_t *os);
+
+void dmu_objset_init(void);
+void dmu_objset_fini(void);
 
 #ifdef	__cplusplus
 }

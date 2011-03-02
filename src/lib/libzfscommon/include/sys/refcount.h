@@ -41,7 +41,7 @@ extern "C" {
  */
 #define	FTAG ((char *)__func__)
 
-#if defined(DEBUG) || !defined(_KERNEL)
+#ifdef	ZFS_DEBUG
 typedef struct reference {
 	list_node_t ref_link;
 	const void *ref_holder;
@@ -69,10 +69,12 @@ int64_t refcount_remove(refcount_t *rc, const void *holder_tag);
 int64_t refcount_add_many(refcount_t *rc, uint64_t number, const void *holder_tag);
 int64_t refcount_remove_many(refcount_t *rc, uint64_t number, const void *holder_tag);
 
+void refcount_transfer(refcount_t *dst, refcount_t *src);
+
 void refcount_init(void);
 void refcount_fini(void);
 
-#else /* DEBUG */
+#else	/* ZFS_DEBUG */
 
 typedef struct refcount {
 	uint64_t rc_count;
@@ -98,7 +100,7 @@ typedef struct refcount {
 #define	refcount_init()
 #define	refcount_fini()
 
-#endif /* DEBUG */
+#endif	/* ZFS_DEBUG */
 
 #ifdef	__cplusplus
 }
