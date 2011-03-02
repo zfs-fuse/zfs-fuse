@@ -133,7 +133,7 @@
  *  (6)	At the end of each vnode op, the DMU tx must always commit,
  *	regardless of whether there were any errors.
  *
- *  (7)	After dropping all locks, invoke zil_commit(zilog, seq, foid)
+ *  (7)	After dropping all locks, invoke zil_commit(zilog, foid)
  *	to ensure that synchronous semantics are provided when necessary.
  *
  * In general, this is how things should be ordered in each vnode op:
@@ -165,7 +165,7 @@
  *	rw_exit(...);			// drop locks
  *	zfs_dirent_unlock(dl);		// unlock directory entry
  *	VN_RELE(...);			// release held vnodes
- *	zil_commit(zilog, seq, foid);	// synchronous when necessary
+ *	zil_commit(zilog, foid);	// synchronous when necessary
  *	ZFS_EXIT(zfsvfs);		// finished in zfs
  *	return (error);			// done, report error
  */
@@ -516,7 +516,7 @@ zfs_read(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 	 * If we're in FRSYNC mode, sync out this znode before reading it.
 	 */
 	if (ioflag & FRSYNC || zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zfsvfs->z_log, zp->z_last_itx, zp->z_id);
+		zil_commit(zfsvfs->z_log, zp->z_id);
 
 	/*
 	 * Lock the range against changes.
@@ -952,7 +952,7 @@ All I can hope is that we can simply disable this code without risk */
 
 	if (ioflag & (FSYNC | FDSYNC) ||
 	    zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, zp->z_last_itx, zp->z_id);
+		zil_commit(zilog, zp->z_id);
 
 	ZFS_EXIT(zfsvfs);
 	return (0);
@@ -1534,7 +1534,7 @@ out:
 	}
 
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -1744,7 +1744,7 @@ top:
 	txtype = TX_REMOVE;
 	if (flags & FIGNORECASE)
 		txtype |= TX_CI;
-	zfs_log_remove(zilog, tx, txtype, dzp, name);
+	zfs_log_remove(zilog, tx, txtype, dzp, name, zp->z_id);
 
 	dmu_tx_commit(tx);
 out:
@@ -1759,7 +1759,7 @@ out:
 		VN_RELE(ZTOV(xzp));
 
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -1941,7 +1941,7 @@ top:
 	zfs_dirent_unlock(dl);
 
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (0);
@@ -2056,7 +2056,7 @@ top:
 		uint64_t txtype = TX_RMDIR;
 		if (flags & FIGNORECASE)
 			txtype |= TX_CI;
-		zfs_log_remove(zilog, tx, txtype, dzp, name);
+		zfs_log_remove(zilog, tx, txtype, dzp, name, ZFS_NO_OBJECT);
 	}
 
 	dmu_tx_commit(tx);
@@ -2069,7 +2069,7 @@ out:
 	VN_RELE(vp);
 
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -2389,7 +2389,7 @@ zfs_fsync(vnode_t *vp, int syncflag, cred_t *cr, caller_context_t *ct)
 	if (zfsvfs->z_os->os_sync != ZFS_SYNC_DISABLED) {
 		ZFS_ENTER(zfsvfs);
 		ZFS_VERIFY_ZP(zp);
-		zil_commit(zfsvfs->z_log, zp->z_last_itx, zp->z_id);
+		zil_commit(zfsvfs->z_log, zp->z_id);
 		ZFS_EXIT(zfsvfs);
 	}
 	return (0);
@@ -3204,7 +3204,7 @@ out:
 
 out2:
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (err);
@@ -3612,8 +3612,7 @@ top:
 			if (error == 0) {
 				zfs_log_rename(zilog, tx, TX_RENAME |
 				    (flags & FIGNORECASE ? TX_CI : 0),
-				    sdzp, sdl->dl_name, tdzp, tdl->dl_name,
-				    szp);
+				    sdzp, sdl->dl_name, tdzp, tdl->dl_name);
 
 				/*
 				 * Update path information for the target vnode
@@ -3656,7 +3655,7 @@ out:
 		VN_RELE(ZTOV(tzp));
 
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -3809,7 +3808,7 @@ top:
 	VN_RELE(ZTOV(zp));
 
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -4004,7 +4003,7 @@ top:
 	}
 
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -4250,7 +4249,7 @@ zfs_putpage(vnode_t *vp, offset_t off, size_t len, int flags, cred_t *cr,
 out:
 	zfs_range_unlock(rl);
 	if ((flags & B_ASYNC) == 0 || zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zfsvfs->z_log, UINT64_MAX, zp->z_id);
+		zil_commit(zfsvfs->z_log, zp->z_id);
 	ZFS_EXIT(zfsvfs);
 	return (error);
 #endif
@@ -4934,7 +4933,7 @@ zfs_setsecattr(vnode_t *vp, vsecattr_t *vsecp, int flag, cred_t *cr,
 	error = zfs_setacl(zp, vsecp, skipaclchk, cr);
 
 	if (zfsvfs->z_os->os_sync == ZFS_SYNC_ALWAYS)
-		zil_commit(zilog, UINT64_MAX, 0);
+		zil_commit(zilog, 0);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
