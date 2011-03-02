@@ -5388,6 +5388,9 @@ ztest_init(ztest_shared_t *zs)
 	ztest_freeze(zs);
 
 	ztest_run_zdb(zs->zs_pool);
+
+	(void) rwlock_destroy(&zs->zs_name_lock);
+	(void) _mutex_destroy(&zs->zs_vdev_lock);
 }
 
 int
