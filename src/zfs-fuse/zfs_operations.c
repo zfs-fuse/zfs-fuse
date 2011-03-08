@@ -52,7 +52,7 @@
 // 2 : lookup
 // 4 : buffers
 // 8 : read and write calls
-// #define DEBUG_LEVEL (4 | 2 | 8)
+// #define DEBUG_LEVEL (4 | 1)
 
 static struct {
 	file_info_t **info;
@@ -1424,10 +1424,21 @@ static void zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 	file_info_t *info = (file_info_t *)(uintptr_t) fi->fh;
 	cred_t cred;
 	zfsfuse_getcred(req, &cred);
-	if (info->used) {
-		print_debug(4,"read: flush ino %ld size %zd off %zd\n",ino,info->used,info->last_off-info->used);
-		basic_write(zfsvfs,&cred,ino,info->buffer,info->used,info->last_off-info->used,info);
-		info->used = 0;
+	file_info_t *info2 = info;
+	if (!info->used) {
+		// if a same file is opened for reading after it has been opened for
+		// writing and it has some buffers, then the read will not see the
+		// buffers, we have to find them...
+		info2 = get_info(vfs,ino);
+		if (info2 && info2->used) {
+			syslog(LOG_WARNING,"read: found info on buffers from get_info");
+		}
+	}
+
+	if (info2 && info2->used) {
+		print_debug(4,"read: flush ino %ld size %zd off %zd\n",ino,info2->used,info2->last_off-info2->used);
+		basic_write(zfsvfs,&cred,ino,info2->buffer,info2->used,info2->last_off-info2->used,info2);
+		info2->used = 0;
 	}
 
 	vnode_t *vp = info->vp;
@@ -1525,10 +1536,20 @@ static void zfsfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_
 			info->used = 0;
 		}
 	}
-	if (!no_buffers && !(fi->flush || (info->flags & FSYNC)) && (size < 4096 || info->used)) {
-		push(zfsvfs,&cred,ino,info,buf,size,off);
-		fuse_reply_write(req, size /* - uio.uio_resid */);
-		return;
+	if (!no_buffers && !(fi->flush || (info->flags & FSYNC))) {
+		if (!info->used) {
+			file_info_t *info2 = get_info(vfs,ino);
+			if (info2 && info2->used) {
+				syslog(LOG_WARNING,"write: found info from get_info");
+				info = info2; // handle it with buffers then
+			}
+		}
+
+		if (size < 4096 || info->used) {
+			push(zfsvfs,&cred,ino,info,buf,size,off);
+			fuse_reply_write(req, size /* - uio.uio_resid */);
+			return;
+		}
 	}
 	print_debug(8,"write ino %ld size %zd off %zd\n",ino,size,off);
 	
