@@ -50,6 +50,9 @@ struct utsname utsname = {
 	"userland", "libzpool", "1", "1", "na"
 };
 
+/* this only exists to have its address taken */
+struct proc p0;
+
 /*
  * =========================================================================
  * threads
@@ -771,6 +774,7 @@ random_get_pseudo_bytes(uint8_t *ptr, size_t len)
 	return (random_get_bytes_common(ptr, len, urandom_fd));
 }
 
+#if 0
 int
 ddi_strtoul(const char *hw_serial, char **nptr, int base, unsigned long *result)
 {
@@ -781,6 +785,7 @@ ddi_strtoul(const char *hw_serial, char **nptr, int base, unsigned long *result)
 		return (errno);
 	return (0);
 }
+#endif
 
 /*
  * =========================================================================

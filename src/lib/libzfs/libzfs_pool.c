@@ -20,8 +20,7 @@
  */
 
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <ctype.h>
@@ -47,50 +46,6 @@
 #include "zfs_comutil.h"
 #include "format.h"
 #include <syslog.h>
-
-const char *hist_event_table[LOG_END] = {
-	"invalid event",
-	"pool create",
-	"vdev add",
-	"pool remove",
-	"pool destroy",
-	"pool export",
-	"pool import",
-	"vdev attach",
-	"vdev replace",
-	"vdev detach",
-	"vdev online",
-	"vdev offline",
-	"vdev upgrade",
-	"pool clear",
-	"pool scrub",
-	"pool property set",
-	"create",
-	"clone",
-	"destroy",
-	"destroy_begin_sync",
-	"inherit",
-	"property set",
-	"quota set",
-	"permission update",
-	"permission remove",
-	"permission who remove",
-	"promote",
-	"receive",
-	"rename",
-	"reservation set",
-	"replay_inc_sync",
-	"replay_full_sync",
-	"rollback",
-	"snapshot",
-	"filesystem version upgrade",
-	"refquota set",
-	"refreservation set",
-	"pool scrub done",
-	"user hold",
-	"user release",
-	"pool split",
-};
 
 /*static int read_efi_label(nvlist_t *config, diskaddr_t *sb);*/
 
@@ -339,7 +294,8 @@ zpool_get_prop(zpool_handle_t *zhp, zpool_prop_t prop, char *buf, size_t len,
 			verify(nvlist_lookup_nvlist(zpool_get_config(zhp, NULL),
 			    ZPOOL_CONFIG_VDEV_TREE, &nvroot) == 0);
 			verify(nvlist_lookup_uint64_array(nvroot,
-			    ZPOOL_CONFIG_STATS, (uint64_t **)&vs, &vsc) == 0);
+			    ZPOOL_CONFIG_VDEV_STATS, (uint64_t **)&vs, &vsc)
+			    == 0);
 
 			(void) strlcpy(buf, zpool_state_to_name(intval,
 			    vs->vs_aux), len);
@@ -1314,14 +1270,14 @@ zpool_rewind_exclaim(libzfs_handle_t *hdl, const char *name, boolean_t dryrun,
 		}
 		if (loss > 120) {
 			(void) printf(dgettext(TEXT_DOMAIN,
-			    "%s approximately " FI64 " "),
+			    "%s approximately %" FI64 " "),
 			    dryrun ? "Would discard" : "Discarded",
 			    (loss + 30) / 60);
 			(void) printf(dgettext(TEXT_DOMAIN,
 			    "minutes of transactions.\n"));
 		} else if (loss > 0) {
 			(void) printf(dgettext(TEXT_DOMAIN,
-			    "%s approximately " FI64 " "),
+			    "%s approximately %" FI64 " "),
 			    dryrun ? "Would discard" : "Discarded", loss);
 			(void) printf(dgettext(TEXT_DOMAIN,
 			    "seconds of transactions.\n"));
@@ -1373,11 +1329,11 @@ zpool_explain_recover(libzfs_handle_t *hdl, const char *name, int reason,
 
 	if (loss > 120) {
 		(void) printf(dgettext(TEXT_DOMAIN,
-		    "Approximately " FI64 " minutes of data\n"
+		    "Approximately %" FI64 " minutes of data\n"
 		    "\tmust be discarded, irreversibly.  "), (loss + 30) / 60);
 	} else if (loss > 0) {
 		(void) printf(dgettext(TEXT_DOMAIN,
-		    "Approximately " FI64 " seconds of data\n"
+		    "Approximately %" FI64 " seconds of data\n"
 		    "\tmust be discarded, irreversibly.  "), loss);
 	}
 	if (edata != 0 && edata != UINT64_MAX) {
@@ -1592,28 +1548,83 @@ zpool_import_props(libzfs_handle_t *hdl, nvlist_t *config, const char *newname,
 }
 
 /*
- * Scrub the pool.
+ * Scan the pool.
  */
 int
-zpool_scrub(zpool_handle_t *zhp, pool_scrub_type_t type)
+zpool_scan(zpool_handle_t *zhp, pool_scan_func_t func)
 {
 	zfs_cmd_t zc = { 0 };
 	char msg[1024];
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
-	zc.zc_cookie = type;
+	zc.zc_cookie = func;
 
-	if (zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_POOL_SCRUB, &zc) == 0)
+	if (zfs_ioctl(zhp->zpool_hdl, ZFS_IOC_POOL_SCAN, &zc) == 0 ||
+	    (errno == ENOENT && func != POOL_SCAN_NONE))
 		return (0);
 
-	(void) snprintf(msg, sizeof (msg),
-	    dgettext(TEXT_DOMAIN, "cannot scrub %s"), zc.zc_name);
+	if (func == POOL_SCAN_SCRUB) {
+		(void) snprintf(msg, sizeof (msg),
+		    dgettext(TEXT_DOMAIN, "cannot scrub %s"), zc.zc_name);
+	} else if (func == POOL_SCAN_NONE) {
+		(void) snprintf(msg, sizeof (msg),
+		    dgettext(TEXT_DOMAIN, "cannot cancel scrubbing %s"),
+		    zc.zc_name);
+	} else {
+		assert(!"unexpected result");
+	}
 
-	if (errno == EBUSY)
-		return (zfs_error(hdl, EZFS_RESILVERING, msg));
-	else
+	if (errno == EBUSY) {
+		nvlist_t *nvroot;
+		pool_scan_stat_t *ps = NULL;
+		uint_t psc;
+
+		verify(nvlist_lookup_nvlist(zhp->zpool_config,
+		    ZPOOL_CONFIG_VDEV_TREE, &nvroot) == 0);
+		(void) nvlist_lookup_uint64_array(nvroot,
+		    ZPOOL_CONFIG_SCAN_STATS, (uint64_t **)&ps, &psc);
+		if (ps && ps->pss_func == POOL_SCAN_SCRUB)
+			return (zfs_error(hdl, EZFS_SCRUBBING, msg));
+		else
+			return (zfs_error(hdl, EZFS_RESILVERING, msg));
+	} else if (errno == ENOENT) {
+		return (zfs_error(hdl, EZFS_NO_SCRUB, msg));
+	} else {
 		return (zpool_standard_error(hdl, errno, msg));
+	}
+}
+
+/*
+ * This provides a very minimal check whether a given string is likely a
+ * c#t#d# style string.  Users of this are expected to do their own
+ * verification of the s# part.
+ */
+#define	CTD_CHECK(str)  (str && str[0] == 'c' && isdigit(str[1]))
+
+/*
+ * More elaborate version for ones which may start with "/dev/dsk/"
+ * and the like.
+ */
+static int
+ctd_check_path(char *str) {
+	/*
+	 * If it starts with a slash, check the last component.
+	 */
+	if (str && str[0] == '/') {
+		char *tmp = strrchr(str, '/');
+
+		/*
+		 * If it ends in "/old", check the second-to-last
+		 * component of the string instead.
+		 */
+		if (tmp != str && strcmp(tmp, "/old") == 0) {
+			for (tmp--; *tmp != '/'; tmp--)
+				;
+		}
+		str = tmp + 1;
+	}
+	return (CTD_CHECK(str));
 }
 
 /*
@@ -1670,24 +1681,51 @@ vdev_to_nvlist_iter(nvlist_t *nv, nvlist_t *search, boolean_t *avail_spare,
 			break;
 
 		/*
-		 * Search for the requested value. We special case the search
-		 * for ZPOOL_CONFIG_PATH when it's a wholedisk and when
-		 * Looking for a top-level vdev name (i.e. ZPOOL_CONFIG_TYPE).
+		 * Search for the requested value. Special cases:
+		 *
+		 * - ZPOOL_CONFIG_PATH for whole disk entries.  These end in
+		 *   "s0" or "s0/old".  The "s0" part is hidden from the user,
+		 *   but included in the string, so this matches around it.
+		 * - looking for a top-level vdev name (i.e. ZPOOL_CONFIG_TYPE).
+		 *
 		 * Otherwise, all other searches are simple string compares.
 		 */
-		if (strcmp(srchkey, ZPOOL_CONFIG_PATH) == 0 && val) {
+		if (strcmp(srchkey, ZPOOL_CONFIG_PATH) == 0 &&
+		    ctd_check_path(val)) {
 			uint64_t wholedisk = 0;
 
 			(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_WHOLE_DISK,
 			    &wholedisk);
 			if (wholedisk) {
+				int slen = strlen(srchval);
+				int vlen = strlen(val);
+
+				if (slen != vlen - 2)
+					break;
+
 				/*
-				 * For whole disks, the internal path has 's0',
-				 * but the path passed in by the user doesn't.
+				 * make_leaf_vdev() should only set
+				 * wholedisk for ZPOOL_CONFIG_PATHs which
+				 * will include "/dev/dsk/", giving plenty of
+				 * room for the indices used next.
 				 */
-				if (strlen(srchval) == strlen(val) - 2 &&
-				    strncmp(srchval, val, strlen(srchval)) == 0)
+				ASSERT(vlen >= 6);
+
+				/*
+				 * strings identical except trailing "s0"
+				 */
+				if (strcmp(&val[vlen - 2], "s0") == 0 &&
+				    strncmp(srchval, val, slen) == 0)
 					return (nv);
+
+				/*
+				 * strings identical except trailing "s0/old"
+				 */
+				if (strcmp(&val[vlen - 6], "s0/old") == 0 &&
+				    strcmp(&srchval[slen - 4], "/old") == 0 &&
+				    strncmp(srchval, val, slen - 4) == 0)
+					return (nv);
+
 				break;
 			}
 		} else if (strcmp(srchkey, ZPOOL_CONFIG_TYPE) == 0 && val) {
@@ -2904,6 +2942,7 @@ zpool_vdev_clear(zpool_handle_t *zhp, uint64_t guid)
 
 	(void) strlcpy(zc.zc_name, zhp->zpool_name, sizeof (zc.zc_name));
 	zc.zc_guid = guid;
+	zc.zc_cookie = ZPOOL_NO_REWIND;
 
 	if (ioctl(hdl->libzfs_fd, ZFS_IOC_CLEAR, &zc) == 0)
 		return (0);
@@ -3030,7 +3069,7 @@ zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv,
 		 * open a misbehaving device, which can have undesirable
 		 * effects.
 		 */
-		if ((nvlist_lookup_uint64_array(nv, ZPOOL_CONFIG_STATS,
+		if ((nvlist_lookup_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
 		    (uint64_t **)&vs, &vsc) != 0 ||
 		    vs->vs_state >= VDEV_STATE_DEGRADED) &&
 		    zhp != NULL &&
@@ -3065,6 +3104,27 @@ zpool_vdev_name(libzfs_handle_t *hdl, zpool_handle_t *zhp, nvlist_t *nv,
 		if (strncmp(path, "/dev/", 5) == 0)
 			path += 5;
 
+		if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_WHOLE_DISK,
+			    &value) == 0 && value) {
+		    int pathlen = strlen(path);
+		    char *tmp = zfs_strdup(hdl, path);
+
+		    /*
+		     * If it starts with c#, and ends with "s0", chop
+		     * the "s0" off, or if it ends with "s0/old", remove
+		     * the "s0" from the middle.
+		     */
+		    if (CTD_CHECK(tmp)) {
+			if (strcmp(&tmp[pathlen - 2], "s0") == 0) {
+			    tmp[pathlen - 2] = '\0';
+			} else if (pathlen > 6 &&
+				strcmp(&tmp[pathlen - 6], "s0/old") == 0) {
+			    (void) strcpy(&tmp[pathlen - 6],
+				    "/old");
+			}
+		    }
+		    return (tmp);
+		}
 	} else {
 		verify(nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &path) == 0);
 

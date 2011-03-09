@@ -6,9 +6,18 @@ use strict;
 my %map = (
     "usr/src/lib/libzpool/common/taskq.c" => "src/lib/libzpool/taskq.c",
     "usr/src/uts/common/os/taskq.c" => "src/lib/libsolkerncompat/taskq.c",
+    "usr/src/uts/common/os/policy.c" => "src/lib/libsolkerncompat/policy.c",
     "usr/src/uts/common/sys/cred.h" => "src/lib/libsolcompat/include/sys/cred.h",
     "usr/src/uts/common/sys/proc.h" => "src/lib/libsolcompat/include/sys/proc.h",
 );
+
+sub skip_diff($) {
+    my $f1 = shift;
+    print "skipping diff for $f1\n";
+    while (<>) {
+	last if (/^diff/); # skip this diff
+    }
+}
 
 my $arg = $ARGV[0];
 open(F,">header");
@@ -31,11 +40,8 @@ my @files = ();
 while (1) {
     / a\/(.+) /;  # /
     my $f1 = $1;
-    if ($f1 =~ /(\.py$|grub|mapfile-vers$|cmd\/[a-y]|lib\/libc\/|\/fs\/[a-y]|\/vdev_disk.c$|libdiskmgt\/|dumpsubr.c$|zinject|Makefile\.(com|files|lint)$|pkgdefs\/|llib-lzfs$|fsreparse\/|\/xattr\/|libreparse\/|lib(secdb|topo)|zut\/|io\/|smbsrv|common\/syscall)|(llib-lzpool|spa_boot.c)$|zoneadmd\/|tsol\/|src\/(head|Target)|uts\/common\/(disp|brand|os|sys\/class.h)|Makefile|sysdc.*h|startup.c|fth$/) {
-	print "skipping diff for $f1\n";
-	while (<>) {
-	    last if (/^diff/); # skip this diff
-	}
+    if ($f1 =~ /(\.py$|grub|mapfile-vers$|cmd\/[a-y]|lib\/libc\/|\/fs\/[a-y]|\/vdev_disk.c$|libdiskmgt\/|dumpsubr.c$|zinject|Makefile\.(com|files|lint)$|pkgdefs\/|llib-lzfs$|fsreparse\/|\/xattr\/|libreparse\/|lib(secdb|topo)|zut\/|io\/|smbsrv|common\/syscall)|(llib-lzpool|spa_boot.c)$|zoneadmd\/|tsol\/|src\/(head|Target)|uts\/common\/(disp|brand|os|sys\/class.h)|Makefile|sysdc.*h|startup.c|fth$/ && !$map{$f1}) {
+	skip_diff($f1);
     } else {
 	if (!$map{$f1}) {
 	    my $target = "src/";
@@ -45,7 +51,11 @@ while (1) {
 	    } elsif ($f1 =~ /(lib\/.+?\/)(.+)/) {
 		$target .= $1;
 		my $file = $2;
-		die "lib $target\n" if (! -d $target);
+		if (! -d $target) {
+		    skip_diff($f1);
+		    next if (/^diff/);
+		    last;
+		}
 		$file =~ s/^common\///;
 		if ($file =~ /.h$/ && ! -f "$target$file") {
 		    $file = "include/$file";
@@ -63,6 +73,7 @@ while (1) {
 		my @list = glob("src/*/$file");
 		@list = glob("src/*/*/$file") if (!@list);
 		@list = glob("src/*/*/include/$file") if (!@list && $file =~ /h$/);
+		@list = glob("src/*/*/include/*/$file") if (!@list && $file =~ /h$/);
 		if ($#list == 0) {
 #		    print "new map ok $f1 -> @list\n";
 		    $map{$f1} = $list[0];
@@ -94,7 +105,10 @@ while (1) {
 	print G;
 	do {
 	    $_ = <>;
-	    die "renames must be handled manually (file $f1)\n" if (/^rename/);
+	    if (/^rename/) {
+		my $to = <>;
+		die "renames must be handled manually (file $f1, map: $map{$f1}) $to";
+	    }
 	} while ($_ !~ /^--/);
 	s:$f1:$map{$f1}:g;
 	print G;

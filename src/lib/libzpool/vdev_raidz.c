@@ -20,8 +20,7 @@
  */
 
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -1604,6 +1603,7 @@ vdev_raidz_io_start(zio_t *zio)
 	return (ZIO_PIPELINE_CONTINUE);
 }
 
+
 /*
  * Report a checksum error for a child of a RAID-Z device.
  */
@@ -2139,6 +2139,8 @@ vdev_ops_t vdev_raidz_ops = {
 	vdev_raidz_io_start,
 	vdev_raidz_io_done,
 	vdev_raidz_state_change,
+	NULL,
+	NULL,
 	VDEV_TYPE_RAIDZ,	/* name of this vdev type */
 	B_FALSE			/* not a leaf vdev */
 };

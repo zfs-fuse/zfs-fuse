@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #ifndef	_SYS_DSL_POOL_H
@@ -33,6 +32,8 @@
 #include <sys/zio.h>
 #include <sys/dnode.h>
 #include <sys/ddt.h>
+#include <sys/arc.h>
+#include <sys/bpobj.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -43,12 +44,7 @@ struct dsl_dir;
 struct dsl_dataset;
 struct dsl_pool;
 struct dmu_tx;
-
-enum scrub_func {
-	SCRUB_FUNC_NONE,
-	SCRUB_FUNC_CLEAN,
-	SCRUB_FUNC_NUMFUNCS
-};
+struct dsl_scan;
 
 /* These macros are for indexing into the zfs_all_blkstats_t. */
 #define	DMU_OT_DEFERRED	DMU_OT_NONE
@@ -76,6 +72,7 @@ typedef struct dsl_pool {
 	struct objset *dp_meta_objset;
 	struct dsl_dir *dp_root_dir;
 	struct dsl_dir *dp_mos_dir;
+	struct dsl_dir *dp_free_dir;
 	struct dsl_dataset *dp_origin_snap;
 	uint64_t dp_root_dir_obj;
 	struct taskq *dp_vnrele_taskq;
@@ -87,25 +84,14 @@ typedef struct dsl_pool {
 	uint64_t dp_throughput; /* bytes per millisec */
 	uint64_t dp_write_limit;
 	uint64_t dp_tmp_userrefs_obj;
+	bpobj_t dp_free_bpobj;
+
+	struct dsl_scan *dp_scan;
 
 	/* Uses dp_lock */
 	kmutex_t dp_lock;
 	uint64_t dp_space_towrite[TXG_SIZE];
 	uint64_t dp_tempreserved[TXG_SIZE];
-
-	enum scrub_func dp_scrub_func;
-	uint64_t dp_scrub_queue_obj;
-	uint64_t dp_scrub_min_txg;
-	uint64_t dp_scrub_max_txg;
-	uint64_t dp_scrub_start_time;
-	uint64_t dp_scrub_ddt_class_max;
-	zbookmark_t dp_scrub_bookmark;
-	ddt_bookmark_t dp_scrub_ddt_bookmark;
-	boolean_t dp_scrub_pausing;
-	boolean_t dp_scrub_isresilver;
-	boolean_t dp_scrub_restart;
-	kmutex_t dp_scrub_cancel_lock; /* protects dp_scrub_restart */
-	zio_t *dp_scrub_prefetch_zio_root;
 
 	/* Has its own locking */
 	tx_state_t dp_tx;
@@ -137,19 +123,17 @@ void dsl_pool_tempreserve_clear(dsl_pool_t *dp, int64_t space, dmu_tx_t *tx);
 void dsl_pool_memory_pressure(dsl_pool_t *dp);
 void dsl_pool_willuse_space(dsl_pool_t *dp, int64_t space, dmu_tx_t *tx);
 void dsl_free(dsl_pool_t *dp, uint64_t txg, const blkptr_t *bpp);
-void dsl_pool_ds_destroyed(struct dsl_dataset *ds, struct dmu_tx *tx);
-void dsl_pool_ds_snapshotted(struct dsl_dataset *ds, struct dmu_tx *tx);
-void dsl_pool_ds_clone_swapped(struct dsl_dataset *ds1, struct dsl_dataset *ds2,
-    struct dmu_tx *tx);
+void dsl_free_sync(zio_t *pio, dsl_pool_t *dp, uint64_t txg,
+    const blkptr_t *bpp);
+int dsl_read(zio_t *pio, spa_t *spa, const blkptr_t *bpp, arc_buf_t *pbuf,
+    arc_done_func_t *done, void *private, int priority, int zio_flags,
+    uint32_t *arc_flags, const zbookmark_t *zb);
+int dsl_read_nolock(zio_t *pio, spa_t *spa, const blkptr_t *bpp,
+    arc_done_func_t *done, void *private, int priority, int zio_flags,
+    uint32_t *arc_flags, const zbookmark_t *zb);
 void dsl_pool_create_origin(dsl_pool_t *dp, dmu_tx_t *tx);
 void dsl_pool_upgrade_clones(dsl_pool_t *dp, dmu_tx_t *tx);
-
-int dsl_pool_scrub_cancel(dsl_pool_t *dp);
-int dsl_pool_scrub_clean(dsl_pool_t *dp);
-void dsl_pool_scrub_sync(dsl_pool_t *dp, dmu_tx_t *tx);
-void dsl_pool_scrub_restart(dsl_pool_t *dp);
-void dsl_pool_scrub_ddt_entry(dsl_pool_t *dp, enum zio_checksum checksum,
-    const ddt_entry_t *dde);
+void dsl_pool_upgrade_dir_clones(dsl_pool_t *dp, dmu_tx_t *tx);
 
 taskq_t *dsl_pool_vnrele_taskq(dsl_pool_t *dp);
 
@@ -158,6 +142,7 @@ extern int dsl_pool_user_hold(dsl_pool_t *dp, uint64_t dsobj,
 extern int dsl_pool_user_release(dsl_pool_t *dp, uint64_t dsobj,
     const char *tag, dmu_tx_t *tx);
 extern void dsl_pool_clean_tmp_userrefs(dsl_pool_t *dp);
+int dsl_pool_open_special_dir(dsl_pool_t *dp, const char *name, dsl_dir_t **);
 
 #ifdef	__cplusplus
 }

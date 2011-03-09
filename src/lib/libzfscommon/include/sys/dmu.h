@@ -19,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
+
+/* Portions Copyright 2010 Robert Milkowski */
 
 #ifndef	_SYS_DMU_H
 #define	_SYS_DMU_H
@@ -45,6 +46,7 @@ extern "C" {
 #endif
 
 struct uio;
+struct xuio;
 struct page;
 struct vnode;
 struct spa;
@@ -62,6 +64,7 @@ struct spa;
 struct nvlist;
 struct arc_buf;
 struct zio_prop;
+struct sa_handle;
 
 typedef struct objset objset_t;
 typedef struct dmu_tx dmu_tx_t;
@@ -74,8 +77,8 @@ typedef enum dmu_object_type {
 	DMU_OT_OBJECT_ARRAY,		/* UINT64 */
 	DMU_OT_PACKED_NVLIST,		/* UINT8 (XDR by nvlist_pack/unpack) */
 	DMU_OT_PACKED_NVLIST_SIZE,	/* UINT64 */
-	DMU_OT_BPLIST,			/* UINT64 */
-	DMU_OT_BPLIST_HDR,		/* UINT64 */
+	DMU_OT_BPOBJ,			/* UINT64 */
+	DMU_OT_BPOBJ_HDR,		/* UINT64 */
 	/* spa: */
 	DMU_OT_SPACE_MAP_HEADER,	/* UINT64 */
 	DMU_OT_SPACE_MAP,		/* UINT64 */
@@ -115,12 +118,22 @@ typedef enum dmu_object_type {
 	DMU_OT_FUID,			/* FUID table (Packed NVLIST UINT8) */
 	DMU_OT_FUID_SIZE,		/* FUID table size UINT64 */
 	DMU_OT_NEXT_CLONES,		/* ZAP */
-	DMU_OT_SCRUB_QUEUE,		/* ZAP */
+	DMU_OT_SCAN_QUEUE,		/* ZAP */
 	DMU_OT_USERGROUP_USED,		/* ZAP */
 	DMU_OT_USERGROUP_QUOTA,		/* ZAP */
 	DMU_OT_USERREFS,		/* ZAP */
 	DMU_OT_DDT_ZAP,			/* ZAP */
 	DMU_OT_DDT_STATS,		/* ZAP */
+	DMU_OT_SA,			/* System attr */
+	DMU_OT_SA_MASTER_NODE,		/* ZAP */
+	DMU_OT_SA_ATTR_REGISTRATION,	/* ZAP */
+	DMU_OT_SA_ATTR_LAYOUTS,		/* ZAP */
+	DMU_OT_SCAN_XLATE,		/* ZAP */
+	DMU_OT_DEDUP,			/* fake dedup BP from ddt_bp_create() */
+	DMU_OT_DEADLIST,		/* ZAP */
+	DMU_OT_DEADLIST_HDR,		/* UINT64 */
+	DMU_OT_DSL_CLONES,		/* ZAP */
+	DMU_OT_BPOBJ_SUBOBJ,		/* UINT64 */
 	DMU_OT_NUMTYPES
 } dmu_object_type_t;
 
@@ -157,6 +170,11 @@ void zfs_znode_byteswap(void *buf, size_t size);
 #define	DMU_GROUPUSED_OBJECT	(-2ULL)
 #define	DMU_DEADLIST_OBJECT	(-3ULL)
 
+/*
+ * artificial blkids for bonus buffer and spill blocks
+ */
+#define	DMU_BONUS_BLKID		(-1ULL)
+#define	DMU_SPILL_BLKID		(-2ULL)
 /*
  * Public routines to create, destroy, open, and close objsets.
  */
@@ -197,7 +215,7 @@ typedef void dmu_buf_evict_func_t(struct dmu_buf *db, void *user_ptr);
 #define	DMU_POOL_DIRECTORY_OBJECT	1
 #define	DMU_POOL_CONFIG			"config"
 #define	DMU_POOL_ROOT_DATASET		"root_dataset"
-#define	DMU_POOL_SYNC_BPLIST		"sync_bplist"
+#define	DMU_POOL_SYNC_BPOBJ		"sync_bplist"
 #define	DMU_POOL_ERRLOG_SCRUB		"errlog_scrub"
 #define	DMU_POOL_ERRLOG_LAST		"errlog_last"
 #define	DMU_POOL_SPARES			"spares"
@@ -208,23 +226,9 @@ typedef void dmu_buf_evict_func_t(struct dmu_buf *db, void *user_ptr);
 #define	DMU_POOL_TMP_USERREFS		"tmp_userrefs"
 #define	DMU_POOL_DDT			"DDT-%s-%s-%s"
 #define	DMU_POOL_DDT_STATS		"DDT-statistics"
-
-/* 4x8 zbookmark_t */
-#define	DMU_POOL_SCRUB_BOOKMARK		"scrub_bookmark"
-/* 4x8 ddt_bookmark_t */
-#define	DMU_POOL_SCRUB_DDT_BOOKMARK	"scrub_ddt_bookmark"
-/* 1x8 max_class */
-#define	DMU_POOL_SCRUB_DDT_CLASS_MAX	"scrub_ddt_class_max"
-/* 1x8 zap obj DMU_OT_SCRUB_QUEUE */
-#define	DMU_POOL_SCRUB_QUEUE		"scrub_queue"
-/* 1x8 txg */
-#define	DMU_POOL_SCRUB_MIN_TXG		"scrub_min_txg"
-/* 1x8 txg */
-#define	DMU_POOL_SCRUB_MAX_TXG		"scrub_max_txg"
-/* 1x4 enum scrub_func */
-#define	DMU_POOL_SCRUB_FUNC		"scrub_func"
-/* 1x8 count */
-#define	DMU_POOL_SCRUB_ERRORS		"scrub_errors"
+#define	DMU_POOL_CREATION_VERSION	"creation_version"
+#define	DMU_POOL_SCAN			"scan"
+#define	DMU_POOL_FREE_BPOBJ		"free_bpobj"
 
 /*
  * Allocate an object from this objset.  The range of object numbers
@@ -313,6 +317,7 @@ void dmu_object_set_compress(objset_t *os, uint64_t object, uint8_t compress,
  */
 #define	WP_NOFILL	0x1
 #define	WP_DMU_SYNC	0x2
+#define	WP_SPILL	0x4
 
 void dmu_write_policy(objset_t *os, struct dnode *dn, int level, int wp,
     struct zio_prop *zp);
@@ -329,6 +334,18 @@ void dmu_write_policy(objset_t *os, struct dnode *dn, int level, int wp,
 int dmu_bonus_hold(objset_t *os, uint64_t object, void *tag, dmu_buf_t **);
 int dmu_bonus_max(void);
 int dmu_set_bonus(dmu_buf_t *, int, dmu_tx_t *);
+int dmu_set_bonustype(dmu_buf_t *, dmu_object_type_t, dmu_tx_t *);
+dmu_object_type_t dmu_get_bonustype(dmu_buf_t *);
+int dmu_rm_spill(objset_t *, uint64_t, dmu_tx_t *);
+
+/*
+ * Special spill buffer support used by "SA" framework
+ */
+
+int dmu_spill_hold_by_bonus(dmu_buf_t *bonus, void *tag, dmu_buf_t **dbp);
+int dmu_spill_hold_by_dnode(struct dnode *dn, uint32_t flags,
+    void *tag, dmu_buf_t **dbp);
+int dmu_spill_hold_existing(dmu_buf_t *bonus, void *tag, dmu_buf_t **dbp);
 
 /*
  * Obtain the DMU buffer from the specified object which contains the
@@ -345,7 +362,7 @@ int dmu_set_bonus(dmu_buf_t *, int, dmu_tx_t *);
  * The object number must be a valid, allocated object number.
  */
 int dmu_buf_hold(objset_t *os, uint64_t object, uint64_t offset,
-    void *tag, dmu_buf_t **);
+    void *tag, dmu_buf_t **, int flags);
 void dmu_buf_add_ref(dmu_buf_t *db, void* tag);
 void dmu_buf_rele(dmu_buf_t *db, void *tag);
 uint64_t dmu_buf_refcount(dmu_buf_t *db);
@@ -442,6 +459,9 @@ void dmu_tx_hold_free(dmu_tx_t *tx, uint64_t object, uint64_t off,
     uint64_t len);
 void dmu_tx_hold_zap(dmu_tx_t *tx, uint64_t object, int add, const char *name);
 void dmu_tx_hold_bonus(dmu_tx_t *tx, uint64_t object);
+void dmu_tx_hold_spill(dmu_tx_t *tx, uint64_t object);
+void dmu_tx_hold_sa(dmu_tx_t *tx, struct sa_handle *hdl, boolean_t may_grow);
+void dmu_tx_hold_sa_create(dmu_tx_t *tx, int total_size);
 void dmu_tx_abort(dmu_tx_t *tx);
 int dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how);
 void dmu_tx_wait(dmu_tx_t *tx);
@@ -494,12 +514,23 @@ void dmu_prealloc(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 int dmu_read_uio(objset_t *os, uint64_t object, struct uio *uio, uint64_t size);
 int dmu_write_uio(objset_t *os, uint64_t object, struct uio *uio, uint64_t size,
     dmu_tx_t *tx);
+int dmu_write_uio_dbuf(dmu_buf_t *zdb, struct uio *uio, uint64_t size,
+    dmu_tx_t *tx);
 int dmu_write_pages(objset_t *os, uint64_t object, uint64_t offset,
     uint64_t size, struct page *pp, dmu_tx_t *tx);
 struct arc_buf *dmu_request_arcbuf(dmu_buf_t *handle, int size);
 void dmu_return_arcbuf(struct arc_buf *buf);
 void dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, struct arc_buf *buf,
     dmu_tx_t *tx);
+int dmu_xuio_init(struct xuio *uio, int niov);
+void dmu_xuio_fini(struct xuio *uio);
+int dmu_xuio_add(struct xuio *uio, struct arc_buf *abuf, offset_t off,
+    size_t n);
+int dmu_xuio_cnt(struct xuio *uio);
+struct arc_buf *dmu_xuio_arcbuf(struct xuio *uio, int i);
+void dmu_xuio_clear(struct xuio *uio, int i);
+void xuio_stat_wbuf_copied();
+void xuio_stat_wbuf_nocopy();
 
 extern int zfs_prefetch_disable;
 
@@ -605,6 +636,7 @@ extern struct dsl_dataset *dmu_objset_ds(objset_t *os);
 extern void dmu_objset_name(objset_t *os, char *buf);
 extern dmu_objset_type_t dmu_objset_type(objset_t *os);
 extern uint64_t dmu_objset_id(objset_t *os);
+extern uint64_t dmu_objset_syncprop(objset_t *os);
 extern uint64_t dmu_objset_logbias(objset_t *os);
 extern int dmu_snapshot_list_next(objset_t *os, int namelen, char *name,
     uint64_t *id, uint64_t *offp, boolean_t *case_conflict);

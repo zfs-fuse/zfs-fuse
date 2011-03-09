@@ -7,3 +7,6 @@ libs = Split('m dl rt pthread z aio crypto')
 
 env.Program('ztest', objects, CPPPATH = env['CPPPATH'] + cpppath, LIBS = libs)
 env.Depends('ztest', '../zdb/zdb')
+env.Append(CCFLAGS = "-fPIC")
+env.Append(LINKFLAGS = Split("-fPIC -rdynamic"))
+

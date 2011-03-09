@@ -29,6 +29,7 @@
 #include <getopt.h>
 #include <syslog.h>
 #include <stdlib.h>
+#include <sys/list.h>
 #include <sys/zfs_debug.h>
 #include <semaphore.h>
 
@@ -158,7 +159,7 @@ static struct option longopts[] = {
 	{ "enable-xattr",
 	  0,
 	  &cf_enable_xattr,
-	  0
+	  1
 	},
 	{ 0, 0, 0, 0 }
 };
@@ -332,7 +333,7 @@ static void parse_args(int argc, char *argv[])
 			case 's':
 				check_opt(progname,"-s");
 				if (stack_size != 0ul)
-					syslog(LOG_WARNING,"%s: conflicting stack_size, prior setting %u ignored", progname, stack_size);
+					syslog(LOG_WARNING,"%s: conflicting stack_size, prior setting %lu ignored", progname, stack_size);
 
 				stack_size=strtoul(optarg,&detecterror,10)<<10;
 				syslog(LOG_WARNING,"stack size for threads %zd",stack_size);
@@ -425,16 +426,15 @@ int main(int argc, char *argv[])
 	zfs_vdev_cache_size = 10ULL << 20;         /* 10MB */
 	read_cfg();
 	parse_args(argc, argv);
+	init_xattr();
 	/* we invert the options positively, since they both default to enabled */
 	block_cache = cf_disable_block_cache ? 0 : 1;
 	page_cache  = cf_disable_page_cache  ? 0 : 1;
-	if (cf_disable_page_cache)
-		syslog(LOG_WARNING,"deprecated option used (disable-page-cache)");
 	if (cf_enable_xattr)
 		fprintf(stderr, "%s: Warning: enabling xattr support should only be done when really required; performance will be affected\n", argv[0]);
 
 	/* notice about ARC size */
-	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: " FU64 " MiB", max_arc_size>>20);
+	if (max_arc_size)	syslog(LOG_NOTICE,"ARC caching: maximum ARC size: %" FU64 " MiB", max_arc_size>>20);
 	else 			syslog(LOG_NOTICE,"ARC caching: maximum ARC size: compiled-in default");
 
 	if (!block_cache) /* direct IO enabled */

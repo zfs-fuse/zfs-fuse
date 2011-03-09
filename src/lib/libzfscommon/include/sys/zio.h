@@ -20,8 +20,7 @@
  */
 
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #ifndef _ZIO_H
@@ -132,7 +131,8 @@ enum zio_compress {
 #define	ZIO_PRIORITY_ASYNC_READ		(zio_priority_table[8])
 #define	ZIO_PRIORITY_RESILVER		(zio_priority_table[9])
 #define	ZIO_PRIORITY_SCRUB		(zio_priority_table[10])
-#define	ZIO_PRIORITY_TABLE_SIZE		11
+#define	ZIO_PRIORITY_DDT_PREFETCH	(zio_priority_table[11])
+#define	ZIO_PRIORITY_TABLE_SIZE		12
 
 #define	ZIO_PIPELINE_CONTINUE		0x100
 #define	ZIO_PIPELINE_STOP		0x101
@@ -147,7 +147,7 @@ enum zio_flag {
 	ZIO_FLAG_SELF_HEAL	= 1 << 2,
 	ZIO_FLAG_RESILVER	= 1 << 3,
 	ZIO_FLAG_SCRUB		= 1 << 4,
-	ZIO_FLAG_SCRUB_THREAD	= 1 << 5,
+	ZIO_FLAG_SCAN_THREAD	= 1 << 5,
 
 #define	ZIO_FLAG_AGG_INHERIT	(ZIO_FLAG_CANFAIL - 1)
 

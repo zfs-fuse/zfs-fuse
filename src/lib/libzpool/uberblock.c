@@ -19,11 +19,9 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  */
-
-/* #pragma ident	"%Z%%M%	%I%	%E% SMI" */
 
 #include <sys/zfs_context.h>
 #include <sys/uberblock_impl.h>
@@ -40,7 +38,7 @@ uberblock_verify(uberblock_t *ub)
 	if (ub->ub_magic == BSWAP_64((uint64_t)UBERBLOCK_MAGIC))
 		byteswap_uint64_array(ub, sizeof (uberblock_t));
 	if (arg_log_uberblocks)
-	    syslog(LOG_NOTICE,"uberblock_verify:  txg " FU64 " time " FU64 " (%s)", ub->ub_txg, ub->ub_timestamp,ctime((const time_t *)&ub->ub_timestamp));
+	    syslog(LOG_NOTICE,"uberblock_verify:  txg %" FU64 " time %" FU64 " (%s)", ub->ub_txg, ub->ub_timestamp,ctime((const time_t *)&ub->ub_timestamp));
 
 	if (ub->ub_txg < arg_min_uberblock_txg) { 
 	    syslog(LOG_WARNING,"txg too new; skipping");
@@ -70,6 +68,7 @@ uberblock_update(uberblock_t *ub, vdev_t *rvd, uint64_t txg)
 	ub->ub_txg = txg;
 	ub->ub_guid_sum = rvd->vdev_guid_sum;
 	ub->ub_timestamp = gethrestime_sec();
+	ub->ub_software_version = SPA_VERSION;
 
 	return (ub->ub_rootbp.blk_birth == txg);
 }

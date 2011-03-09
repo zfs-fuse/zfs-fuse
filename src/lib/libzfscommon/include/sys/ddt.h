@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #ifndef _SYS_DDT_H
@@ -156,6 +155,8 @@ typedef struct ddt_ops {
 	    boolean_t prehash);
 	int (*ddt_op_destroy)(objset_t *os, uint64_t object, dmu_tx_t *tx);
 	int (*ddt_op_lookup)(objset_t *os, uint64_t object, ddt_entry_t *dde);
+	void (*ddt_op_prefetch)(objset_t *os, uint64_t object,
+	    ddt_entry_t *dde);
 	int (*ddt_op_update)(objset_t *os, uint64_t object, ddt_entry_t *dde,
 	    dmu_tx_t *tx);
 	int (*ddt_op_remove)(objset_t *os, uint64_t object, ddt_entry_t *dde,
@@ -217,6 +218,7 @@ extern ddt_t *ddt_select(spa_t *spa, const blkptr_t *bp);
 extern void ddt_enter(ddt_t *ddt);
 extern void ddt_exit(ddt_t *ddt);
 extern ddt_entry_t *ddt_lookup(ddt_t *ddt, const blkptr_t *bp, boolean_t add);
+extern void ddt_prefetch(spa_t *spa, const blkptr_t *bp);
 extern void ddt_remove(ddt_t *ddt, ddt_entry_t *dde);
 
 extern boolean_t ddt_class_contains(spa_t *spa, enum ddt_class max_class,
@@ -232,6 +234,8 @@ extern int ddt_load(spa_t *spa);
 extern void ddt_unload(spa_t *spa);
 extern void ddt_sync(spa_t *spa, uint64_t txg);
 extern int ddt_walk(spa_t *spa, ddt_bookmark_t *ddb, ddt_entry_t *dde);
+extern int ddt_object_update(ddt_t *ddt, enum ddt_type type,
+    enum ddt_class class, ddt_entry_t *dde, dmu_tx_t *tx);
 
 extern const ddt_ops_t ddt_zap_ops;
 

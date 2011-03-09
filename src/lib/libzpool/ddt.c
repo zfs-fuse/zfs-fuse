@@ -20,8 +20,7 @@
  */
 
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -35,6 +34,12 @@
 #include <sys/dsl_pool.h>
 #include <sys/zio_checksum.h>
 #include <sys/zio_compress.h>
+#include <sys/dsl_scan.h>
+
+/*
+ * Enable/disable prefetching of dedup-ed blocks which are going to be freed.
+ */
+int zfs_dedup_prefetch = 1;
 
 static const ddt_ops_t *ddt_ops[DDT_TYPES] = {
 	&ddt_zap_ops,
@@ -160,7 +165,18 @@ ddt_object_lookup(ddt_t *ddt, enum ddt_type type, enum ddt_class class,
 	    ddt->ddt_object[type][class], dde));
 }
 
-static int
+static void
+ddt_object_prefetch(ddt_t *ddt, enum ddt_type type, enum ddt_class class,
+    ddt_entry_t *dde)
+{
+	if (!ddt_object_exists(ddt, type, class))
+		return;
+
+	ddt_ops[type]->ddt_op_prefetch(ddt->ddt_os,
+	    ddt->ddt_object[type][class], dde);
+}
+
+int
 ddt_object_update(ddt_t *ddt, enum ddt_type type, enum ddt_class class,
     ddt_entry_t *dde, dmu_tx_t *tx)
 {
@@ -245,12 +261,13 @@ ddt_bp_create(enum zio_checksum checksum,
 		ddt_bp_fill(ddp, bp, ddp->ddp_phys_birth);
 
 	bp->blk_cksum = ddk->ddk_cksum;
+	bp->blk_fill = 1;
 
 	BP_SET_LSIZE(bp, DDK_GET_LSIZE(ddk));
 	BP_SET_PSIZE(bp, DDK_GET_PSIZE(ddk));
 	BP_SET_COMPRESS(bp, DDK_GET_COMPRESS(ddk));
 	BP_SET_CHECKSUM(bp, checksum);
-	BP_SET_TYPE(bp, DMU_OT_NONE);
+	BP_SET_TYPE(bp, DMU_OT_DEDUP);
 	BP_SET_LEVEL(bp, 0);
 	BP_SET_DEDUP(bp, 0);
 	BP_SET_BYTEORDER(bp, ZFS_HOST_BYTEORDER);
@@ -444,9 +461,6 @@ ddt_get_dedup_object_stats(spa_t *spa, ddt_object_t *ddo_total)
 	if (ddo_total->ddo_count != 0) {
 		ddo_total->ddo_dspace /= ddo_total->ddo_count;
 		ddo_total->ddo_mspace /= ddo_total->ddo_count;
-	} else {
-		ASSERT(ddo_total->ddo_dspace == 0);
-		ASSERT(ddo_total->ddo_mspace == 0);
 	}
 }
 
@@ -710,6 +724,30 @@ ddt_lookup(ddt_t *ddt, const blkptr_t *bp, boolean_t add)
 	cv_broadcast(&dde->dde_cv);
 
 	return (dde);
+}
+
+void
+ddt_prefetch(spa_t *spa, const blkptr_t *bp)
+{
+	ddt_t *ddt;
+	ddt_entry_t dde;
+
+	if (!zfs_dedup_prefetch || bp == NULL || !BP_GET_DEDUP(bp))
+		return;
+
+	/*
+	 * We only remove the DDT once all tables are empty and only
+	 * prefetch dedup blocks when there are entries in the DDT.
+	 * Thus no locking is required as the DDT can't disappear on us.
+	 */
+	ddt = ddt_select(spa, bp);
+	ddt_key_fill(&dde.dde_key, bp);
+
+	for (enum ddt_type type = 0; type < DDT_TYPES; type++) {
+		for (enum ddt_class class = 0; class < DDT_CLASSES; class++) {
+			ddt_object_prefetch(ddt, type, class, &dde);
+		}
+	}
 }
 
 int
@@ -996,10 +1034,17 @@ ddt_sync_entry(ddt_t *ddt, ddt_entry_t *dde, dmu_tx_t *tx, uint64_t txg)
 			ddt_object_create(ddt, ntype, nclass, tx);
 		VERIFY(ddt_object_update(ddt, ntype, nclass, dde, tx) == 0);
 
-		if (dp->dp_scrub_func != SCRUB_FUNC_NONE &&
-		    oclass > nclass &&
-		    nclass <= dp->dp_scrub_ddt_class_max)
-			dsl_pool_scrub_ddt_entry(dp, ddt->ddt_checksum, dde);
+		/*
+		 * If the class changes, the order that we scan this bp
+		 * changes.  If it decreases, we could miss it, so
+		 * scan it right now.  (This covers both class changing
+		 * while we are doing ddt_walk(), and when we are
+		 * traversing.)
+		 */
+		if (nclass < oclass) {
+			dsl_scan_ddt_entry(dp->dp_scan,
+			    ddt->ddt_checksum, dde, tx);
+		}
 	}
 }
 
@@ -1013,7 +1058,6 @@ ddt_sync_table(ddt_t *ddt, dmu_tx_t *tx, uint64_t txg)
 	if (avl_numnodes(&ddt->ddt_tree) == 0)
 		return;
 
-	ASSERT(spa_sync_pass(spa) == 1);
 	ASSERT(spa->spa_uberblock.ub_version >= SPA_VERSION_DEDUP);
 
 	if (spa->spa_ddt_stat_object == 0) {
@@ -1030,11 +1074,15 @@ ddt_sync_table(ddt_t *ddt, dmu_tx_t *tx, uint64_t txg)
 	}
 
 	for (enum ddt_type type = 0; type < DDT_TYPES; type++) {
+		uint64_t count = 0;
 		for (enum ddt_class class = 0; class < DDT_CLASSES; class++) {
-			if (!ddt_object_exists(ddt, type, class))
-				continue;
-			ddt_object_sync(ddt, type, class, tx);
-			if (ddt_object_count(ddt, type, class) == 0)
+			if (ddt_object_exists(ddt, type, class)) {
+				ddt_object_sync(ddt, type, class, tx);
+				count += ddt_object_count(ddt, type, class);
+			}
+		}
+		for (enum ddt_class class = 0; class < DDT_CLASSES; class++) {
+			if (count == 0 && ddt_object_exists(ddt, type, class))
 				ddt_object_destroy(ddt, type, class, tx);
 		}
 	}
@@ -1081,6 +1129,8 @@ ddt_walk(spa_t *spa, ddt_bookmark_t *ddb, ddt_entry_t *dde)
 					    ddb->ddb_type, ddb->ddb_class,
 					    &ddb->ddb_cursor, dde);
 				}
+				dde->dde_type = ddb->ddb_type;
+				dde->dde_class = ddb->ddb_class;
 				if (error == 0)
 					return (0);
 				if (error != ENOENT)

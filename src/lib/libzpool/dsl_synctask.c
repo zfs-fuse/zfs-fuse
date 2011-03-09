@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <sys/dmu.h>
@@ -29,7 +28,6 @@
 #include <sys/dsl_dir.h>
 #include <sys/dsl_synctask.h>
 #include <sys/metaslab.h>
-#include <sys/cred.h>
 
 #define	DST_AVG_BLKSHIFT 14
 
@@ -49,7 +47,6 @@ dsl_sync_task_group_create(dsl_pool_t *dp)
 	list_create(&dstg->dstg_tasks, sizeof (dsl_sync_task_t),
 	    offsetof(dsl_sync_task_t, dst_node));
 	dstg->dstg_pool = dp;
-	dstg->dstg_cr = CRED();
 
 	return (dstg);
 }
@@ -111,7 +108,12 @@ top:
 		return (dstg->dstg_err);
 	}
 
-	VERIFY(0 == txg_list_add(&dstg->dstg_pool->dp_sync_tasks, dstg, txg));
+	/*
+	 * We don't generally have many sync tasks, so pay the price of
+	 * add_tail to get the tasks executed in the right order.
+	 */
+	VERIFY(0 == txg_list_add_tail(&dstg->dstg_pool->dp_sync_tasks,
+	    dstg, txg));
 
 	dmu_tx_commit(tx);
 
@@ -131,11 +133,13 @@ dsl_sync_task_group_nowait(dsl_sync_task_group_t *dstg, dmu_tx_t *tx)
 	uint64_t txg;
 
 	dstg->dstg_nowaiter = B_TRUE;
-/* zfs-fuse : there is a thread difference here, we get this NULL pointer is crgetuid if
-we leave it here, so I will just prevent this from happening here ! */
-	/* dstg->dstg_cr = NULL; */ /* it won't be valid by the time we sync */
 	txg = dmu_tx_get_txg(tx);
-	VERIFY(0 == txg_list_add(&dstg->dstg_pool->dp_sync_tasks, dstg, txg));
+	/*
+	 * We don't generally have many sync tasks, so pay the price of
+	 * add_tail to get the tasks executed in the right order.
+	 */
+	VERIFY(0 == txg_list_add_tail(&dstg->dstg_pool->dp_sync_tasks,
+	    dstg, txg));
 }
 
 void
@@ -192,8 +196,7 @@ dsl_sync_task_group_sync(dsl_sync_task_group_t *dstg, dmu_tx_t *tx)
 		 */
 		for (dst = list_head(&dstg->dstg_tasks); dst;
 		    dst = list_next(&dstg->dstg_tasks, dst)) {
-			dst->dst_syncfunc(dst->dst_arg1, dst->dst_arg2,
-			    dstg->dstg_cr, tx);
+			dst->dst_syncfunc(dst->dst_arg1, dst->dst_arg2, tx);
 		}
 	}
 	rw_exit(&dp->dp_config_rwlock);

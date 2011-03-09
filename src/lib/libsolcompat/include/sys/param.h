@@ -58,4 +58,10 @@
 #define MAXUID          2147483647      /* max user id */
 #define MAXPROJID       MAXUID          /* max project id */
 
+#define	FAMOUS_PID_SCHED	0
+#define	FAMOUS_PID_INIT		1
+#define	FAMOUS_PID_PAGEOUT	2
+#define	FAMOUS_PID_FSFLUSH	3
+#define	FAMOUS_PIDS		4
+
 #endif

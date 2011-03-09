@@ -61,4 +61,10 @@ extern unsigned int _pageshift;
 #endif
 #endif /* !defined(_XPG6) || defined(__EXTENSIONS__) */
 
+#define	FAMOUS_PID_SCHED	0
+#define	FAMOUS_PID_INIT		1
+#define	FAMOUS_PID_PAGEOUT	2
+#define	FAMOUS_PID_FSFLUSH	3
+#define	FAMOUS_PIDS		4
+
 #endif

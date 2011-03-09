@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #ifndef	_SYS_DSL_DIR_H
@@ -70,7 +69,8 @@ typedef struct dsl_dir_phys {
 	uint64_t dd_deleg_zapobj; /* dataset delegation permissions */
 	uint64_t dd_flags;
 	uint64_t dd_used_breakdown[DD_USED_NUM];
-	uint64_t dd_pad[14]; /* pad out to 256 bytes for good measure */
+	uint64_t dd_clones; /* dsl_dir objects */
+	uint64_t dd_pad[13]; /* pad out to 256 bytes for good measure */
 } dsl_dir_phys_t;
 
 struct dsl_dir {
@@ -90,6 +90,7 @@ struct dsl_dir {
 	kmutex_t dd_lock;
 	list_t dd_prop_cbs; /* list of dsl_prop_cb_record_t's */
 	timestruc_t dd_snap_cmtime; /* last time snapshot namespace changed */
+	uint64_t dd_origin_txg;
 
 	/* gross estimate of space used by in-flight tx's */
 	uint64_t dd_tempreserved[TXG_SIZE];
@@ -142,6 +143,8 @@ timestruc_t dsl_dir_snap_cmtime(dsl_dir_t *dd);
 /* internal reserved dir name */
 #define	MOS_DIR_NAME "$MOS"
 #define	ORIGIN_DIR_NAME "$ORIGIN"
+#define	XLATION_DIR_NAME "$XLATION"
+#define	FREE_DIR_NAME "$FREE"
 
 #ifdef ZFS_DEBUG
 #define	dprintf_dd(dd, fmt, ...) do { \

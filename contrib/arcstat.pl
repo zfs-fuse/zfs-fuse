@@ -184,7 +184,8 @@ sub prettynum {
 	my $num = $_[1] || 0;
 	my $sz = $_[0];
 	my $index = 0;
-	return sprintf("%s", $num) if not $num =~ /^[0-9\.]+$/;
+	return sprintf("%s", $num) if not $num =~ /^[0-9\.e\-]+$/;
+	$num = 0 if ($num < 1e-5);
 	while ($num > 1000 and $index < 8) {
 		$num = $num/1000;
 		$index++;

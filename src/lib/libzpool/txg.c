@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -28,6 +27,7 @@
 #include <sys/dmu_impl.h>
 #include <sys/dmu_tx.h>
 #include <sys/dsl_pool.h>
+#include <sys/dsl_scan.h>
 #include <sys/callb.h>
 
 /*
@@ -37,7 +37,7 @@
 static void txg_sync_thread(dsl_pool_t *dp);
 static void txg_quiesce_thread(dsl_pool_t *dp);
 
-int zfs_txg_timeout = 30;	/* max seconds worth of delta per txg */
+int zfs_txg_timeout = 5;	/* max seconds worth of delta per txg */
 
 /*
  * Prepare the txg subsystem.
@@ -150,7 +150,7 @@ txg_sync_start(dsl_pool_t *dp)
 	 * 32-bit x86.  This is due in part to nested pools and
 	 * scrub_visitbp() recursion.
 	 */
-	tx->tx_sync_thread = thread_create(NULL, 12<<10, txg_sync_thread,
+	tx->tx_sync_thread = thread_create(NULL, 32<<10, txg_sync_thread,
 	    dp, 0, &p0, TS_RUN, minclsyspri);
 
 	mutex_exit(&tx->tx_sync_lock);
@@ -379,14 +379,12 @@ txg_sync_thread(dsl_pool_t *dp)
 		uint64_t txg;
 
 		/*
-		 * We sync when we're scrubbing, there's someone waiting
+		 * We sync when we're scanning, there's someone waiting
 		 * on us, or the quiesce thread has handed off a txg to
 		 * us, or we have reached our timeout.
 		 */
 		timer = (delta >= timeout ? 0 : timeout - delta);
-		while ((dp->dp_scrub_func == SCRUB_FUNC_NONE ||
-		    spa_load_state(spa) != SPA_LOAD_NONE ||
-		    spa_shutting_down(spa)) &&
+		while (!dsl_scan_active(dp->dp_scan) &&
 		    !tx->tx_exiting && timer > 0 &&
 		    tx->tx_synced_txg >= tx->tx_sync_txg_waiting &&
 		    tx->tx_quiesced_txg == 0) {
@@ -624,6 +622,34 @@ txg_list_add(txg_list_t *tl, void *p, uint64_t txg)
 		tn->tn_member[t] = 1;
 		tn->tn_next[t] = tl->tl_head[t];
 		tl->tl_head[t] = tn;
+	}
+	mutex_exit(&tl->tl_lock);
+
+	return (already_on_list);
+}
+
+/*
+ * Add an entry to the end of the list (walks list to find end).
+ * Returns 0 if it's a new entry, 1 if it's already there.
+ */
+int
+txg_list_add_tail(txg_list_t *tl, void *p, uint64_t txg)
+{
+	int t = txg & TXG_MASK;
+	txg_node_t *tn = (txg_node_t *)((char *)p + tl->tl_offset);
+	int already_on_list;
+
+	mutex_enter(&tl->tl_lock);
+	already_on_list = tn->tn_member[t];
+	if (!already_on_list) {
+		txg_node_t **tp;
+
+		for (tp = &tl->tl_head[t]; *tp != NULL; tp = &(*tp)->tn_next[t])
+			continue;
+
+		tn->tn_member[t] = 1;
+		tn->tn_next[t] = NULL;
+		*tp = tn;
 	}
 	mutex_exit(&tl->tl_lock);
 

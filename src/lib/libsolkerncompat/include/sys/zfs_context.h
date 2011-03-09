@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #ifndef _SYS_ZFS_CONTEXT_H
@@ -30,6 +29,7 @@
 extern "C" {
 #endif
 
+#include <stdarg.h>
 #include <sys/note.h>
 #include <sys/types.h>
 #include <sys/t_lock.h>
@@ -62,15 +62,37 @@ extern "C" {
 #include <sys/fm/util.h>
 #include <sys/sunddi.h>
 
-// #define	CPU_SEQID (thr_self() & (max_ncpus - 1))
-/* zfs-fuse : this CPU_SEQID macro is used to enter a mutex
- * for a cpu group. Wonder if it's safe in zfs-fuse ?
- * Here it seems to assume that threads are assigned sequentially to
- * all the cpus. I prefer to return 0 for this now... */
-#define CPU_SEQID 0
+#define	CPU_SEQID (thr_self() & (max_ncpus - 1))
+
+typedef enum kmem_cbrc {
+	KMEM_CBRC_YES,
+	KMEM_CBRC_NO,
+	KMEM_CBRC_LATER,
+	KMEM_CBRC_DONT_NEED,
+	KMEM_CBRC_DONT_KNOW
+} kmem_cbrc_t;
+
+#define	kmem_cache_set_move(_c, _cb)	/* nothing */
+
+#undef MUTEX_HELD
+#undef	MUTEX_NOT_HELD
+#define	MUTEX_HELD(m) ((m)->m_owner == curthread)
+#define	MUTEX_NOT_HELD(m) (!MUTEX_HELD(m))
 
 extern char *kmem_asprintf(const char *fmt, ...);
 #define	strfree(str) kmem_free((str), strlen(str)+1)
+#define km_strdup(str) strcpy(kmem_alloc(strlen(str)+1,KM_SLEEP),str)
+#define	PS_NONE		-1
+#define	taskq_create_proc(a, b, c, d, e, p, f) \
+	    (taskq_create(a, b, c, d, e, f))
+#define	taskq_create_sysdc(a, b, d, e, p, dc, f) \
+	    (taskq_create(a, b, maxclsyspri, d, e, f))
+
+extern int ddi_strtoul(const char *str, char **nptr, int base,
+    unsigned long *result);
+
+extern int ddi_strtoull(const char *str, char **nptr, int base,
+    u_longlong_t *result);
 
 #ifdef	__cplusplus
 }

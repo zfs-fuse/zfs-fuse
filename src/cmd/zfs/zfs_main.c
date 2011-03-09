@@ -20,8 +20,7 @@
  */
 
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <assert.h>
@@ -46,12 +45,15 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/fs/zfs.h>
+#include <sys/types.h>
+#include <time.h>
 
 #include <libzfs.h>
 #include <libuutil.h>
 
 #include "zfs_iter.h"
 #include "zfs_util.h"
+#include "zfs_comutil.h"
 
 libzfs_handle_t *g_zfs;
 
@@ -220,9 +222,9 @@ get_usage(zfs_help_t idx)
 	case HELP_PROMOTE:
 		return (gettext("\tpromote <clone-filesystem>\n"));
 	case HELP_RECEIVE:
-		return (gettext("\treceive [-vnF] <filesystem|volume|"
+		return (gettext("\treceive [-vnFu] <filesystem|volume|"
 		"snapshot>\n"
-		"\treceive [-vnF] -d <filesystem>\n"));
+		"\treceive [-vnFu] [-d | -e] <filesystem>\n"));
 	case HELP_RENAME:
 		return (gettext("\trename <filesystem|volume|snapshot> "
 		    "<filesystem|volume|snapshot>\n"
@@ -286,20 +288,37 @@ get_usage(zfs_help_t idx)
 	/* NOTREACHED */
 }
 
+void
+nomem(void)
+{
+	(void) fprintf(stderr, gettext("internal error: out of memory\n"));
+	exit(1);
+}
+
 /*
  * Utility function to guarantee malloc() success.
  */
+
 void *
 safe_malloc(size_t size)
 {
 	void *data;
 
-	if ((data = calloc(1, size)) == NULL) {
-		(void) fprintf(stderr, "internal error: out of memory\n");
-		exit(1);
-	}
+	if ((data = calloc(1, size)) == NULL)
+		nomem();
 
 	return (data);
+}
+
+static char *
+safe_strdup(char *str)
+{
+	char *dupstr = strdup(str);
+
+	if (dupstr == NULL)
+		nomem();
+
+	return (dupstr);
 }
 
 /*
@@ -440,11 +459,8 @@ parseprop(nvlist_t *props)
 		    "specified multiple times\n"), propname);
 		return (-1);
 	}
-	if (nvlist_add_string(props, propname, propval) != 0) {
-		(void) fprintf(stderr, gettext("internal "
-		    "error: out of memory\n"));
-		return (-1);
-	}
+	if (nvlist_add_string(props, propname, propval) != 0)
+		nomem();
 	return (0);
 }
 
@@ -469,6 +485,59 @@ parse_depth(char *opt, int *flags)
 	return (depth);
 }
 
+#define	PROGRESS_DELAY 2		/* seconds */
+
+static char *pt_reverse = "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b";
+static time_t pt_begin;
+static char *pt_header = NULL;
+static boolean_t pt_shown;
+
+static void
+start_progress_timer(void)
+{
+	pt_begin = time(NULL) + PROGRESS_DELAY;
+	pt_shown = B_FALSE;
+}
+
+static void
+set_progress_header(char *header)
+{
+	assert(pt_header == NULL);
+	pt_header = safe_strdup(header);
+	if (pt_shown) {
+		(void) printf("%s: ", header);
+		(void) fflush(stdout);
+	}
+}
+
+static void
+update_progress(char *update)
+{
+	if (!pt_shown && time(NULL) > pt_begin) {
+		int len = strlen(update);
+
+		(void) printf("%s: %s%*.*s", pt_header, update, len, len,
+		    pt_reverse);
+		(void) fflush(stdout);
+		pt_shown = B_TRUE;
+	} else if (pt_shown) {
+		int len = strlen(update);
+
+		(void) printf("%s%*.*s", update, len, len, pt_reverse);
+		(void) fflush(stdout);
+	}
+}
+
+static void
+finish_progress(char *done)
+{
+	if (pt_shown) {
+		(void) printf("%s\n", done);
+		(void) fflush(stdout);
+	}
+	free(pt_header);
+	pt_header = NULL;
+}
 /*
  * zfs clone [-p] [-o prop=value] ... <snap> <fs | vol>
  *
@@ -488,11 +557,8 @@ zfs_do_clone(int argc, char **argv)
 	int ret;
 	int c;
 
-	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0) {
-		(void) fprintf(stderr, gettext("internal error: "
-		    "out of memory\n"));
-		return (1);
-	}
+	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0)
+		nomem();
 
 	/* check options */
 	while ((c = getopt(argc, argv, "o:p")) != -1) {
@@ -606,11 +672,8 @@ zfs_do_create(int argc, char **argv)
 	uint64_t intval;
 	int canmount;
 
-	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0) {
-		(void) fprintf(stderr, gettext("internal error: "
-		    "out of memory\n"));
-		return (1);
-	}
+	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0)
+		nomem();
 
 	/* check options */
 	while ((c = getopt(argc, argv, ":V:b:so:p")) != -1) {
@@ -625,12 +688,8 @@ zfs_do_create(int argc, char **argv)
 			}
 
 			if (nvlist_add_uint64(props,
-			    zfs_prop_to_name(ZFS_PROP_VOLSIZE),
-			    intval) != 0) {
-				(void) fprintf(stderr, gettext("internal "
-				    "error: out of memory\n"));
-				goto error;
-			}
+			    zfs_prop_to_name(ZFS_PROP_VOLSIZE), intval) != 0)
+				nomem();
 			volsize = intval;
 			break;
 		case 'p':
@@ -647,11 +706,8 @@ zfs_do_create(int argc, char **argv)
 
 			if (nvlist_add_uint64(props,
 			    zfs_prop_to_name(ZFS_PROP_VOLBLOCKSIZE),
-			    intval) != 0) {
-				(void) fprintf(stderr, gettext("internal "
-				    "error: out of memory\n"));
-				goto error;
-			}
+			    intval) != 0)
+				nomem();
 			break;
 		case 'o':
 			if (parseprop(props))
@@ -719,10 +775,8 @@ zfs_do_create(int argc, char **argv)
 		    &strval) != 0) {
 			if (nvlist_add_uint64(props,
 			    zfs_prop_to_name(resv_prop), volsize) != 0) {
-				(void) fprintf(stderr, gettext("internal "
-				    "error: out of memory\n"));
 				nvlist_free(props);
-				return (1);
+				nomem();
 			}
 		}
 	}
@@ -1593,31 +1647,25 @@ upgrade_set_callback(zfs_handle_t *zhp, void *data)
 {
 	upgrade_cbdata_t *cb = data;
 	int version = zfs_prop_get_int(zhp, ZFS_PROP_VERSION);
-	int i;
-	static struct { int zplver; int spaver; } table[] = {
-		{ZPL_VERSION_FUID, SPA_VERSION_FUID},
-		{ZPL_VERSION_USERSPACE, SPA_VERSION_USERSPACE},
-		{0, 0}
-	};
+	int needed_spa_version;
+	int spa_version;
 
+	if (zfs_spa_version(zhp, &spa_version) < 0)
+		return (-1);
 
-	for (i = 0; table[i].zplver; i++) {
-		if (cb->cb_version >= table[i].zplver) {
-			int spa_version;
+	needed_spa_version = zfs_spa_version_map(cb->cb_version);
 
-			if (zfs_spa_version(zhp, &spa_version) < 0)
-				return (-1);
+	if (needed_spa_version < 0)
+		return (-1);
 
-			if (spa_version < table[i].spaver) {
-				/* can't upgrade */
-				(void) printf(gettext("%s: can not be "
-				    "upgraded; the pool version needs to first "
-				    "be upgraded\nto version %llu\n\n"),
-				    zfs_get_name(zhp), (long long unsigned int) table[i].spaver);
-				cb->cb_numfailed++;
-				return (0);
-			}
-		}
+	if (spa_version < needed_spa_version) {
+		/* can't upgrade */
+		(void) printf(gettext("%s: can not be "
+		    "upgraded; the pool version needs to first "
+		    "be upgraded\nto version %d\n\n"),
+		    zfs_get_name(zhp), needed_spa_version);
+		cb->cb_numfailed++;
+		return (0);
 	}
 
 	/* upgrade */
@@ -1719,11 +1767,10 @@ zfs_do_upgrade(int argc, char **argv)
 		    "unique identifier (FUID)\n"));
 		(void) printf(gettext(" 4   userquota, groupquota "
 		    "properties\n"));
+		(void) printf(gettext(" 5   System attributes\n"));
 		(void) printf(gettext("\nFor more information on a particular "
-		    "version, including supported releases, see:\n\n"));
-		(void) printf("http://www.opensolaris.org/os/community/zfs/"
-		    "version/zpl/N\n\n");
-		(void) printf(gettext("Where 'N' is the version number.\n"));
+		    "version, including supported releases,\n"));
+		(void) printf("see the ZFS Administration Guide.\n\n");
 		ret = 0;
 	} else if (argc || all) {
 		/* Upgrade filesystems */
@@ -2513,11 +2560,8 @@ zfs_do_snapshot(int argc, char **argv)
 	int c;
 	nvlist_t *props;
 
-	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0) {
-		(void) fprintf(stderr, gettext("internal error: "
-		    "out of memory\n"));
-		return (1);
-	}
+	if (nvlist_alloc(&props, NV_UNIQUE_NAME, 0) != 0)
+		nomem();
 
 	/* check options */
 	while ((c = getopt(argc, argv, "ro:")) != -1) {
@@ -2576,6 +2620,8 @@ zfs_do_send(int argc, char **argv)
 	zfs_handle_t *zhp;
 	sendflags_t flags = { 0 };
 	int c, err;
+	nvlist_t *dbgnv;
+	boolean_t extraverbose = B_FALSE;
 
 	/* check options */
 	while ((c = getopt(argc, argv, ":i:I:RDpv")) != -1) {
@@ -2598,6 +2644,8 @@ zfs_do_send(int argc, char **argv)
 			flags.props = B_TRUE;
 			break;
 		case 'v':
+			if (flags.verbose)
+				extraverbose = B_TRUE;
 			flags.verbose = B_TRUE;
 			break;
 		case 'D':
@@ -2682,14 +2730,26 @@ zfs_do_send(int argc, char **argv)
 	if (flags.replicate && fromname == NULL)
 		flags.doall = B_TRUE;
 
-	err = zfs_send(zhp, fromname, toname, flags, STDOUT_FILENO, NULL, 0);
+	err = zfs_send(zhp, fromname, toname, flags, STDOUT_FILENO, NULL, 0,
+	    extraverbose ? &dbgnv : NULL);
+
+	if (extraverbose) {
+		/*
+		 * dump_nvlist prints to stdout, but that's been
+		 * redirected to a file.  Make it print to stderr
+		 * instead.
+		 */
+		(void) dup2(STDERR_FILENO, STDOUT_FILENO);
+		dump_nvlist(dbgnv, 0);
+		nvlist_free(dbgnv);
+	}
 	zfs_close(zhp);
 
 	return (err != 0);
 }
 
 /*
- * zfs receive [-denvF] <fs@snap>
+ * zfs receive [-vnFu] [-d | -e] <fs@snap>
  *
  * Restore a backup stream from stdin.
  */
@@ -2881,7 +2941,7 @@ typedef struct get_all_cbdata {
 static int
 get_one_dataset(zfs_handle_t *zhp, void *data)
 {
-	static char spin[] = { '-', '\\', '|', '/' };
+	static char *spin[] = { "-", "\\", "|", "/" };
 	static int spinval = 0;
 	static int spincheck = 0;
 	static time_t last_spin_time = (time_t)0;
@@ -2892,8 +2952,7 @@ get_one_dataset(zfs_handle_t *zhp, void *data)
 		if (--spincheck < 0) {
 			time_t now = time(NULL);
 			if (last_spin_time + SPINNER_TIME < now) {
-				(void) printf("\b%c", spin[spinval++ % 4]);
-				(void) fflush(stdout);
+				update_progress(spin[spinval++ % 4]);
 				last_spin_time = now;
 			}
 			spincheck = CHECK_SPINNER;
@@ -2949,10 +3008,8 @@ get_all_datasets(uint_t types, zfs_handle_t ***dslist, size_t *count,
 	cb.cb_types = types;
 	cb.cb_verbose = verbose;
 
-	if (verbose) {
-		(void) printf("%s: *", gettext("Reading ZFS config"));
-		(void) fflush(stdout);
-	}
+	if (verbose)
+		set_progress_header(gettext("Reading ZFS config"));
 
 	int ret = zfs_iter_root(g_zfs, get_one_dataset, &cb);
 	if (ret < 0) {
@@ -2963,9 +3020,8 @@ get_all_datasets(uint_t types, zfs_handle_t ***dslist, size_t *count,
 	*dslist = cb.cb_handles;
 	*count = cb.cb_used;
 
-	if (verbose) {
-		(void) printf("\b%s\n", gettext("done."));
-	}
+	if (verbose)
+		finish_progress(gettext("done."));
 }
 
 static int
@@ -3204,19 +3260,16 @@ share_mount_one(zfs_handle_t *zhp, int op, int flags, char *protocol,
 static void
 report_mount_progress(int current, int total)
 {
-	static int len;
-	static char *reverse = "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b"
-	    "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b";
-	static time_t last_progress_time;
+	static time_t last_progress_time = 0;
 	time_t now = time(NULL);
+	char info[32];
 
 	/* report 1..n instead of 0..n-1 */
 	++current;
 
 	/* display header if we're here for the first time */
 	if (current == 1) {
-		(void) printf(gettext("Mounting ZFS filesystems: "));
-		len = 0;
+		set_progress_header(gettext("Mounting ZFS filesystems"));
 	} else if (current != total && last_progress_time + MOUNT_TIME >= now) {
 		/* too soon to report again */
 		return;
@@ -3224,13 +3277,12 @@ report_mount_progress(int current, int total)
 
 	last_progress_time = now;
 
-	/* back up to prepare for overwriting */
-	if (len)
-		(void) printf("%*.*s", len, len, reverse);
+	(void) sprintf(info, "(%d/%d)", current, total);
 
-	/* We put a newline at the end if this is the last one.  */
-	len = printf("(%d/%d)%s", current, total, current == total ? "\n" : "");
-	(void) fflush(stdout);
+	if (current == total)
+		finish_progress(info);
+	else
+		update_progress(info);
 }
 
 static void
@@ -3332,6 +3384,7 @@ share_mount(int op, int argc, char **argv)
 			usage(B_FALSE);
 		}
 
+		start_progress_timer();
 		get_all_datasets(types, &dslist, &count, verbose);
 
 		if (count == 0)
@@ -3620,21 +3673,12 @@ unshare_unmount(int op, int argc, char **argv)
 			usage(B_FALSE);
 		}
 
-		if ((pool = uu_avl_pool_create("unmount_pool",
+		if (((pool = uu_avl_pool_create("unmount_pool",
 		    sizeof (unshare_unmount_node_t),
 		    offsetof(unshare_unmount_node_t, un_avlnode),
-		    unshare_unmount_compare,
-		    UU_DEFAULT)) == NULL) {
-			(void) fprintf(stderr, gettext("internal error: "
-			    "out of memory\n"));
-			exit(1);
-		}
-
-		if ((tree = uu_avl_create(pool, NULL, UU_DEFAULT)) == NULL) {
-			(void) fprintf(stderr, gettext("internal error: "
-			    "out of memory\n"));
-			exit(1);
-		}
+		    unshare_unmount_compare, UU_DEFAULT)) == NULL) ||
+		    ((tree = uu_avl_create(pool, NULL, UU_DEFAULT)) == NULL))
+			nomem();
 
 		rewind(mnttab_file);
 		while (getmntent(mnttab_file, &entry) == 0) {
@@ -3690,13 +3734,7 @@ unshare_unmount(int op, int argc, char **argv)
 
 			node = safe_malloc(sizeof (unshare_unmount_node_t));
 			node->un_zhp = zhp;
-
-			if ((node->un_mountp = strdup(entry.mnt_mountp)) ==
-			    NULL) {
-				(void) fprintf(stderr, gettext("internal error:"
-				    " out of memory\n"));
-				exit(1);
-			}
+			node->un_mountp = safe_strdup(entry.mnt_mountp);
 
 			uu_avl_node_init(node, &node->un_avlnode, pool);
 
@@ -3714,11 +3752,8 @@ unshare_unmount(int op, int argc, char **argv)
 		 * removing it from the AVL tree in the process.
 		 */
 		if ((walk = uu_avl_walk_start(tree,
-		    UU_WALK_REVERSE | UU_WALK_ROBUST)) == NULL) {
-			(void) fprintf(stderr,
-			    gettext("internal error: out of memory"));
-			exit(1);
-		}
+		    UU_WALK_REVERSE | UU_WALK_ROBUST)) == NULL)
+			nomem();
 
 		while ((node = uu_avl_walk_next(walk)) != NULL) {
 			uu_avl_remove(tree, node);

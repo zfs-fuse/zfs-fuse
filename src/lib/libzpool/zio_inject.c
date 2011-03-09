@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 /*
@@ -239,7 +238,7 @@ zio_handle_device_injection(vdev_t *vd, zio_t *zio, int error)
 
 		if (offset < VDEV_LABEL_START_SIZE ||
 		    offset >= vd->vdev_psize - VDEV_LABEL_END_SIZE)
-		return (0);
+			return (0);
 	}
 
 	rw_enter(&inject_lock, RW_READER);
@@ -277,6 +276,16 @@ zio_handle_device_injection(vdev_t *vd, zio_t *zio, int error)
 				if (error == ENXIO)
 					vd->vdev_stat.vs_aux =
 					    VDEV_AUX_OPEN_FAILED;
+
+				/*
+				 * Treat these errors as if they had been
+				 * retried so that all the appropriate stats
+				 * and FMA events are generated.
+				 */
+				if (!handler->zi_record.zi_failfast &&
+				    zio != NULL)
+					zio->io_flags |= ZIO_FLAG_IO_RETRY;
+
 				ret = error;
 				break;
 			}
@@ -466,7 +475,6 @@ int
 zio_clear_fault(int id)
 {
 	inject_handler_t *handler;
-	int ret;
 
 	rw_enter(&inject_lock, RW_WRITER);
 
@@ -476,18 +484,18 @@ zio_clear_fault(int id)
 			break;
 
 	if (handler == NULL) {
-		ret = ENOENT;
-	} else {
-		list_remove(&inject_handlers, handler);
-		spa_inject_delref(handler->zi_spa);
-		kmem_free(handler, sizeof (inject_handler_t));
-		atomic_add_32(&zio_injection_enabled, -1);
-		ret = 0;
+		rw_exit(&inject_lock);
+		return (ENOENT);
 	}
 
+	list_remove(&inject_handlers, handler);
 	rw_exit(&inject_lock);
 
-	return (ret);
+	spa_inject_delref(handler->zi_spa);
+	kmem_free(handler, sizeof (inject_handler_t));
+	atomic_add_32(&zio_injection_enabled, -1);
+
+	return (0);
 }
 
 void

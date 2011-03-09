@@ -20,8 +20,7 @@
  */
 
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <assert.h>
@@ -204,6 +203,7 @@ cksummer(void *arg)
 	struct drr_end *drre = &thedrr.drr_u.drr_end;
 	struct drr_object *drro = &thedrr.drr_u.drr_object;
 	struct drr_write *drrw = &thedrr.drr_u.drr_write;
+	struct drr_spill *drrs = &thedrr.drr_u.drr_spill;
 	FILE *ofp;
 	int outfd;
 	dmu_replay_record_t wbr_drr = {0};
@@ -300,6 +300,18 @@ cksummer(void *arg)
 				    &stream_cksum, outfd) == -1)
 					goto out;
 			}
+			break;
+		}
+
+		case DRR_SPILL:
+		{
+			if (cksum_and_write(drr, sizeof (dmu_replay_record_t),
+			    &stream_cksum, outfd) == -1)
+				goto out;
+			(void) ssread(buf, drrs->drr_length, ofp);
+			if (cksum_and_write(buf, drrs->drr_length,
+			    &stream_cksum, outfd) == -1)
+				goto out;
 			break;
 		}
 
@@ -840,6 +852,7 @@ typedef struct send_dump_data {
 	avl_tree_t *fsavl;
 	snapfilter_cb_t *filter_cb;
 	void *filter_cb_arg;
+	nvlist_t *debugnv;
 } send_dump_data_t;
 
 /*
@@ -848,10 +861,11 @@ typedef struct send_dump_data {
  */
 static int
 dump_ioctl(zfs_handle_t *zhp, const char *fromsnap, boolean_t fromorigin,
-    int outfd, boolean_t enoent_ok, boolean_t *got_enoent)
+    int outfd, boolean_t enoent_ok, boolean_t *got_enoent, nvlist_t *debugnv)
 {
 	zfs_cmd_t zc = { 0 };
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
+	nvlist_t *thisdbg;
 
 	assert(zhp->zfs_type == ZFS_TYPE_SNAPSHOT);
 	assert(fromsnap == NULL || fromsnap[0] == '\0' || !fromorigin);
@@ -864,10 +878,23 @@ dump_ioctl(zfs_handle_t *zhp, const char *fromsnap, boolean_t fromorigin,
 
 	*got_enoent = B_FALSE;
 
+	VERIFY(0 == nvlist_alloc(&thisdbg, NV_UNIQUE_NAME, 0));
+	if (fromsnap && fromsnap[0] != '\0') {
+		VERIFY(0 == nvlist_add_string(thisdbg,
+		    "fromsnap", fromsnap));
+	}
+
 	if (ioctl(zhp->zfs_hdl->libzfs_fd, ZFS_IOC_SEND, &zc) != 0) {
 		char errbuf[1024];
 		(void) snprintf(errbuf, sizeof (errbuf), dgettext(TEXT_DOMAIN,
 		    "warning: cannot send '%s'"), zhp->zfs_name);
+
+		VERIFY(0 == nvlist_add_uint64(thisdbg, "error", errno));
+		if (debugnv) {
+			VERIFY(0 == nvlist_add_nvlist(debugnv,
+			    zhp->zfs_name, thisdbg));
+		}
+		nvlist_free(thisdbg);
 
 		switch (errno) {
 
@@ -908,6 +935,10 @@ dump_ioctl(zfs_handle_t *zhp, const char *fromsnap, boolean_t fromorigin,
 		}
 	}
 
+	if (debugnv)
+		VERIFY(0 == nvlist_add_nvlist(debugnv, zhp->zfs_name, thisdbg));
+	nvlist_free(thisdbg);
+
 	return (0);
 }
 
@@ -918,11 +949,14 @@ dump_snapshot(zfs_handle_t *zhp, void *arg)
 	const char *thissnap;
 	int err;
 	boolean_t got_enoent;
+	boolean_t isfromsnap, istosnap;
+	boolean_t exclude = B_FALSE;
 
 	thissnap = strchr(zhp->zfs_name, '@') + 1;
+	isfromsnap = (sdd->fromsnap != NULL &&
+	    strcmp(sdd->fromsnap, thissnap) == 0);
 
-	if (sdd->fromsnap && !sdd->seenfrom &&
-	    strcmp(sdd->fromsnap, thissnap) == 0) {
+	if (!sdd->seenfrom && isfromsnap) {
 		sdd->seenfrom = B_TRUE;
 		(void) strcpy(sdd->prevsnap, thissnap);
 		zfs_close(zhp);
@@ -934,15 +968,37 @@ dump_snapshot(zfs_handle_t *zhp, void *arg)
 		return (0);
 	}
 
-	if (strcmp(sdd->tosnap, thissnap) == 0)
+	istosnap = (strcmp(sdd->tosnap, thissnap) == 0);
+	if (istosnap)
 		sdd->seento = B_TRUE;
+
+	if (!sdd->doall && !isfromsnap && !istosnap) {
+		if (sdd->replicate) {
+			char *snapname;
+			nvlist_t *snapprops;
+			/*
+			 * Filter out all intermediate snapshots except origin
+			 * snapshots needed to replicate clones.
+			 */
+			nvlist_t *nvfs = fsavl_find(sdd->fsavl,
+			    zhp->zfs_dmustats.dds_guid, &snapname);
+
+			VERIFY(0 == nvlist_lookup_nvlist(nvfs,
+			    "snapprops", &snapprops));
+			VERIFY(0 == nvlist_lookup_nvlist(snapprops,
+			    thissnap, &snapprops));
+			exclude = !nvlist_exists(snapprops, "is_clone_origin");
+		} else {
+			exclude = B_TRUE;
+		}
+	}
 
 	/*
 	 * If a filter function exists, call it to determine whether
 	 * this snapshot will be sent.
 	 */
-	if (sdd->filter_cb != NULL &&
-	    sdd->filter_cb(zhp, sdd->filter_cb_arg) == B_FALSE) {
+	if (exclude || (sdd->filter_cb != NULL &&
+	    sdd->filter_cb(zhp, sdd->filter_cb_arg) == B_FALSE)) {
 		/*
 		 * This snapshot is filtered out.  Don't send it, and don't
 		 * set prevsnap, so it will be as if this snapshot didn't
@@ -963,7 +1019,7 @@ dump_snapshot(zfs_handle_t *zhp, void *arg)
 
 	err = dump_ioctl(zhp, sdd->prevsnap,
 	    sdd->prevsnap[0] == '\0' && (sdd->fromorigin || sdd->replicate),
-	    sdd->outfd, B_TRUE, &got_enoent);
+	    sdd->outfd, B_TRUE, &got_enoent, sdd->debugnv);
 
 	if (got_enoent)
 		err = 0;
@@ -1007,57 +1063,32 @@ dump_filesystem(zfs_handle_t *zhp, void *arg)
 		}
 	}
 
-	if (sdd->doall) {
-		sdd->seenfrom = sdd->seento = sdd->prevsnap[0] = 0;
-		if (sdd->fromsnap == NULL || missingfrom)
-			sdd->seenfrom = B_TRUE;
+	sdd->seenfrom = sdd->seento = sdd->prevsnap[0] = 0;
+	if (sdd->fromsnap == NULL || missingfrom)
+		sdd->seenfrom = B_TRUE;
 
-		rv = zfs_iter_snapshots_sorted(zhp, dump_snapshot, arg);
-		if (!sdd->seenfrom) {
+	rv = zfs_iter_snapshots_sorted(zhp, dump_snapshot, arg);
+	if (!sdd->seenfrom) {
+		(void) fprintf(stderr,
+		    "WARNING: could not send %s@%s:\n"
+		    "incremental source (%s@%s) does not exist\n",
+		    zhp->zfs_name, sdd->tosnap,
+		    zhp->zfs_name, sdd->fromsnap);
+		sdd->err = B_TRUE;
+	} else if (!sdd->seento) {
+		if (sdd->fromsnap) {
 			(void) fprintf(stderr,
 			    "WARNING: could not send %s@%s:\n"
-			    "incremental source (%s@%s) does not exist\n",
+			    "incremental source (%s@%s) "
+			    "is not earlier than it\n",
 			    zhp->zfs_name, sdd->tosnap,
 			    zhp->zfs_name, sdd->fromsnap);
-			sdd->err = B_TRUE;
-		} else if (!sdd->seento) {
-			if (sdd->fromsnap) {
-				(void) fprintf(stderr,
-				    "WARNING: could not send %s@%s:\n"
-				    "incremental source (%s@%s) "
-				    "is not earlier than it\n",
-				    zhp->zfs_name, sdd->tosnap,
-				    zhp->zfs_name, sdd->fromsnap);
-			} else {
-				(void) fprintf(stderr, "WARNING: "
-				    "could not send %s@%s: does not exist\n",
-				    zhp->zfs_name, sdd->tosnap);
-			}
-			sdd->err = B_TRUE;
-		}
-	} else {
-		zfs_handle_t *snapzhp;
-		char snapname[ZFS_MAXNAMELEN];
-
-		(void) snprintf(snapname, sizeof (snapname), "%s@%s",
-		    zfs_get_name(zhp), sdd->tosnap);
-		snapzhp = zfs_open(zhp->zfs_hdl, snapname, ZFS_TYPE_SNAPSHOT);
-		if (snapzhp == NULL) {
-			rv = -1;
 		} else {
-			if (sdd->filter_cb == NULL ||
-			    sdd->filter_cb(snapzhp, sdd->filter_cb_arg) ==
-			    B_TRUE) {
-				boolean_t got_enoent;
-
-				rv = dump_ioctl(snapzhp,
-				    missingfrom ? NULL : sdd->fromsnap,
-				    sdd->fromorigin || missingfrom,
-				    sdd->outfd, B_FALSE, &got_enoent);
-			}
-			sdd->seento = B_TRUE;
-			zfs_close(snapzhp);
+			(void) fprintf(stderr, "WARNING: "
+			    "could not send %s@%s: does not exist\n",
+			    zhp->zfs_name, sdd->tosnap);
 		}
+		sdd->err = B_TRUE;
 	}
 
 	return (rv);
@@ -1073,6 +1104,29 @@ dump_filesystems(zfs_handle_t *rzhp, void *arg)
 	if (!sdd->replicate)
 		return (dump_filesystem(rzhp, sdd));
 
+	/* Mark the clone origin snapshots. */
+	for (fspair = nvlist_next_nvpair(sdd->fss, NULL); fspair;
+	    fspair = nvlist_next_nvpair(sdd->fss, fspair)) {
+		nvlist_t *nvfs;
+		uint64_t origin_guid = 0;
+
+		VERIFY(0 == nvpair_value_nvlist(fspair, &nvfs));
+		(void) nvlist_lookup_uint64(nvfs, "origin", &origin_guid);
+		if (origin_guid != 0) {
+			char *snapname;
+			nvlist_t *origin_nv = fsavl_find(sdd->fsavl,
+			    origin_guid, &snapname);
+			if (origin_nv != NULL) {
+				nvlist_t *snapprops;
+				VERIFY(0 == nvlist_lookup_nvlist(origin_nv,
+				    "snapprops", &snapprops));
+				VERIFY(0 == nvlist_lookup_nvlist(snapprops,
+				    snapname, &snapprops));
+				VERIFY(0 == nvlist_add_boolean(
+				    snapprops, "is_clone_origin"));
+			}
+		}
+	}
 again:
 	needagain = progress = B_FALSE;
 	for (fspair = nvlist_next_nvpair(sdd->fss, NULL); fspair;
@@ -1082,7 +1136,6 @@ again:
 		zfs_handle_t *zhp;
 		int err;
 		uint64_t origin_guid = 0;
-		nvlist_t *origin_nv;
 
 		VERIFY(nvpair_value_nvlist(fspair, &fslist) == 0);
 		if (nvlist_lookup_boolean(fslist, "sent") == 0)
@@ -1091,15 +1144,19 @@ again:
 		VERIFY(nvlist_lookup_string(fslist, "name", &fsname) == 0);
 		(void) nvlist_lookup_uint64(fslist, "origin", &origin_guid);
 
-		origin_nv = fsavl_find(sdd->fsavl, origin_guid, NULL);
-		if (origin_nv &&
-		    nvlist_lookup_boolean(origin_nv, "sent") == ENOENT) {
-			/*
-			 * origin has not been sent yet;
-			 * skip this clone.
-			 */
-			needagain = B_TRUE;
-			continue;
+		if (origin_guid != 0) {
+			nvlist_t *origin_nv = fsavl_find(sdd->fsavl,
+			    origin_guid, NULL);
+			if (origin_nv != NULL &&
+			    nvlist_lookup_boolean(origin_nv,
+			    "sent") == ENOENT) {
+				/*
+				 * origin has not been sent yet;
+				 * skip this clone.
+				 */
+				needagain = B_TRUE;
+				continue;
+			}
 		}
 
 		zhp = zfs_open(rzhp->zfs_hdl, fsname, ZFS_TYPE_DATASET);
@@ -1138,7 +1195,7 @@ again:
 int
 zfs_send(zfs_handle_t *zhp, const char *fromsnap, const char *tosnap,
     sendflags_t flags, int outfd, snapfilter_cb_t filter_func,
-    void *cb_arg)
+    void *cb_arg, nvlist_t **debugnvp)
 {
 	char errbuf[1024];
 	send_dump_data_t sdd = { 0 };
@@ -1153,6 +1210,14 @@ zfs_send(zfs_handle_t *zhp, const char *fromsnap, const char *tosnap,
 	int pipefd[2];
 	dedup_arg_t dda = { 0 };
 	int featureflags = 0;
+
+	if (zhp->zfs_type == ZFS_TYPE_FILESYSTEM) {
+		uint64_t version;
+		version = zfs_prop_get_int(zhp, ZFS_PROP_VERSION);
+		if (version >= ZPL_VERSION_SA) {
+			featureflags |= DMU_BACKUP_FEATURE_SA_SPILL;
+		}
+	}
 
 	(void) snprintf(errbuf, sizeof (errbuf), dgettext(TEXT_DOMAIN,
 	    "cannot send '%s'"), zhp->zfs_name);
@@ -1230,7 +1295,10 @@ zfs_send(zfs_handle_t *zhp, const char *fromsnap, const char *tosnap,
 			VERIFY(0 == nvlist_add_nvlist(hdrnv, "fss", fss));
 			err = nvlist_pack(hdrnv, &packbuf, &buflen,
 			    NV_ENCODE_XDR, 0);
-			nvlist_free(hdrnv);
+			if (debugnvp)
+				*debugnvp = hdrnv;
+			else
+				nvlist_free(hdrnv);
 			if (err) {
 				fsavl_destroy(fsavl);
 				nvlist_free(fss);
@@ -1305,6 +1373,8 @@ zfs_send(zfs_handle_t *zhp, const char *fromsnap, const char *tosnap,
 	sdd.verbose = flags.verbose;
 	sdd.filter_cb = filter_func;
 	sdd.filter_cb_arg = cb_arg;
+	if (debugnvp)
+		sdd.debugnv = *debugnvp;
 	err = dump_filesystems(zhp, &sdd);
 	fsavl_destroy(fsavl);
 	nvlist_free(fss);
@@ -2180,7 +2250,14 @@ recv_skip(libzfs_handle_t *hdl, int fd, boolean_t byteswap)
 			(void) recv_read(hdl, fd, buf,
 			    drr->drr_u.drr_write.drr_length, B_FALSE, NULL);
 			break;
-
+		case DRR_SPILL:
+			if (byteswap) {
+				drr->drr_u.drr_write.drr_length =
+				    BSWAP_64(drr->drr_u.drr_spill.drr_length);
+			}
+			(void) recv_read(hdl, fd, buf,
+			    drr->drr_u.drr_spill.drr_length, B_FALSE, NULL);
+			break;
 		case DRR_WRITE_BYREF:
 		case DRR_FREEOBJECTS:
 		case DRR_FREE:
@@ -2398,7 +2475,14 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 		(void) strcpy(zc.zc_name, zc.zc_value);
 		*strchr(zc.zc_name, '@') = '\0';
 
-		if (!zfs_dataset_exists(hdl, zc.zc_name, ZFS_TYPE_DATASET)) {
+		/*
+		 * If the exact receive path was specified and this is the
+		 * topmost path in the stream, then if the fs does not exist we
+		 * should look no further.
+		 */
+		if ((flags.isprefix || (*(chopprefix = drrb->drr_toname +
+		    strlen(sendfs)) != '\0' && *chopprefix != '@')) &&
+		    !zfs_dataset_exists(hdl, zc.zc_name, ZFS_TYPE_DATASET)) {
 			char snap[ZFS_MAXNAMELEN];
 			(void) strcpy(snap, strchr(zc.zc_value, '@'));
 			if (guid_to_name(hdl, tosnap, drrb->drr_fromguid,
@@ -2648,6 +2732,16 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 			    "invalid stream (checksum mismatch)"));
 			(void) zfs_error(hdl, EZFS_BADSTREAM, errbuf);
 			break;
+		case ENOTSUP:
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "pool must be upgraded to receive this stream."));
+			(void) zfs_error(hdl, EZFS_BADVERSION, errbuf);
+			break;
+		case EDQUOT:
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "destination %s space quota exceeded"), zc.zc_name);
+			(void) zfs_error(hdl, EZFS_BADRESTORE, errbuf);
+			break;
 		default:
 			(void) zfs_standard_error(hdl, ioctl_errno, errbuf);
 		}
@@ -2816,7 +2910,7 @@ zfs_receive_impl(libzfs_handle_t *hdl, const char *tosnap, recvflags_t flags,
 		return (zfs_receive_one(hdl, infd, tosnap, flags,
 		    &drr, &drr_noswap, sendfs, stream_nv, stream_avl,
 		    top_zfs));
-	} else {  /* must be DMU_COMPOUNDSTREAM */
+	} else {
 		assert(DMU_GET_STREAM_HDRTYPE(drrb->drr_versioninfo) ==
 		    DMU_COMPOUNDSTREAM);
 		return (zfs_receive_package(hdl, infd, tosnap, flags,

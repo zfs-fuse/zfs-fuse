@@ -19,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
+
+/* Portions Copyright 2010 Robert Milkowski */
 
 /*
  * ZFS volume emulation driver.
@@ -116,6 +117,7 @@ typedef struct zvol_state {
 	zilog_t		*zv_zilog;	/* ZIL handle */
 	list_t		zv_extents;	/* List of extents for dump */
 	znode_t		zv_znode;	/* for range locking */
+	dmu_buf_t	*zv_dbuf;	/* bonus handle */
 } zvol_state_t;
 
 /*
@@ -237,10 +239,10 @@ zvol_minor_lookup(const char *name)
 		if (zv == NULL)
 			continue;
 		if (strcmp(zv->zv_name, name) == 0)
-			break;
+			return (zv);
 	}
 
-	return (zv);
+	return (NULL);
 }
 
 /* extent mapping arg */
@@ -251,7 +253,7 @@ struct maparg {
 
 /*ARGSUSED*/
 static int
-zvol_map_block(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
+zvol_map_block(spa_t *spa, zilog_t *zilog, const blkptr_t *bp, arc_buf_t *pbuf,
     const zbookmark_t *zb, const dnode_phys_t *dnp, void *arg)
 {
 	struct maparg *ma = arg;
@@ -529,7 +531,10 @@ zvol_create_minor(const char *name)
 	ASSERT(error == 0);
 	zv->zv_volblocksize = doi.doi_data_block_size;
 
-	zil_replay(os, zv, zvol_replay_vector);
+	if (zil_replay_disable)
+		zil_destroy(dmu_objset_zil(os), B_FALSE);
+	else
+		zil_replay(os, zv, zvol_replay_vector);
 	dmu_objset_disown(os, zvol_tag);
 	zv->zv_objset = NULL;
 
@@ -603,6 +608,11 @@ zvol_first_open(zvol_state_t *zv)
 		return (error);
 	}
 	zv->zv_objset = os;
+	error = dmu_bonus_hold(os, ZVOL_OBJ, zvol_tag, &zv->zv_dbuf);
+	if (error) {
+		dmu_objset_disown(os, zvol_tag);
+		return (error);
+	}
 	zv->zv_volsize = volsize;
 	zv->zv_zilog = zil_open(os, zvol_get_data);
 	zvol_size_changed(zv->zv_volsize, ddi_driver_major(zfs_dip),
@@ -622,6 +632,8 @@ zvol_last_close(zvol_state_t *zv)
 {
 	zil_close(zv->zv_zilog);
 	zv->zv_zilog = NULL;
+	dmu_buf_rele(zv->zv_dbuf, zvol_tag);
+	zv->zv_dbuf = NULL;
 	dmu_objset_disown(zv->zv_objset, zvol_tag);
 	zv->zv_objset = NULL;
 }
@@ -946,7 +958,8 @@ zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	} else {
 		size = zv->zv_volblocksize;
 		offset = P2ALIGN(offset, size);
-		error = dmu_buf_hold(os, object, offset, zgd, &db);
+		error = dmu_buf_hold(os, object, offset, zgd, &db,
+		    DMU_READ_NO_PREFETCH);
 		if (error == 0) {
 			zgd->zgd_db = db;
 			zgd->zgd_bp = bp;
@@ -983,9 +996,6 @@ zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx, offset_t off, ssize_t resid,
 	zilog_t *zilog = zv->zv_zilog;
 	boolean_t slogging;
 	ssize_t immediate_write_sz;
-
-	if (zil_disable)
-		return;
 
 	if (zil_replaying(zilog, tx))
 		return;
@@ -1041,7 +1051,7 @@ zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx, offset_t off, ssize_t resid,
 		itx->itx_private = zv;
 		itx->itx_sync = sync;
 
-		(void) zil_itx_assign(zilog, itx, tx);
+		zil_itx_assign(zilog, itx, tx);
 
 		off += len;
 		resid -= len;
@@ -1140,7 +1150,7 @@ zvol_strategy(buf_t *bp)
 	rl_t *rl;
 	int error = 0;
 	boolean_t doread = bp->b_flags & B_READ;
-	boolean_t is_dump = zv->zv_flags & ZVOL_DUMPIFIED;
+	boolean_t is_dump;
 	boolean_t sync;
 
 	if (zv == NULL) {
@@ -1177,8 +1187,11 @@ zvol_strategy(buf_t *bp)
 		return (0);
 	}
 
-	sync = !(bp->b_flags & B_ASYNC) && !doread && !is_dump &&
-	    !(zv->zv_flags & ZVOL_WCE) && !zil_disable;
+	is_dump = zv->zv_flags & ZVOL_DUMPIFIED;
+	sync = ((!(bp->b_flags & B_ASYNC) &&
+	    !(zv->zv_flags & ZVOL_WCE)) ||
+	    (zv->zv_objset->os_sync == ZFS_SYNC_ALWAYS)) &&
+	    !doread && !is_dump;
 
 	/*
 	 * There must be no buffer changes when doing a dmu_sync() because
@@ -1224,7 +1237,7 @@ zvol_strategy(buf_t *bp)
 		bioerror(bp, off > volsize ? EINVAL : error);
 
 	if (sync)
-		zil_commit(zv->zv_zilog, UINT64_MAX, ZVOL_OBJ);
+		zil_commit(zv->zv_zilog, ZVOL_OBJ);
 	biodone(bp);
 
 	return (0);
@@ -1358,7 +1371,8 @@ zvol_write(dev_t dev, uio_t *uio, cred_t *cr)
 		return (error);
 	}
 
-	sync = !(zv->zv_flags & ZVOL_WCE) && !zil_disable;
+	sync = !(zv->zv_flags & ZVOL_WCE) ||
+	    (zv->zv_objset->os_sync == ZFS_SYNC_ALWAYS);
 
 	rl = zfs_range_lock(&zv->zv_znode, uio->uio_loffset, uio->uio_resid,
 	    RL_WRITER);
@@ -1376,7 +1390,7 @@ zvol_write(dev_t dev, uio_t *uio, cred_t *cr)
 			dmu_tx_abort(tx);
 			break;
 		}
-		error = dmu_write_uio(zv->zv_objset, ZVOL_OBJ, uio, bytes, tx);
+		error = dmu_write_uio_dbuf(zv->zv_dbuf, uio, bytes, tx);
 		if (error == 0)
 			zvol_log_write(zv, tx, off, bytes, sync);
 		dmu_tx_commit(tx);
@@ -1386,7 +1400,7 @@ zvol_write(dev_t dev, uio_t *uio, cred_t *cr)
 	}
 	zfs_range_unlock(rl);
 	if (sync)
-		zil_commit(zv->zv_zilog, UINT64_MAX, ZVOL_OBJ);
+		zil_commit(zv->zv_zilog, ZVOL_OBJ);
 	return (error);
 }
 
@@ -1446,6 +1460,79 @@ zvol_getefi(void *arg, int flag, uint64_t vs, uint8_t bs)
 		return (EFAULT);
 	return (0);
 }
+
+/*
+ * BEGIN entry points to allow external callers access to the volume.
+ */
+/*
+ * Return the volume parameters needed for access from an external caller.
+ * These values are invariant as long as the volume is held open.
+ */
+int
+zvol_get_volume_params(minor_t minor, uint64_t *blksize,
+    uint64_t *max_xfer_len, void **minor_hdl, void **objset_hdl, void **zil_hdl,
+    void **rl_hdl, void **bonus_hdl)
+{
+	zvol_state_t *zv;
+
+	if (minor == 0)
+		return (ENXIO);
+	if ((zv = ddi_get_soft_state(zvol_state, minor)) == NULL)
+		return (ENXIO);
+	if (zv->zv_flags & ZVOL_DUMPIFIED)
+		return (ENXIO);
+
+	ASSERT(blksize && max_xfer_len && minor_hdl &&
+	    objset_hdl && zil_hdl && rl_hdl && bonus_hdl);
+
+	*blksize = zv->zv_volblocksize;
+	*max_xfer_len = (uint64_t)zvol_maxphys;
+	*minor_hdl = zv;
+	*objset_hdl = zv->zv_objset;
+	*zil_hdl = zv->zv_zilog;
+	*rl_hdl = &zv->zv_znode;
+	*bonus_hdl = zv->zv_dbuf;
+	return (0);
+}
+
+/*
+ * Return the current volume size to an external caller.
+ * The size can change while the volume is open.
+ */
+uint64_t
+zvol_get_volume_size(void *minor_hdl)
+{
+	zvol_state_t *zv = minor_hdl;
+
+	return (zv->zv_volsize);
+}
+
+/*
+ * Return the current WCE setting to an external caller.
+ * The WCE setting can change while the volume is open.
+ */
+int
+zvol_get_volume_wce(void *minor_hdl)
+{
+	zvol_state_t *zv = minor_hdl;
+
+	return ((zv->zv_flags & ZVOL_WCE) ? 1 : 0);
+}
+
+/*
+ * Entry point for external callers to zvol_log_write
+ */
+void
+zvol_log_write_minor(void *minor_hdl, dmu_tx_t *tx, offset_t off, ssize_t resid,
+    boolean_t sync)
+{
+	zvol_state_t *zv = minor_hdl;
+
+	zvol_log_write(zv, tx, off, resid, sync);
+}
+/*
+ * END entry points to allow external callers access to the volume.
+ */
 
 /*
  * Dirtbag ioctls to support mkfs(1M) for UFS filesystems.  See dkio(7I).
@@ -1508,7 +1595,7 @@ zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 	case DKIOCFLUSHWRITECACHE:
 		dkc = (struct dk_callback *)arg;
 		mutex_exit(&zvol_state_lock);
-		zil_commit(zv->zv_zilog, UINT64_MAX, ZVOL_OBJ);
+		zil_commit(zv->zv_zilog, ZVOL_OBJ);
 		if ((flag & FKIOCTL) && dkc != NULL && dkc->dkc_callback) {
 			(*dkc->dkc_callback)(dkc->dkc_cookie, error);
 			error = 0;
@@ -1537,7 +1624,7 @@ zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 			} else {
 				zv->zv_flags &= ~ZVOL_WCE;
 				mutex_exit(&zvol_state_lock);
-				zil_commit(zv->zv_zilog, UINT64_MAX, ZVOL_OBJ);
+				zil_commit(zv->zv_zilog, ZVOL_OBJ);
 			}
 			return (0);
 		}

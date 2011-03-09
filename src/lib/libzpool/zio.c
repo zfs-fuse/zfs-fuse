@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -60,6 +59,7 @@ uint8_t zio_priority_table[ZIO_PRIORITY_TABLE_SIZE] = {
 	6,	/* ZIO_PRIORITY_ASYNC_READ	*/
 	10,	/* ZIO_PRIORITY_RESILVER	*/
 	20,	/* ZIO_PRIORITY_SCRUB		*/
+	2,	/* ZIO_PRIORITY_DDT_PREFETCH	*/
 };
 
 /*
@@ -91,6 +91,8 @@ extern vmem_t *zio_alloc_arena;
  * stage set or will have it later in its lifetime.
  */
 #define	IO_IS_ALLOCATING(zio) ((zio)->io_orig_pipeline & ZIO_STAGE_DVA_ALLOCATE)
+
+boolean_t	zio_requeue_io_start_cut_in_line = B_TRUE;
 
 #ifdef ZFS_DEBUG
 int zio_buf_debug_limit = 16384;
@@ -662,7 +664,7 @@ zio_write_override(zio_t *zio, blkptr_t *bp, int copies)
 void
 zio_free(spa_t *spa, uint64_t txg, const blkptr_t *bp)
 {
-	bplist_enqueue_deferred(&spa->spa_free_bplist[txg & TXG_MASK], bp);
+	bplist_append(&spa->spa_free_bplist[txg & TXG_MASK], bp);
 }
 
 zio_t *
@@ -670,6 +672,9 @@ zio_free_sync(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
     enum zio_flag flags)
 {
 	zio_t *zio;
+
+	dprintf_bp(bp, "freeing in txg %llu, pass %u",
+	    (longlong_t)txg, spa->spa_sync_pass);
 
 	ASSERT(!BP_IS_HOLE(bp));
 	ASSERT(spa_syncing_txg(spa) == txg);
@@ -1039,8 +1044,6 @@ zio_free_bp_init(zio_t *zio)
 	if (zio->io_child_type == ZIO_CHILD_LOGICAL) {
 		if (BP_GET_DEDUP(bp))
 			zio->io_pipeline = ZIO_DDT_FREE_PIPELINE;
-		else
-			arc_free(zio->io_spa, bp);
 	}
 
 	return (ZIO_PIPELINE_CONTINUE);
@@ -1053,10 +1056,11 @@ zio_free_bp_init(zio_t *zio)
  */
 
 static void
-zio_taskq_dispatch(zio_t *zio, enum zio_taskq_type q)
+zio_taskq_dispatch(zio_t *zio, enum zio_taskq_type q, boolean_t cutinline)
 {
 	spa_t *spa = zio->io_spa;
 	zio_type_t t = zio->io_type;
+	int flags = TQ_SLEEP | (cutinline ? TQ_FRONT : 0);
 
 	/*
 	 * If we're a config writer or a probe, the normal issue and
@@ -1081,7 +1085,7 @@ zio_taskq_dispatch(zio_t *zio, enum zio_taskq_type q)
 
 	ASSERT3U(q, <, ZIO_TASKQ_TYPES);
 	(void) taskq_dispatch(spa->spa_zio_taskq[t][q],
-	    (task_func_t *)zio_execute, zio, TQ_SLEEP);
+	    (task_func_t *)zio_execute, zio, flags);
 }
 
 static boolean_t
@@ -1100,7 +1104,7 @@ zio_taskq_member(zio_t *zio, enum zio_taskq_type q)
 static int
 zio_issue_async(zio_t *zio)
 {
-	zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE);
+	zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, B_FALSE);
 
 	return (ZIO_PIPELINE_STOP);
 }
@@ -1108,7 +1112,7 @@ zio_issue_async(zio_t *zio)
 void
 zio_interrupt(zio_t *zio)
 {
-	zio_taskq_dispatch(zio, ZIO_TASKQ_INTERRUPT);
+	zio_taskq_dispatch(zio, ZIO_TASKQ_INTERRUPT, B_FALSE);
 }
 
 /*
@@ -1151,10 +1155,15 @@ zio_execute(zio_t *zio)
 		 * will grab a config lock that is held across I/O,
 		 * or may wait for an I/O that needs an interrupt thread
 		 * to complete, issue async to avoid deadlock.
+		 *
+		 * For VDEV_IO_START, we cut in line so that the io will
+		 * be sent to disk promptly.
 		 */
 		if ((stage & ZIO_BLOCKING_STAGES) && zio->io_vd == NULL &&
 		    zio_taskq_member(zio, ZIO_TASKQ_INTERRUPT)) {
-			zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE);
+			boolean_t cut = (stage == ZIO_STAGE_VDEV_IO_START) ?
+			    zio_requeue_io_start_cut_in_line : B_FALSE;
+			zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, cut);
 			return;
 		}
 
@@ -1820,7 +1829,7 @@ zio_ddt_read_done(zio_t *zio)
 		}
 		if (dde == NULL) {
 			zio->io_stage = ZIO_STAGE_DDT_READ_START >> 1;
-			zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE);
+			zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE, B_FALSE);
 			return (ZIO_PIPELINE_STOP);
 		}
 		if (dde->dde_repair_data != NULL) {
@@ -2078,6 +2087,8 @@ zio_ddt_write(zio_t *zio)
 	return (ZIO_PIPELINE_CONTINUE);
 }
 
+ddt_entry_t *freedde; /* for debugging */
+
 static int
 zio_ddt_free(zio_t *zio)
 {
@@ -2091,7 +2102,7 @@ zio_ddt_free(zio_t *zio)
 	ASSERT(zio->io_child_type == ZIO_CHILD_LOGICAL);
 
 	ddt_enter(ddt);
-	dde = ddt_lookup(ddt, bp, B_TRUE);
+	freedde = dde = ddt_lookup(ddt, bp, B_TRUE);
 	ddp = ddt_phys_select(dde, bp);
 	ddt_phys_decref(ddp);
 	ddt_exit(ddt);
@@ -2249,6 +2260,26 @@ zio_vdev_io_start(zio_t *zio)
 		return (vdev_mirror_ops.vdev_op_io_start(zio));
 	}
 
+	/*
+	 * We keep track of time-sensitive I/Os so that the scan thread
+	 * can quickly react to certain workloads.  In particular, we care
+	 * about non-scrubbing, top-level reads and writes with the following
+	 * characteristics:
+	 * 	- synchronous writes of user data to non-slog devices
+	 *	- any reads of user data
+	 * When these conditions are met, adjust the timestamp of spa_last_io
+	 * which allows the scan thread to adjust its workload accordingly.
+	 */
+	if (!(zio->io_flags & ZIO_FLAG_SCAN_THREAD) && zio->io_bp != NULL &&
+	    vd == vd->vdev_top && !vd->vdev_islog &&
+	    zio->io_bookmark.zb_objset != DMU_META_OBJSET &&
+	    zio->io_txg != spa_syncing_txg(spa)) {
+		uint64_t old = spa->spa_last_io;
+		uint64_t new = ddi_get_lbolt64();
+		if (old != new)
+			(void) atomic_cas_64(&spa->spa_last_io, old, new);
+	}
+
 	align = 1ULL << vd->vdev_top->vdev_ashift;
 
 	if (P2PHASE(zio->io_size, align) != 0) {
@@ -2397,6 +2428,9 @@ zio_vdev_io_assess(zio_t *zio)
 
 	/*
 	 * If the I/O failed, determine whether we should attempt to retry it.
+	 *
+	 * On retry, we cut in line in the issue queue, since we don't want
+	 * compression/checksumming/etc. work to prevent our (cheap) IO reissue.
 	 */
 	if (zio->io_error && vd == NULL &&
 	    !(zio->io_flags & (ZIO_FLAG_DONT_RETRY | ZIO_FLAG_IO_RETRY))) {
@@ -2406,7 +2440,8 @@ zio_vdev_io_assess(zio_t *zio)
 		zio->io_flags |= ZIO_FLAG_IO_RETRY |
 		    ZIO_FLAG_DONT_CACHE | ZIO_FLAG_DONT_AGGREGATE;
 		zio->io_stage = ZIO_STAGE_VDEV_IO_START >> 1;
-		zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE);
+		zio_taskq_dispatch(zio, ZIO_TASKQ_ISSUE,
+		    zio_requeue_io_start_cut_in_line);
 		return (ZIO_PIPELINE_STOP);
 	}
 
@@ -2742,6 +2777,7 @@ zio_done(zio_t *zio)
 
 		if ((zio->io_type == ZIO_TYPE_READ ||
 		    zio->io_type == ZIO_TYPE_FREE) &&
+		    !(zio->io_flags & ZIO_FLAG_SCAN_THREAD) &&
 		    zio->io_error == ENXIO &&
 		    spa_load_state(spa) == SPA_LOAD_NONE &&
 		    spa_get_failmode(spa) != ZIO_FAILURE_MODE_CONTINUE)

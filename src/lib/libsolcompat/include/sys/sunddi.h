@@ -27,8 +27,6 @@
 #ifndef _SOL_SUNDDI_H
 #define _SOL_SUNDDI_H
 
-#ifdef _KERNEL
-
 #include <string.h>
 #include <errno.h>
 
@@ -44,7 +42,6 @@ ddi_strtoul(const char *hw_serial, char **nptr, int base, unsigned long *result)
 		return (errno);
 	return (0);
 }
-#endif
 
 #endif
 

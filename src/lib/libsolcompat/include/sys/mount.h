@@ -27,7 +27,9 @@
 #ifndef _SOL_SYS_MOUNT_H
 #define _SOL_SYS_MOUNT_H
 
+#define S_WRITE S_WRITE_MOUNT
 #include_next <sys/mount.h>
+#undef S_WRITE
 
 #include <sys/mntent.h>
 

@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Copyright 2006 Ricardo Correia.
  * Use is subject to license terms.
  */
@@ -38,10 +38,75 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/taskq.h>
+#include <sys/kstat.h>
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
+
+/*
+ * Statistics for all vnode operations.
+ * All operations record number of ops (since boot/mount/zero'ed).
+ * Certain I/O operations (read, write, readdir) also record number
+ * of bytes transferred.
+ * This appears in two places in the system: one is embedded in each
+ * vfs_t.  There is also an array of vopstats_t structures allocated
+ * on a per-fstype basis.
+ */
+
+#define	VOPSTATS_STR	"vopstats_"	/* Initial string for vopstat kstats */
+
+typedef struct vopstats {
+	kstat_named_t	nopen;		/* VOP_OPEN */
+	kstat_named_t	nclose;		/* VOP_CLOSE */
+	kstat_named_t	nread;		/* VOP_READ */
+	kstat_named_t	read_bytes;
+	kstat_named_t	nwrite;		/* VOP_WRITE */
+	kstat_named_t	write_bytes;
+	kstat_named_t	nioctl;		/* VOP_IOCTL */
+	kstat_named_t	nsetfl;		/* VOP_SETFL */
+	kstat_named_t	ngetattr;	/* VOP_GETATTR */
+	kstat_named_t	nsetattr;	/* VOP_SETATTR */
+	kstat_named_t	naccess;	/* VOP_ACCESS */
+	kstat_named_t	nlookup;	/* VOP_LOOKUP */
+	kstat_named_t	ncreate;	/* VOP_CREATE */
+	kstat_named_t	nremove;	/* VOP_REMOVE */
+	kstat_named_t	nlink;		/* VOP_LINK */
+	kstat_named_t	nrename;	/* VOP_RENAME */
+	kstat_named_t	nmkdir;		/* VOP_MKDIR */
+	kstat_named_t	nrmdir;		/* VOP_RMDIR */
+	kstat_named_t	nreaddir;	/* VOP_READDIR */
+	kstat_named_t	readdir_bytes;
+	kstat_named_t	nsymlink;	/* VOP_SYMLINK */
+	kstat_named_t	nreadlink;	/* VOP_READLINK */
+	kstat_named_t	nfsync;		/* VOP_FSYNC */
+	kstat_named_t	ninactive;	/* VOP_INACTIVE */
+	kstat_named_t	nfid;		/* VOP_FID */
+	kstat_named_t	nrwlock;	/* VOP_RWLOCK */
+	kstat_named_t	nrwunlock;	/* VOP_RWUNLOCK */
+	kstat_named_t	nseek;		/* VOP_SEEK */
+	kstat_named_t	ncmp;		/* VOP_CMP */
+	kstat_named_t	nfrlock;	/* VOP_FRLOCK */
+	kstat_named_t	nspace;		/* VOP_SPACE */
+	kstat_named_t	nrealvp;	/* VOP_REALVP */
+	kstat_named_t	ngetpage;	/* VOP_GETPAGE */
+	kstat_named_t	nputpage;	/* VOP_PUTPAGE */
+	kstat_named_t	nmap;		/* VOP_MAP */
+	kstat_named_t	naddmap;	/* VOP_ADDMAP */
+	kstat_named_t	ndelmap;	/* VOP_DELMAP */
+	kstat_named_t	npoll;		/* VOP_POLL */
+	kstat_named_t	ndump;		/* VOP_DUMP */
+	kstat_named_t	npathconf;	/* VOP_PATHCONF */
+	kstat_named_t	npageio;	/* VOP_PAGEIO */
+	kstat_named_t	ndumpctl;	/* VOP_DUMPCTL */
+	kstat_named_t	ndispose;	/* VOP_DISPOSE */
+	kstat_named_t	nsetsecattr;	/* VOP_SETSECATTR */
+	kstat_named_t	ngetsecattr;	/* VOP_GETSECATTR */
+	kstat_named_t	nshrlock;	/* VOP_SHRLOCK */
+	kstat_named_t	nvnevent;	/* VOP_VNEVENT */
+	kstat_named_t	nreqzcbuf;	/* VOP_REQZCBUF */
+	kstat_named_t	nretzcbuf;	/* VOP_RETZCBUF */
+} vopstats_t;
 
 extern kmem_cache_t *vnode_cache;
 
@@ -464,7 +529,11 @@ extern void vn_setops(vnode_t *vp, struct vnodeops *vnodeops);
 	int	(*vop_shrlock)(vnode_t *, int, struct shrlock *,	\
 				int, cred_t *, caller_context_t *);	\
 	int	(*vop_vnevent)(vnode_t *, vnevent_t, vnode_t *,		\
-				char *, caller_context_t *)
+				char *, caller_context_t *);		\
+	int	(*vop_reqzcbuf)(vnode_t *, enum uio_rw, xuio_t *,	\
+				cred_t *, caller_context_t *);		\
+	int	(*vop_retzcbuf)(vnode_t *, xuio_t *, cred_t *,		\
+				caller_context_t *)
 	/* NB: No ";" */
 
 /*
@@ -558,6 +627,9 @@ extern int	fop_shrlock(vnode_t *, int, struct shrlock *, int, cred_t *,
 				caller_context_t *);
 extern int	fop_vnevent(vnode_t *, vnevent_t, vnode_t *, char *,
 				caller_context_t *);
+extern int	fop_reqzcbuf(vnode_t *, enum uio_rw, xuio_t *, cred_t *,
+				caller_context_t *);
+extern int	fop_retzcbuf(vnode_t *, xuio_t *, cred_t *, caller_context_t *);
 
 #endif	/* _KERNEL */
 
@@ -649,6 +721,10 @@ extern int	fop_vnevent(vnode_t *, vnevent_t, vnode_t *, char *,
 	fop_shrlock(vp, cmd, shr, f, cr, ct)
 #define	VOP_VNEVENT(vp, vnevent, dvp, fnm, ct) \
 	fop_vnevent(vp, vnevent, dvp, fnm, ct)
+#define	VOP_REQZCBUF(vp, rwflag, xuiop, cr, ct) \
+	fop_reqzcbuf(vp, rwflag, xuiop, cr, ct)
+#define	VOP_RETZCBUF(vp, xuiop, cr, ct) \
+	fop_retzcbuf(vp, xuiop, cr, ct)
 
 #define	VOPNAME_OPEN		"open"
 #define	VOPNAME_CLOSE		"close"
@@ -694,6 +770,8 @@ extern int	fop_vnevent(vnode_t *, vnevent_t, vnode_t *, char *,
 #define	VOPNAME_SETSECATTR	"setsecattr"
 #define	VOPNAME_SHRLOCK		"shrlock"
 #define	VOPNAME_VNEVENT		"vnevent"
+#define	VOPNAME_REQZCBUF	"reqzcbuf"
+#define	VOPNAME_RETZCBUF	"retzcbuf"
 
 #define AV_SCANSTAMP_SZ 32              /* length of anti-virus scanstamp */
 

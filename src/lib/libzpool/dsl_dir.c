@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <sys/dmu.h>
@@ -40,8 +39,7 @@
 #include "zfs_namecheck.h"
 
 static uint64_t dsl_dir_space_towrite(dsl_dir_t *dd);
-static void dsl_dir_set_reservation_sync(void *arg1, void *arg2,
-    cred_t *cr, dmu_tx_t *tx);
+static void dsl_dir_set_reservation_sync(void *arg1, void *arg2, dmu_tx_t *tx);
 
 
 /* ARGSUSED */
@@ -64,8 +62,8 @@ dsl_dir_evict(dmu_buf_t *db, void *arg)
 	spa_close(dd->dd_pool->dp_spa, dd);
 
 	/*
-	 * The props callback list should be empty since they hold the
-	 * dir open.
+	 * The props callback list should have been cleaned up by
+	 * objset_evict().
 	 */
 	list_destroy(&dd->dd_prop_cbs);
 	mutex_destroy(&dd->dd_lock);
@@ -134,6 +132,25 @@ dsl_dir_open_obj(dsl_pool_t *dp, uint64_t ddobj,
 				goto errout;
 		} else {
 			(void) strcpy(dd->dd_myname, spa_name(dp->dp_spa));
+		}
+
+		if (dsl_dir_is_clone(dd)) {
+			dmu_buf_t *origin_bonus;
+			dsl_dataset_phys_t *origin_phys;
+
+			/*
+			 * We can't open the origin dataset, because
+			 * that would require opening this dsl_dir.
+			 * Just look at its phys directly instead.
+			 */
+			err = dmu_bonus_hold(dp->dp_meta_objset,
+			    dd->dd_phys->dd_origin_obj, FTAG, &origin_bonus);
+			if (err)
+				goto errout;
+			origin_phys = origin_bonus->db_data;
+			dd->dd_origin_txg =
+			    origin_phys->ds_creation_txg;
+			dmu_buf_rele(origin_bonus, FTAG);
 		}
 
 		winner = dmu_buf_set_user_ie(dbuf, dd, &dd->dd_phys,
@@ -395,7 +412,7 @@ dsl_dir_create_sync(dsl_pool_t *dp, dsl_dir_t *pds, const char *name,
 {
 	objset_t *mos = dp->dp_meta_objset;
 	uint64_t ddobj;
-	dsl_dir_phys_t *dsphys;
+	dsl_dir_phys_t *ddphys;
 	dmu_buf_t *dbuf;
 
 	ddobj = dmu_object_alloc(mos, DMU_OT_DSL_DIR, 0,
@@ -410,17 +427,17 @@ dsl_dir_create_sync(dsl_pool_t *dp, dsl_dir_t *pds, const char *name,
 	}
 	VERIFY(0 == dmu_bonus_hold(mos, ddobj, FTAG, &dbuf));
 	dmu_buf_will_dirty(dbuf, tx);
-	dsphys = dbuf->db_data;
+	ddphys = dbuf->db_data;
 
-	dsphys->dd_creation_time = gethrestime_sec();
+	ddphys->dd_creation_time = gethrestime_sec();
 	if (pds)
-		dsphys->dd_parent_obj = pds->dd_object;
-	dsphys->dd_props_zapobj = zap_create(mos,
+		ddphys->dd_parent_obj = pds->dd_object;
+	ddphys->dd_props_zapobj = zap_create(mos,
 	    DMU_OT_DSL_PROPS, DMU_OT_NONE, 0, tx);
-	dsphys->dd_child_dir_zapobj = zap_create(mos,
+	ddphys->dd_child_dir_zapobj = zap_create(mos,
 	    DMU_OT_DSL_DIR_CHILD_MAP, DMU_OT_NONE, 0, tx);
 	if (spa_version(dp->dp_spa) >= SPA_VERSION_USED_BREAKDOWN)
-		dsphys->dd_flags |= DD_FLAG_USED_BREAKDOWN;
+		ddphys->dd_flags |= DD_FLAG_USED_BREAKDOWN;
 	dmu_buf_rele(dbuf, FTAG);
 
 	return (ddobj);
@@ -458,7 +475,7 @@ dsl_dir_destroy_check(void *arg1, void *arg2, dmu_tx_t *tx)
 }
 
 void
-dsl_dir_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
+dsl_dir_destroy_sync(void *arg1, void *tag, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	dsl_dir_t *dd = ds->ds_dir;
@@ -477,7 +494,7 @@ dsl_dir_destroy_sync(void *arg1, void *tag, cred_t *cr, dmu_tx_t *tx)
 	    &value);
 	psa.psa_effective_value = 0;	/* predict default value */
 
-	dsl_dir_set_reservation_sync(ds, &psa, cr, tx);
+	dsl_dir_set_reservation_sync(ds, &psa, tx);
 
 	ASSERT3U(dd->dd_phys->dd_used_bytes, ==, 0);
 	ASSERT3U(dd->dd_phys->dd_reserved, ==, 0);
@@ -652,15 +669,6 @@ dsl_dir_space_available(dsl_dir_t *dd,
 	if (used > quota) {
 		/* over quota */
 		myspace = 0;
-
-		/*
-		 * While it's OK to be a little over quota, if
-		 * we think we are using more space than there
-		 * is in the pool (which is already 1.6% more than
-		 * dsl_pool_adjustedsize()), something is very
-		 * wrong.
-		 */
-		ASSERT3U(used, <=, spa_get_dspace(dd->dd_pool->dp_spa));
 	} else {
 		/*
 		 * the lesser of the space provided by our parent and
@@ -1033,18 +1041,17 @@ dsl_dir_set_quota_check(void *arg1, void *arg2, dmu_tx_t *tx)
 	return (err);
 }
 
-extern void dsl_prop_set_sync(void *, void *, cred_t *, dmu_tx_t *);
+extern dsl_syncfunc_t dsl_prop_set_sync;
 
-/* ARGSUSED */
 static void
-dsl_dir_set_quota_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dir_set_quota_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	dsl_dir_t *dd = ds->ds_dir;
 	dsl_prop_setarg_t *psa = arg2;
 	uint64_t effective_value = psa->psa_effective_value;
 
-	dsl_prop_set_sync(ds, psa, cr, tx);
+	dsl_prop_set_sync(ds, psa, tx);
 	DSL_PROP_CHECK_PREDICTION(dd, psa);
 
 	dmu_buf_will_dirty(dd->dd_dbuf, tx);
@@ -1053,8 +1060,8 @@ dsl_dir_set_quota_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	dd->dd_phys->dd_quota = effective_value;
 	mutex_exit(&dd->dd_lock);
 
-	spa_history_internal_log(LOG_DS_QUOTA, dd->dd_pool->dp_spa,
-	    tx, cr, "%lld dataset = %llu ",
+	spa_history_log_internal(LOG_DS_QUOTA, dd->dd_pool->dp_spa,
+	    tx, "%lld dataset = %llu ",
 	    (longlong_t)effective_value, dd->dd_phys->dd_head_dataset_obj);
 }
 
@@ -1141,9 +1148,8 @@ dsl_dir_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx)
 	return (0);
 }
 
-/* ARGSUSED */
 static void
-dsl_dir_set_reservation_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dir_set_reservation_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds = arg1;
 	dsl_dir_t *dd = ds->ds_dir;
@@ -1152,7 +1158,7 @@ dsl_dir_set_reservation_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	uint64_t used;
 	int64_t delta;
 
-	dsl_prop_set_sync(ds, psa, cr, tx);
+	dsl_prop_set_sync(ds, psa, tx);
 	DSL_PROP_CHECK_PREDICTION(dd, psa);
 
 	dmu_buf_will_dirty(dd->dd_dbuf, tx);
@@ -1170,8 +1176,8 @@ dsl_dir_set_reservation_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	}
 	mutex_exit(&dd->dd_lock);
 
-	spa_history_internal_log(LOG_DS_RESERVATION, dd->dd_pool->dp_spa,
-	    tx, cr, "%lld dataset = %llu",
+	spa_history_log_internal(LOG_DS_RESERVATION, dd->dd_pool->dp_spa,
+	    tx, "%lld dataset = %llu",
 	    (longlong_t)effective_value, dd->dd_phys->dd_head_dataset_obj);
 }
 
@@ -1240,7 +1246,6 @@ struct renamearg {
 	const char *mynewname;
 };
 
-/*ARGSUSED*/
 static int
 dsl_dir_rename_check(void *arg1, void *arg2, dmu_tx_t *tx)
 {
@@ -1287,7 +1292,7 @@ dsl_dir_rename_check(void *arg1, void *arg2, dmu_tx_t *tx)
 }
 
 static void
-dsl_dir_rename_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
+dsl_dir_rename_sync(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	dsl_dir_t *dd = arg1;
 	struct renamearg *ra = arg2;
@@ -1336,8 +1341,8 @@ dsl_dir_rename_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	    dd->dd_myname, 8, 1, &dd->dd_object, tx);
 	ASSERT3U(err, ==, 0);
 
-	spa_history_internal_log(LOG_DS_RENAME, dd->dd_pool->dp_spa,
-	    tx, cr, "dataset = %llu", dd->dd_phys->dd_head_dataset_obj);
+	spa_history_log_internal(LOG_DS_RENAME, dd->dd_pool->dp_spa,
+	    tx, "dataset = %llu", dd->dd_phys->dd_head_dataset_obj);
 }
 
 int

@@ -20,8 +20,7 @@
  */
 
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -40,6 +39,7 @@
 #include <sys/fs/zfs.h>
 #include <sys/arc.h>
 #include <sys/zil.h>
+#include <sys/dsl_scan.h>
 #include <syslog.h>
 #include <libintl.h>
 
@@ -209,9 +209,6 @@ vdev_add_child(vdev_t *pvd, vdev_t *cvd)
 	 */
 	for (; pvd != NULL; pvd = pvd->vdev_parent)
 		pvd->vdev_guid_sum += cvd->vdev_guid_sum;
-
-	if (cvd->vdev_ops->vdev_op_leaf)
-		cvd->vdev_spa->spa_scrub_maxinflight += zfs_scrub_limit;
 }
 
 void
@@ -246,9 +243,6 @@ vdev_remove_child(vdev_t *pvd, vdev_t *cvd)
 	 */
 	for (; pvd != NULL; pvd = pvd->vdev_parent)
 		pvd->vdev_guid_sum -= cvd->vdev_guid_sum;
-
-	if (cvd->vdev_ops->vdev_op_leaf)
-		cvd->vdev_spa->spa_scrub_maxinflight -= zfs_scrub_limit;
 }
 
 /*
@@ -489,6 +483,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 		    &vd->vdev_ms_shift);
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_ASIZE,
 		    &vd->vdev_asize);
+		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_REMOVING,
+		    &vd->vdev_removing);
 	}
 
 	if (parent && !parent->vdev_parent) {
@@ -863,7 +859,12 @@ vdev_metaslab_init(vdev_t *vd, uint64_t txg)
 	if (txg == 0)
 		spa_config_enter(spa, SCL_ALLOC, FTAG, RW_WRITER);
 
-	if (oldc == 0)
+	/*
+	 * If the vdev is being removed we don't activate
+	 * the metaslabs since we want to ensure that no new
+	 * allocations are performed on this device.
+	 */
+	if (oldc == 0 && !vd->vdev_removing)
 		metaslab_group_activate(vd->vdev_mg);
 
 	if (txg == 0)
@@ -1007,6 +1008,10 @@ vdev_probe(vdev_t *vd, zio_t *zio)
 		    vdev_probe_done, vps,
 		    vps->vps_flags | ZIO_FLAG_DONT_PROPAGATE);
 
+		/*
+		 * We can't change the vdev state in this context, so we
+		 * kick off an async task to do it on our behalf.
+		 */
 		if (zio != NULL) {
 			vd->vdev_probe_wanted = B_TRUE;
 			spa_async_request(spa, SPA_ASYNC_PROBE);
@@ -1256,8 +1261,8 @@ vdev_open(vdev_t *vd)
 	 */
 	if (vd->vdev_ops->vdev_op_leaf &&
 	    (error = zio_wait(vdev_probe(vd, NULL))) != 0) {
-		vdev_set_state(vd, B_TRUE, VDEV_STATE_CANT_OPEN,
-		    VDEV_AUX_IO_FAILURE);
+		vdev_set_state(vd, B_TRUE, VDEV_STATE_FAULTED,
+		    VDEV_AUX_ERR_EXCEEDED);
 		return (error);
 	}
 
@@ -1424,6 +1429,35 @@ vdev_close(vdev_t *vd)
 	else
 		vd->vdev_state = VDEV_STATE_CLOSED;
 	vd->vdev_stat.vs_aux = VDEV_AUX_NONE;
+}
+
+void
+vdev_hold(vdev_t *vd)
+{
+	spa_t *spa = vd->vdev_spa;
+
+	ASSERT(spa_is_root(spa));
+	if (spa->spa_state == POOL_STATE_UNINITIALIZED)
+		return;
+
+	for (int c = 0; c < vd->vdev_children; c++)
+		vdev_hold(vd->vdev_child[c]);
+
+	if (vd->vdev_ops->vdev_op_leaf)
+		vd->vdev_ops->vdev_op_hold(vd);
+}
+
+void
+vdev_rele(vdev_t *vd)
+{
+	spa_t *spa = vd->vdev_spa;
+
+	ASSERT(spa_is_root(spa));
+	for (int c = 0; c < vd->vdev_children; c++)
+		vdev_rele(vd->vdev_child[c]);
+
+	if (vd->vdev_ops->vdev_op_leaf)
+		vd->vdev_ops->vdev_op_rele(vd);
 }
 
 /*
@@ -1622,9 +1656,12 @@ vdev_dtl_reassess(vdev_t *vd, uint64_t txg, uint64_t scrub_txg, int scrub_done)
 		return;
 
 	if (vd->vdev_ops->vdev_op_leaf) {
+		dsl_scan_t *scn = spa->spa_dsl_pool->dp_scan;
+
 		mutex_enter(&vd->vdev_dtl_lock);
 		if (scrub_txg != 0 &&
-		    (spa->spa_scrub_started || spa->spa_scrub_errors == 0)) {
+		    (spa->spa_scrub_started ||
+		    (scn && scn->scn_phys.scn_errors == 0))) {
 			/*
 			 * We completed a scrub up to scrub_txg.  If we
 			 * did it without rebooting, then the scrub dtl
@@ -2003,7 +2040,10 @@ vdev_sync(vdev_t *vd, uint64_t txg)
 		dmu_tx_commit(tx);
 	}
 
-	if (vd->vdev_removing)
+	/*
+	 * Remove the metadata associated with this vdev once it's empty.
+	 */
+	if (vd->vdev_stat.vs_alloc == 0 && vd->vdev_removing)
 		vdev_remove(vd, txg);
 
 	while ((msp = txg_list_remove(&vd->vdev_ms_list, txg)) != NULL) {
@@ -2050,17 +2090,16 @@ vdev_fault(spa_t *spa, uint64_t guid, vdev_aux_t aux)
 	/*
 	 * Faulted state takes precedence over degraded.
 	 */
+	vd->vdev_delayed_close = B_FALSE;
 	vd->vdev_faulted = 1ULL;
 	vd->vdev_degraded = 0ULL;
 	vdev_set_state(vd, B_FALSE, VDEV_STATE_FAULTED, aux);
 
 	/*
-	 * If marking the vdev as faulted cause the top-level vdev to become
-	 * unavailable, then back off and simply mark the vdev as degraded
-	 * instead.
+	 * If this device has the only valid copy of the data, then
+	 * back off and simply mark the vdev as degraded instead.
 	 */
-	if (vdev_is_dead(vd->vdev_top) && !vd->vdev_islog &&
-	    vd->vdev_aux == NULL) {
+	if (!vd->vdev_islog && vd->vdev_aux == NULL && vdev_dtl_required(vd)) {
 		vd->vdev_degraded = 1ULL;
 		vd->vdev_faulted = 0ULL;
 
@@ -2381,7 +2420,7 @@ vdev_allocatable(vdev_t *vd)
 	 * we're asking two separate questions about it.
 	 */
 	return (!(state < VDEV_STATE_DEGRADED && state != VDEV_STATE_CLOSED) &&
-	    !vd->vdev_cant_write && !vd->vdev_ishole && !vd->vdev_removing);
+	    !vd->vdev_cant_write && !vd->vdev_ishole);
 }
 
 boolean_t
@@ -2411,7 +2450,6 @@ vdev_get_stats(vdev_t *vd, vdev_stat_t *vs)
 
 	mutex_enter(&vd->vdev_stat_lock);
 	bcopy(&vd->vdev_stat, vs, sizeof (*vs));
-	vs->vs_scrub_errors = vd->vdev_spa->spa_scrub_errors;
 	vs->vs_timestamp = gethrtime() - vs->vs_timestamp;
 	vs->vs_state = vd->vdev_state;
 	vs->vs_rsize = vdev_get_min_asize(vd);
@@ -2433,7 +2471,7 @@ vdev_get_stats(vdev_t *vd, vdev_stat_t *vs)
 				vs->vs_ops[t] += cvs->vs_ops[t];
 				vs->vs_bytes[t] += cvs->vs_bytes[t];
 			}
-			vs->vs_scrub_examined += cvs->vs_scrub_examined;
+			cvs->vs_scan_removing = cvd->vdev_removing;
 			mutex_exit(&vd->vdev_stat_lock);
 		}
 	}
@@ -2446,6 +2484,19 @@ vdev_clear_stats(vdev_t *vd)
 	vd->vdev_stat.vs_space = 0;
 	vd->vdev_stat.vs_dspace = 0;
 	vd->vdev_stat.vs_alloc = 0;
+	mutex_exit(&vd->vdev_stat_lock);
+}
+
+void
+vdev_scan_stat_init(vdev_t *vd)
+{
+	vdev_stat_t *vs = &vd->vdev_stat;
+
+	for (int c = 0; c < vd->vdev_children; c++)
+		vdev_scan_stat_init(vd->vdev_child[c]);
+
+	mutex_enter(&vd->vdev_stat_lock);
+	vs->vs_scan_processed = 0;
 	mutex_exit(&vd->vdev_stat_lock);
 }
 
@@ -2493,8 +2544,17 @@ vdev_stat_update(zio_t *zio, uint64_t psize)
 		mutex_enter(&vd->vdev_stat_lock);
 
 		if (flags & ZIO_FLAG_IO_REPAIR) {
-			if (flags & ZIO_FLAG_SCRUB_THREAD)
-				vs->vs_scrub_repaired += psize;
+			if (flags & ZIO_FLAG_SCAN_THREAD) {
+				dsl_scan_phys_t *scn_phys =
+				    &spa->spa_dsl_pool->dp_scan->scn_phys;
+				uint64_t *processed = &scn_phys->scn_processed;
+
+				/* XXX cleanup? */
+				if (vd->vdev_ops->vdev_op_leaf)
+					atomic_add_64(processed, psize);
+				vs->vs_scan_processed += psize;
+			}
+
 			if (flags & ZIO_FLAG_SELF_HEAL)
 				vs->vs_self_healed += psize;
 		}
@@ -2540,7 +2600,7 @@ vdev_stat_update(zio_t *zio, uint64_t psize)
 
 	if (type == ZIO_TYPE_WRITE && txg != 0 &&
 	    (!(flags & ZIO_FLAG_IO_REPAIR) ||
-	    (flags & ZIO_FLAG_SCRUB_THREAD) ||
+	    (flags & ZIO_FLAG_SCAN_THREAD) ||
 	    spa->spa_claiming)) {
 		/*
 		 * This is either a normal write (not a repair), or it's
@@ -2559,7 +2619,7 @@ vdev_stat_update(zio_t *zio, uint64_t psize)
 		 */
 		if (vd->vdev_ops->vdev_op_leaf) {
 			uint64_t commit_txg = txg;
-			if (flags & ZIO_FLAG_SCRUB_THREAD) {
+			if (flags & ZIO_FLAG_SCAN_THREAD) {
 				ASSERT(flags & ZIO_FLAG_IO_REPAIR);
 				ASSERT(spa_sync_pass(spa) == 1);
 				vdev_dtl_dirty(vd, DTL_SCRUB, txg, 1);
@@ -2578,35 +2638,6 @@ vdev_stat_update(zio_t *zio, uint64_t psize)
 		if (vd != rvd)
 			vdev_dtl_dirty(vd, DTL_MISSING, txg, 1);
 	}
-}
-
-void
-vdev_scrub_stat_update(vdev_t *vd, pool_scrub_type_t type, boolean_t complete)
-{
-	vdev_stat_t *vs = &vd->vdev_stat;
-
-	for (int c = 0; c < vd->vdev_children; c++)
-		vdev_scrub_stat_update(vd->vdev_child[c], type, complete);
-
-	mutex_enter(&vd->vdev_stat_lock);
-
-	if (type == POOL_SCRUB_NONE) {
-		/*
-		 * Update completion and end time.  Leave everything else alone
-		 * so we can report what happened during the previous scrub.
-		 */
-		vs->vs_scrub_complete = complete;
-		vs->vs_scrub_end = gethrestime_sec();
-	} else {
-		vs->vs_scrub_type = type;
-		vs->vs_scrub_complete = 0;
-		vs->vs_scrub_examined = 0;
-		vs->vs_scrub_repaired = 0;
-		vs->vs_scrub_start = gethrestime_sec();
-		vs->vs_scrub_end = 0;
-	}
-
-	mutex_exit(&vd->vdev_stat_lock);
 }
 
 /*
@@ -2708,7 +2739,7 @@ vdev_config_dirty(vdev_t *vd)
 		 * sketchy, but it will work.
 		 */
 		nvlist_free(aux[c]);
-		aux[c] = vdev_config_generate(spa, vd, B_TRUE, B_FALSE, B_TRUE);
+		aux[c] = vdev_config_generate(spa, vd, B_TRUE, 0);
 
 		return;
 	}
@@ -2929,13 +2960,16 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 
 	/*
 	 * If we are setting the vdev state to anything but an open state, then
-	 * always close the underlying device.  Otherwise, we keep accessible
-	 * but invalid devices open forever.  We don't call vdev_close() itself,
-	 * because that implies some extra checks (offline, etc) that we don't
-	 * want here.  This is limited to leaf devices, because otherwise
-	 * closing the device will affect other children.
+	 * always close the underlying device unless the device has requested
+	 * a delayed close (i.e. we're about to remove or fault the device).
+	 * Otherwise, we keep accessible but invalid devices open forever.
+	 * We don't call vdev_close() itself, because that implies some extra
+	 * checks (offline, etc) that we don't want here.  This is limited to
+	 * leaf devices, because otherwise closing the device will affect other
+	 * children.
 	 */
-	if (vdev_is_dead(vd) && vd->vdev_ops->vdev_op_leaf)
+	if (!vd->vdev_delayed_close && vdev_is_dead(vd) &&
+	    vd->vdev_ops->vdev_op_leaf)
 		vd->vdev_ops->vdev_op_close(vd);
 
 	/*
@@ -3016,9 +3050,6 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 				break;
 			case VDEV_AUX_BAD_LABEL:
 				class = FM_EREPORT_ZFS_DEVICE_BAD_LABEL;
-				break;
-			case VDEV_AUX_IO_FAILURE:
-				class = FM_EREPORT_ZFS_IO_FAILURE;
 				break;
 			default:
 				class = FM_EREPORT_ZFS_DEVICE_UNKNOWN;

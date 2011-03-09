@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -41,6 +40,7 @@
 #include <sys/dsl_pool.h>
 #include <sys/dsl_dir.h>
 #include <sys/dsl_prop.h>
+#include <sys/dsl_scan.h>
 #include <sys/fs/zfs.h>
 #include <sys/metaslab_impl.h>
 #include <sys/arc.h>
@@ -434,27 +434,30 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	spa = kmem_zalloc(sizeof (spa_t), KM_SLEEP);
 
 	mutex_init(&spa->spa_async_lock, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&spa->spa_scrub_lock, NULL, MUTEX_DEFAULT, NULL);
-	mutex_init(&spa->spa_errlog_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_errlist_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_errlog_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_history_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_proc_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_props_lock, NULL, MUTEX_DEFAULT, NULL);
+	mutex_init(&spa->spa_scrub_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_suspend_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&spa->spa_vdev_top_lock, NULL, MUTEX_DEFAULT, NULL);
 
 	cv_init(&spa->spa_async_cv, NULL, CV_DEFAULT, NULL);
+	cv_init(&spa->spa_proc_cv, NULL, CV_DEFAULT, NULL);
 	cv_init(&spa->spa_scrub_io_cv, NULL, CV_DEFAULT, NULL);
 	cv_init(&spa->spa_suspend_cv, NULL, CV_DEFAULT, NULL);
 
 	for (int t = 0; t < TXG_SIZE; t++)
-		bplist_init(&spa->spa_free_bplist[t]);
-	bplist_init(&spa->spa_deferred_bplist);
+		bplist_create(&spa->spa_free_bplist[t]);
 
 	(void) strlcpy(spa->spa_name, name, sizeof (spa->spa_name));
 	spa->spa_state = POOL_STATE_UNINITIALIZED;
 	spa->spa_freeze_txg = UINT64_MAX;
 	spa->spa_final_txg = UINT64_MAX;
 	spa->spa_load_max_txg = UINT64_MAX;
+	spa->spa_proc = 0;
+	spa->spa_proc_state = SPA_PROC_NONE;
 
 	refcount_create(&spa->spa_refcount);
 	spa_config_lock_init(spa);
@@ -524,19 +527,20 @@ spa_remove(spa_t *spa)
 	spa_config_lock_destroy(spa);
 
 	for (int t = 0; t < TXG_SIZE; t++)
-		bplist_fini(&spa->spa_free_bplist[t]);
-	bplist_fini(&spa->spa_deferred_bplist);
+		bplist_destroy(&spa->spa_free_bplist[t]);
 
 	cv_destroy(&spa->spa_async_cv);
+	cv_destroy(&spa->spa_proc_cv);
 	cv_destroy(&spa->spa_scrub_io_cv);
 	cv_destroy(&spa->spa_suspend_cv);
 
 	mutex_destroy(&spa->spa_async_lock);
-	mutex_destroy(&spa->spa_scrub_lock);
-	mutex_destroy(&spa->spa_errlog_lock);
 	mutex_destroy(&spa->spa_errlist_lock);
+	mutex_destroy(&spa->spa_errlog_lock);
 	mutex_destroy(&spa->spa_history_lock);
+	mutex_destroy(&spa->spa_proc_lock);
 	mutex_destroy(&spa->spa_props_lock);
+	mutex_destroy(&spa->spa_scrub_lock);
 	mutex_destroy(&spa->spa_suspend_lock);
 	mutex_destroy(&spa->spa_vdev_top_lock);
 
@@ -887,10 +891,10 @@ spa_vdev_config_exit(spa_t *spa, vdev_t *vd, uint64_t txg, int error, char *tag)
 	vdev_dtl_reassess(spa->spa_root_vdev, 0, 0, B_FALSE);
 
 	/*
-	 * If the config changed, notify the scrub thread that it must restart.
+	 * If the config changed, notify the scrub that it must restart.
+	 * This will initiate a resilver if needed.
 	 */
 	if (error == 0 && !list_is_empty(&spa->spa_config_dirty_list)) {
-		dsl_pool_scrub_restart(spa->spa_dsl_pool);
 		config_changed = B_TRUE;
 		spa->spa_config_generation++;
 	}
@@ -957,7 +961,25 @@ spa_vdev_state_enter(spa_t *spa, int oplocks)
 {
 	int locks = SCL_STATE_ALL | oplocks;
 
-	spa_config_enter(spa, locks, spa, RW_WRITER);
+	/*
+	 * Root pools may need to read of the underlying devfs filesystem
+	 * when opening up a vdev.  Unfortunately if we're holding the
+	 * SCL_ZIO lock it will result in a deadlock when we try to issue
+	 * the read from the root filesystem.  Instead we "prefetch"
+	 * the associated vnodes that we need prior to opening the
+	 * underlying devices and cache them so that we can prevent
+	 * any I/O when we are doing the actual open.
+	 */
+	if (spa_is_root(spa)) {
+		int low = locks & ~(SCL_ZIO - 1);
+		int high = locks & ~low;
+
+		spa_config_enter(spa, high, spa, RW_WRITER);
+		vdev_hold(spa->spa_root_vdev);
+		spa_config_enter(spa, low, spa, RW_WRITER);
+	} else {
+		spa_config_enter(spa, locks, spa, RW_WRITER);
+	}
 	spa->spa_vdev_locks = locks;
 }
 
@@ -975,6 +997,9 @@ spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 		config_changed = B_TRUE;
 		spa->spa_config_generation++;
 	}
+
+	if (spa_is_root(spa))
+		vdev_rele(spa->spa_root_vdev);
 
 	ASSERT3U(spa->spa_vdev_locks, >=, SCL_STATE_ALL);
 	spa_config_exit(spa, spa->spa_vdev_locks, spa);
@@ -1055,7 +1080,6 @@ spa_rename(const char *name, const char *newname)
 
 	return (0);
 }
-
 
 /*
  * Determine whether a pool with given pool_guid exists.  If device_guid is
@@ -1184,6 +1208,37 @@ zfs_panic_recover(const char *fmt, ...)
 	va_start(adx, fmt);
 	vcmn_err(zfs_recover ? CE_WARN : CE_PANIC, fmt, adx);
 	va_end(adx);
+}
+
+/*
+ * This is a stripped-down version of strtoull, suitable only for converting
+ * lowercase hexidecimal numbers that don't overflow.
+ */
+uint64_t
+strtonum(const char *str, char **nptr)
+{
+	uint64_t val = 0;
+	char c;
+	int digit;
+
+	while ((c = *str) != '\0') {
+		if (c >= '0' && c <= '9')
+			digit = c - '0';
+		else if (c >= 'a' && c <= 'f')
+			digit = 10 + c - 'a';
+		else
+			break;
+
+		val *= 16;
+		val += digit;
+
+		str++;
+	}
+
+	if (nptr)
+		*nptr = (char *)str;
+
+	return (val);
 }
 
 /*
@@ -1366,6 +1421,12 @@ spa_max_replication(spa_t *spa)
 	if (spa_version(spa) < SPA_VERSION_DITTO_BLOCKS)
 		return (1);
 	return (MIN(SPA_DVAS_PER_BP, spa_max_replication_override));
+}
+
+int
+spa_prev_software_version(spa_t *spa)
+{
+	return (spa->spa_prev_software_version);
 }
 
 uint64_t
@@ -1561,4 +1622,46 @@ enum zio_checksum
 spa_dedup_checksum(spa_t *spa)
 {
 	return (spa->spa_dedup_checksum);
+}
+
+/*
+ * Reset pool scan stat per scan pass (or reboot).
+ */
+void
+spa_scan_stat_init(spa_t *spa)
+{
+	/* data not stored on disk */
+	spa->spa_scan_pass_start = gethrestime_sec();
+	spa->spa_scan_pass_exam = 0;
+	vdev_scan_stat_init(spa->spa_root_vdev);
+}
+
+/*
+ * Get scan stats for zpool status reports
+ */
+int
+spa_scan_get_stats(spa_t *spa, pool_scan_stat_t *ps)
+{
+	dsl_scan_t *scn = spa->spa_dsl_pool ? spa->spa_dsl_pool->dp_scan : NULL;
+
+	if (scn == NULL || scn->scn_phys.scn_func == POOL_SCAN_NONE)
+		return (ENOENT);
+	bzero(ps, sizeof (pool_scan_stat_t));
+
+	/* data stored on disk */
+	ps->pss_func = scn->scn_phys.scn_func;
+	ps->pss_start_time = scn->scn_phys.scn_start_time;
+	ps->pss_end_time = scn->scn_phys.scn_end_time;
+	ps->pss_to_examine = scn->scn_phys.scn_to_examine;
+	ps->pss_examined = scn->scn_phys.scn_examined;
+	ps->pss_to_process = scn->scn_phys.scn_to_process;
+	ps->pss_processed = scn->scn_phys.scn_processed;
+	ps->pss_errors = scn->scn_phys.scn_errors;
+	ps->pss_state = scn->scn_phys.scn_state;
+
+	/* data not stored on disk */
+	ps->pss_pass_start = spa->spa_scan_pass_start;
+	ps->pss_pass_exam = spa->spa_scan_pass_exam;
+
+	return (0);
 }

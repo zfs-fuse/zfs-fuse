@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
 #ifndef	_SYS_DSL_DATASET_H
@@ -33,6 +32,7 @@
 #include <sys/bplist.h>
 #include <sys/dsl_synctask.h>
 #include <sys/zfs_context.h>
+#include <sys/dsl_deadlist.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -83,7 +83,7 @@ typedef struct dsl_dataset_phys {
 	uint64_t ds_num_children;	/* clone/snap children; ==0 for head */
 	uint64_t ds_creation_time;	/* seconds since 1970 */
 	uint64_t ds_creation_txg;
-	uint64_t ds_deadlist_obj;	/* DMU_OT_BPLIST */
+	uint64_t ds_deadlist_obj;	/* DMU_OT_DEADLIST */
 	uint64_t ds_used_bytes;
 	uint64_t ds_compressed_bytes;
 	uint64_t ds_uncompressed_bytes;
@@ -113,10 +113,10 @@ typedef struct dsl_dataset {
 
 	/* only used in syncing context, only valid for non-snapshots: */
 	struct dsl_dataset *ds_prev;
-	uint64_t ds_origin_txg;
 
 	/* has internal locking: */
-	bplist_t ds_deadlist;
+	dsl_deadlist_t ds_deadlist;
+	bplist_t ds_pending_deadlist;
 
 	/* to protect against multiple concurrent incremental recv */
 	kmutex_t ds_recvlock;
@@ -162,7 +162,7 @@ struct dsl_ds_destroyarg {
 	boolean_t need_prep;		/* do we need to retry due to EBUSY? */
 };
 
-#define	dsl_dataset_is_snapshot(ds)	\
+#define	dsl_dataset_is_snapshot(ds) \
 	((ds)->ds_phys->ds_num_children != 0)
 
 #define	DS_UNIQUE_IS_ACCURATE(ds)	\
@@ -217,7 +217,8 @@ void dsl_dataset_block_born(dsl_dataset_t *ds, const blkptr_t *bp,
     dmu_tx_t *tx);
 int dsl_dataset_block_kill(dsl_dataset_t *ds, const blkptr_t *bp,
     dmu_tx_t *tx, boolean_t async);
-boolean_t dsl_dataset_block_freeable(dsl_dataset_t *ds, uint64_t blk_birth);
+boolean_t dsl_dataset_block_freeable(dsl_dataset_t *ds, const blkptr_t *bp,
+    uint64_t blk_birth);
 uint64_t dsl_dataset_prev_snap_txg(dsl_dataset_t *ds);
 
 void dsl_dataset_dirty(dsl_dataset_t *ds, dmu_tx_t *tx);
@@ -235,8 +236,7 @@ int dsl_dataset_check_quota(dsl_dataset_t *ds, boolean_t check_quota,
     uint64_t *ref_rsrv);
 int dsl_dataset_set_quota(const char *dsname, zprop_source_t source,
     uint64_t quota);
-void dsl_dataset_set_quota_sync(void *arg1, void *arg2, cred_t *cr,
-    dmu_tx_t *tx);
+dsl_syncfunc_t dsl_dataset_set_quota_sync;
 int dsl_dataset_set_reservation(const char *dsname, zprop_source_t source,
     uint64_t reservation);
 

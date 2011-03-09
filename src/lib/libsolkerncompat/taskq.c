@@ -936,6 +936,7 @@ taskq_ent_free(taskq_t *tq, taskq_ent_t *tqe)
 	}
 }
 
+#undef MUTEX_NOT_HELD
 #define MUTEX_NOT_HELD(m) ((m)->m_owner == NULL)
 
 /*

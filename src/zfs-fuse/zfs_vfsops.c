@@ -19,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  */
+
+/* Portions Copyright 2010 Robert Milkowski */
 
 #include <sys/types.h>
 #include <sys/param.h>
@@ -46,6 +47,7 @@
 #include <sys/dsl_deleg.h>
 #include <sys/spa.h>
 #include <sys/zap.h>
+#include <sys/sa.h>
 #include <sys/varargs.h>
 #include <sys/policy.h>
 #include <sys/atomic.h>
@@ -60,6 +62,8 @@
 #include <sys/dnlc.h>
 #include <sys/dmu_objset.h>
 #include <sys/spa_boot.h>
+#include <sys/sa.h>
+#include "zfs_comutil.h"
 
 #include "util.h"
 
@@ -174,9 +178,8 @@ zfs_sync(vfs_t *vfsp, short flag, cred_t *cr)
 		}*/
 
 		if (zfsvfs->z_log != NULL)
-			zil_commit(zfsvfs->z_log, UINT64_MAX, 0);
-		else
-			txg_wait_synced(dp, 0);
+			zil_commit(zfsvfs->z_log, 0);
+
 		ZFS_EXIT(zfsvfs);
 	} else {
 		/*
@@ -398,14 +401,6 @@ vscan_changed_cb(void *arg, uint64_t newval)
 }
 
 static void
-acl_mode_changed_cb(void *arg, uint64_t newval)
-{
-	zfsvfs_t *zfsvfs = arg;
-
-	zfsvfs->z_acl_mode = newval;
-}
-
-static void
 acl_inherit_changed_cb(void *arg, uint64_t newval)
 {
 	zfsvfs_t *zfsvfs = arg;
@@ -535,8 +530,6 @@ zfs_register_callbacks(vfs_t *vfsp)
 	error = error ? error : dsl_prop_register(ds,
 	    "snapdir", snapdir_changed_cb, zfsvfs);
 	error = error ? error : dsl_prop_register(ds,
-	    "aclmode", acl_mode_changed_cb, zfsvfs);
-	error = error ? error : dsl_prop_register(ds,
 	    "aclinherit", acl_inherit_changed_cb, zfsvfs);
 	error = error ? error : dsl_prop_register(ds,
 	    "vscan", vscan_changed_cb, zfsvfs);
@@ -577,51 +570,59 @@ unregister:
 	(void) dsl_prop_unregister(ds, "setuid", setuid_changed_cb, zfsvfs);
 	(void) dsl_prop_unregister(ds, "exec", exec_changed_cb, zfsvfs);
 	(void) dsl_prop_unregister(ds, "snapdir", snapdir_changed_cb, zfsvfs);
-	(void) dsl_prop_unregister(ds, "aclmode", acl_mode_changed_cb, zfsvfs);
 	(void) dsl_prop_unregister(ds, "aclinherit", acl_inherit_changed_cb,
 	    zfsvfs);
 	(void) dsl_prop_unregister(ds, "vscan", vscan_changed_cb, zfsvfs);
 	return (error);
 }
 
-static void
-uidacct(objset_t *os, boolean_t isgroup, uint64_t fuid,
-    int64_t delta, dmu_tx_t *tx)
-{
-	uint64_t used = 0;
-	char buf[32];
-	int err;
-	uint64_t obj = isgroup ? DMU_GROUPUSED_OBJECT : DMU_USERUSED_OBJECT;
-
-	if (delta == 0)
-		return;
-
-	(void) snprintf(buf, sizeof (buf), "%llx", (longlong_t)fuid);
-	err = zap_lookup(os, obj, buf, 8, 1, &used);
-	ASSERT(err == 0 || err == ENOENT);
-	/* no underflow/overflow */
-	ASSERT(delta > 0 || used >= -delta);
-	ASSERT(delta < 0 || used + delta > used);
-	used += delta;
-	if (used == 0)
-		err = zap_remove(os, obj, buf, tx);
-	else
-		err = zap_update(os, obj, buf, 8, 1, &used, tx);
-	ASSERT(err == 0);
-}
-
 static int
-zfs_space_delta_cb(dmu_object_type_t bonustype, void *bonus,
+zfs_space_delta_cb(dmu_object_type_t bonustype, void *data,
     uint64_t *userp, uint64_t *groupp)
 {
-	znode_phys_t *znp = bonus;
+	znode_phys_t *znp = data;
+	int error = 0;
 
-	if (bonustype != DMU_OT_ZNODE)
+	/*
+	 * Is it a valid type of object to track?
+	 */
+	if (bonustype != DMU_OT_ZNODE && bonustype != DMU_OT_SA)
 		return (ENOENT);
 
-	*userp = znp->zp_uid;
-	*groupp = znp->zp_gid;
-	return (0);
+	/*
+	 * If we have a NULL data pointer
+	 * then assume the id's aren't changing and
+	 * return EEXIST to the dmu to let it know to
+	 * use the same ids
+	 */
+	if (data == NULL)
+		return (EEXIST);
+
+	if (bonustype == DMU_OT_ZNODE) {
+		*userp = znp->zp_uid;
+		*groupp = znp->zp_gid;
+	} else {
+		int hdrsize;
+
+		ASSERT(bonustype == DMU_OT_SA);
+		hdrsize = sa_hdrsize(data);
+
+		if (hdrsize != 0) {
+			*userp = *((uint64_t *)((uintptr_t)data + hdrsize +
+			    SA_UID_OFFSET));
+			*groupp = *((uint64_t *)((uintptr_t)data + hdrsize +
+			    SA_GID_OFFSET));
+		} else {
+			/*
+			 * This should only happen for newly created
+			 * files that haven't had the znode data filled
+			 * in yet.
+			 */
+			*userp = 0;
+			*groupp = 0;
+		}
+	}
+	return (error);
 }
 
 static void
@@ -808,7 +809,7 @@ zfs_set_userquota(zfsvfs_t *zfsvfs, zfs_userquota_prop_t type,
 }
 
 boolean_t
-zfs_usergroup_overquota(zfsvfs_t *zfsvfs, boolean_t isgroup, uint64_t fuid)
+zfs_fuid_overquota(zfsvfs_t *zfsvfs, boolean_t isgroup, uint64_t fuid)
 {
 	char buf[32];
 	uint64_t used, quota, usedobj, quotaobj;
@@ -831,13 +832,39 @@ zfs_usergroup_overquota(zfsvfs_t *zfsvfs, boolean_t isgroup, uint64_t fuid)
 	return (used >= quota);
 }
 
+boolean_t
+zfs_owner_overquota(zfsvfs_t *zfsvfs, znode_t *zp, boolean_t isgroup)
+{
+	uint64_t fuid;
+	uint64_t quotaobj;
+	uid_t id;
+
+	quotaobj = isgroup ? zfsvfs->z_groupquota_obj : zfsvfs->z_userquota_obj;
+
+	id = isgroup ? zp->z_gid : zp->z_uid;
+
+	if (quotaobj == 0 || zfsvfs->z_replay)
+		return (B_FALSE);
+
+	if (IS_EPHEMERAL(id)) {
+		VERIFY(0 == sa_lookup(zp->z_sa_hdl,
+		    isgroup ? SA_ZPL_GID(zfsvfs) : SA_ZPL_UID(zfsvfs),
+		    &fuid, sizeof (fuid)));
+	} else {
+		fuid = (uint64_t)id;
+	}
+
+	return (zfs_fuid_overquota(zfsvfs, isgroup, fuid));
+}
+
 int
-zfsvfs_create(const char *osname, zfsvfs_t **zvp)
+zfsvfs_create(const char *osname, zfsvfs_t **zfvp)
 {
 	objset_t *os;
 	zfsvfs_t *zfsvfs;
 	uint64_t zval;
 	int i, error;
+	uint64_t sa_obj;
 
 	zfsvfs = kmem_zalloc(sizeof (zfsvfs_t), KM_SLEEP);
 
@@ -865,15 +892,15 @@ zfsvfs_create(const char *osname, zfsvfs_t **zvp)
 	error = zfs_get_zplprop(os, ZFS_PROP_VERSION, &zfsvfs->z_version);
 	if (error) {
 		goto out;
-	} else if (zfsvfs->z_version > ZPL_VERSION) {
-		(void) printf("Mismatched versions:  File system "
-		    "is version %llu on-disk format, which is "
-		    "incompatible with this software version %lld!",
-		    (u_longlong_t)zfsvfs->z_version, ZPL_VERSION);
+	} else if (zfsvfs->z_version >
+	    zfs_zpl_version_map(spa_version(dmu_objset_spa(os)))) {
+		(void) printf("Can't mount a version %lld file system "
+		    "on a version %lld pool\n. Pool must be upgraded to mount "
+		    "this file system.", (u_longlong_t)zfsvfs->z_version,
+		    (u_longlong_t)spa_version(dmu_objset_spa(os)));
 		error = ENOTSUP;
 		goto out;
 	}
-
 	if ((error = zfs_get_zplprop(os, ZFS_PROP_NORMALIZE, &zval)) != 0)
 		goto out;
 	zfsvfs->z_norm = (int)zval;
@@ -895,6 +922,29 @@ zfsvfs_create(const char *osname, zfsvfs_t **zvp)
 		zfsvfs->z_norm |= U8_TEXTPREP_TOUPPER;
 
 	zfsvfs->z_use_fuids = USE_FUIDS(zfsvfs->z_version, zfsvfs->z_os);
+	zfsvfs->z_use_sa = USE_SA(zfsvfs->z_version, zfsvfs->z_os);
+
+	if (zfsvfs->z_use_sa) {
+		/* should either have both of these objects or none */
+		error = zap_lookup(os, MASTER_NODE_OBJ, ZFS_SA_ATTRS, 8, 1,
+		    &sa_obj);
+		if (error)
+			return (error);
+	} else {
+		/*
+		 * Pre SA versions file systems should never touch
+		 * either the attribute registration or layout objects.
+		 */
+		sa_obj = 0;
+	}
+
+	error = sa_setup(os, sa_obj, zfs_attr_table, ZPL_END,
+	    &zfsvfs->z_attr_table);
+	if (error)
+		goto out;
+
+	if (zfsvfs->z_version >= ZPL_VERSION_SA)
+		sa_register_update_callback(os, zfs_sa_upgrade);
 
 	error = zap_lookup(os, MASTER_NODE_OBJ, ZFS_ROOT_OBJ, 8, 1,
 	    &zfsvfs->z_root);
@@ -939,12 +989,12 @@ zfsvfs_create(const char *osname, zfsvfs_t **zvp)
 	for (i = 0; i != ZFS_OBJ_MTX_SZ; i++)
 		mutex_init(&zfsvfs->z_hold_mtx[i], NULL, MUTEX_DEFAULT, NULL);
 
-	*zvp = zfsvfs;
+	*zfvp = zfsvfs;
 	return (0);
 
 out:
 	dmu_objset_disown(os, zfsvfs);
-	*zvp = NULL;
+	*zfvp = NULL;
 	kmem_free(zfsvfs, sizeof (zfsvfs_t));
 	return (error);
 }
@@ -966,10 +1016,6 @@ zfsvfs_setup(zfsvfs_t *zfsvfs, boolean_t mounting)
 	mutex_exit(&zfsvfs->z_os->os_user_ptr_lock);
 
 	zfsvfs->z_log = zil_open(zfsvfs->z_os, zfs_get_data);
-	if (zil_disable) {
-		zil_destroy(zfsvfs->z_log, B_FALSE);
-		zfsvfs->z_log = NULL;
-	}
 
 	/*
 	 * If we are not mounting (ie: online recv), then we don't
@@ -989,34 +1035,36 @@ zfsvfs_setup(zfsvfs_t *zfsvfs, boolean_t mounting)
 		else
 			zfs_unlinked_drain(zfsvfs);
 
-		if (zfsvfs->z_log) {
-			/*
-			 * Parse and replay the intent log.
-			 *
-			 * Because of ziltest, this must be done after
-			 * zfs_unlinked_drain().  (Further note: ziltest
-			 * doesn't use readonly mounts, where
-			 * zfs_unlinked_drain() isn't called.)  This is because
-			 * ziltest causes spa_sync() to think it's committed,
-			 * but actually it is not, so the intent log contains
-			 * many txg's worth of changes.
-			 *
-			 * In particular, if object N is in the unlinked set in
-			 * the last txg to actually sync, then it could be
-			 * actually freed in a later txg and then reallocated
-			 * in a yet later txg.  This would write a "create
-			 * object N" record to the intent log.  Normally, this
-			 * would be fine because the spa_sync() would have
-			 * written out the fact that object N is free, before
-			 * we could write the "create object N" intent log
-			 * record.
-			 *
-			 * But when we are in ziltest mode, we advance the "open
-			 * txg" without actually spa_sync()-ing the changes to
-			 * disk.  So we would see that object N is still
-			 * allocated and in the unlinked set, and there is an
-			 * intent log record saying to allocate it.
-			 */
+		/*
+		 * Parse and replay the intent log.
+		 *
+		 * Because of ziltest, this must be done after
+		 * zfs_unlinked_drain().  (Further note: ziltest
+		 * doesn't use readonly mounts, where
+		 * zfs_unlinked_drain() isn't called.)  This is because
+		 * ziltest causes spa_sync() to think it's committed,
+		 * but actually it is not, so the intent log contains
+		 * many txg's worth of changes.
+		 *
+		 * In particular, if object N is in the unlinked set in
+		 * the last txg to actually sync, then it could be
+		 * actually freed in a later txg and then reallocated
+		 * in a yet later txg.  This would write a "create
+		 * object N" record to the intent log.  Normally, this
+		 * would be fine because the spa_sync() would have
+		 * written out the fact that object N is free, before
+		 * we could write the "create object N" intent log
+		 * record.
+		 *
+		 * But when we are in ziltest mode, we advance the "open
+		 * txg" without actually spa_sync()-ing the changes to
+		 * disk.  So we would see that object N is still
+		 * allocated and in the unlinked set, and there is an
+		 * intent log record saying to allocate it.
+		 */
+		if (zil_replay_disable) {
+			zil_destroy(zfsvfs->z_log, B_FALSE);
+		} else {
 			zfsvfs->z_replay = B_TRUE;
 			zil_replay(zfsvfs->z_os, zfsvfs, zfs_replay_vector);
 			zfsvfs->z_replay = B_FALSE;
@@ -1065,7 +1113,9 @@ zfs_set_fuid_feature(zfsvfs_t *zfsvfs)
 		vfs_set_feature(zfsvfs->z_vfs, VFSFT_ACEMASKONACCESS);
 		vfs_set_feature(zfsvfs->z_vfs, VFSFT_ACLONCREATE);
 		vfs_set_feature(zfsvfs->z_vfs, VFSFT_ACCESS_FILTER);
+		vfs_set_feature(zfsvfs->z_vfs, VFSFT_REPARSE);
 	}
+	zfsvfs->z_use_sa = USE_SA(zfsvfs->z_version, zfsvfs->z_os);
 }
 
 static int
@@ -1133,6 +1183,7 @@ zfs_domount(vfs_t *vfsp, char *osname)
 		vfs_set_feature(vfsp, VFSFT_DIRENTFLAGS);
 		vfs_set_feature(vfsp, VFSFT_CASEINSENSITIVE);
 	}
+	vfs_set_feature(vfsp, VFSFT_ZEROCOPY_SUPPORTED);
 
 	if (dmu_objset_is_snapshot(zfsvfs->z_os)) {
 		uint64_t pval;
@@ -1143,6 +1194,7 @@ zfs_domount(vfs_t *vfsp, char *osname)
 			goto out;
 		xattr_changed_cb(zfsvfs, pval);
 		zfsvfs->z_issnap = B_TRUE;
+		zfsvfs->z_os->os_sync = ZFS_SYNC_DISABLED;
 
 		mutex_enter(&zfsvfs->z_os->os_user_ptr_lock);
 		dmu_objset_set_user(zfsvfs->z_os, zfsvfs);
@@ -1198,9 +1250,6 @@ zfs_unregister_callbacks(zfsvfs_t *zfsvfs)
 		    zfsvfs) == 0);
 
 		VERIFY(dsl_prop_unregister(ds, "snapdir", snapdir_changed_cb,
-		    zfsvfs) == 0);
-
-		VERIFY(dsl_prop_unregister(ds, "aclmode", acl_mode_changed_cb,
 		    zfsvfs) == 0);
 
 		VERIFY(dsl_prop_unregister(ds, "aclinherit",
@@ -1764,7 +1813,7 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	for (zp = list_head(&zfsvfs->z_all_znodes); zp != NULL;
 	    zp = list_next(&zfsvfs->z_all_znodes, zp))
-		if (zp->z_dbuf) {
+		if (zp->z_sa_hdl) {
 			ASSERT(ZTOV(zp)->v_count > 0);
 			zfs_znode_dmu_fini(zp);
 		}
@@ -1797,10 +1846,9 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 	/*
 	 * Evict cached data
 	 */
-	if (dmu_objset_evict_dbufs(zfsvfs->z_os)) {
+	if (dmu_objset_is_dirty_anywhere(zfsvfs->z_os))
 		txg_wait_synced(dmu_objset_pool(zfsvfs->z_os), 0);
-		(void) dmu_objset_evict_dbufs(zfsvfs->z_os);
-	}
+	(void) dmu_objset_evict_dbufs(zfsvfs->z_os);
 
 	return (0);
 }
@@ -1967,7 +2015,9 @@ zfs_vget(vfs_t *vfsp, vnode_t **vpp, fid_t *fidp)
 		ZFS_EXIT(zfsvfs);
 		return (err);
 	}
-	zp_gen = zp->z_phys->zp_gen & gen_mask;
+	(void) sa_lookup(zp->z_sa_hdl, SA_ZPL_GEN(zfsvfs), &zp_gen,
+	    sizeof (uint64_t));
+	zp_gen = zp_gen & gen_mask;
 	if (zp_gen == 0)
 		zp_gen = 1;
 	if (zp->z_unlinked || zp_gen != fid_gen) {
@@ -2007,7 +2057,7 @@ zfs_suspend_fs(zfsvfs_t *zfsvfs)
 int
 zfs_resume_fs(zfsvfs_t *zfsvfs, const char *osname)
 {
-	int err;
+	int err, err2;
 
 	ASSERT(RRW_WRITE_HELD(&zfsvfs->z_teardown_lock));
 	ASSERT(RW_WRITE_HELD(&zfsvfs->z_teardown_inactive_lock));
@@ -2018,6 +2068,18 @@ zfs_resume_fs(zfsvfs_t *zfsvfs, const char *osname)
 		zfsvfs->z_os = NULL;
 	} else {
 		znode_t *zp;
+		uint64_t sa_obj = 0;
+
+		err2 = zap_lookup(zfsvfs->z_os, MASTER_NODE_OBJ,
+		    ZFS_SA_ATTRS, 8, 1, &sa_obj);
+
+		if ((err || err2) && zfsvfs->z_version >= ZPL_VERSION_SA)
+			goto bail;
+
+
+		if ((err = sa_setup(zfsvfs->z_os, sa_obj,
+		    zfs_attr_table,  ZPL_END, &zfsvfs->z_attr_table)) != 0)
+			goto bail;
 
 		VERIFY(zfsvfs_setup(zfsvfs, B_FALSE) == 0);
 
@@ -2036,6 +2098,7 @@ zfs_resume_fs(zfsvfs_t *zfsvfs, const char *osname)
 
 	}
 
+bail:
 	/* release the VOPs */
 	rw_exit(&zfsvfs->z_teardown_inactive_lock);
 	rrw_exit(&zfsvfs->z_teardown_lock, FTAG);
@@ -2058,9 +2121,11 @@ zfs_freevfs(vfs_t *vfsp)
 
 	/*
 	 * If this is a snapshot, we have an extra VFS_HOLD on our parent
-	 * from zfs_mount().  Release it here.
+	 * from zfs_mount().  Release it here.  If we came through
+	 * zfs_mountroot() instead, we didn't grab an extra hold, so
+	 * skip the VFS_RELE for rootvfs.
 	 */
-	if (zfsvfs->z_issnap)
+	if (zfsvfs->z_issnap && (vfsp != rootvfs))
 		VFS_RELE(zfsvfs->z_parent->z_vfs);
 
 	zfsvfs_free(zfsvfs);
@@ -2155,13 +2220,23 @@ zfs_set_version(zfsvfs_t *zfsvfs, uint64_t newvers)
 	if (newvers < zfsvfs->z_version)
 		return (EINVAL);
 
+	if (zfs_spa_version_map(newvers) >
+	    spa_version(dmu_objset_spa(zfsvfs->z_os)))
+		return (ENOTSUP);
+
 	tx = dmu_tx_create(os);
 	dmu_tx_hold_zap(tx, MASTER_NODE_OBJ, B_FALSE, ZPL_VERSION_STR);
+	if (newvers >= ZPL_VERSION_SA && !zfsvfs->z_use_sa) {
+		dmu_tx_hold_zap(tx, MASTER_NODE_OBJ, B_TRUE,
+		    ZFS_SA_ATTRS);
+		dmu_tx_hold_zap(tx, DMU_NEW_OBJECT, FALSE, NULL);
+	}
 	error = dmu_tx_assign(tx, TXG_WAIT);
 	if (error) {
 		dmu_tx_abort(tx);
 		return (error);
 	}
+
 	error = zap_update(os, MASTER_NODE_OBJ, ZPL_VERSION_STR,
 	    8, 1, &newvers, tx);
 
@@ -2170,8 +2245,24 @@ zfs_set_version(zfsvfs_t *zfsvfs, uint64_t newvers)
 		return (error);
 	}
 
-	spa_history_internal_log(LOG_DS_UPGRADE,
-	    dmu_objset_spa(os), tx, CRED(),
+	if (newvers >= ZPL_VERSION_SA && !zfsvfs->z_use_sa) {
+		uint64_t sa_obj;
+
+		ASSERT3U(spa_version(dmu_objset_spa(zfsvfs->z_os)), >=,
+		    SPA_VERSION_SA);
+		sa_obj = zap_create(os, DMU_OT_SA_MASTER_NODE,
+		    DMU_OT_NONE, 0, tx);
+
+		error = zap_add(os, MASTER_NODE_OBJ,
+		    ZFS_SA_ATTRS, 8, 1, &sa_obj, tx);
+		ASSERT3U(error, ==, 0);
+
+		VERIFY(0 == sa_set_sa_object(os, sa_obj));
+		sa_register_update_callback(os, zfs_sa_upgrade);
+	}
+
+	spa_history_log_internal(LOG_DS_UPGRADE,
+	    dmu_objset_spa(os), tx, "oldver=%llu newver=%llu dataset = %llu",
 	    "oldver=%llu newver=%llu dataset = %llu",
 	    zfsvfs->z_version, newvers, dmu_objset_id(os));
 
@@ -2233,7 +2324,7 @@ static vfsdef_t vfw = {
 	MNTTYPE_ZFS,
 	zfs_vfsinit,
 	VSW_HASPROTO|VSW_CANRWRO|VSW_CANREMOUNT|VSW_VOLATILEDEV|VSW_STATS|
-	    VSW_XID,
+	    VSW_XID|VSW_ZMOUNT,
 	&zfs_mntopts
 };
 
