@@ -1,3 +1,481 @@
+zfs-fuse (0.7.0-1) maverick; urgency=low
+
+  [ Seth Heeren ]
+  * Revert "Makefile.in should not be tracked by git"
+  * updated man pages dd onnv b134
+  * issue #43: removed abort when unlinking a stale inode (e.g. after
+    rollback); watch for syslog messages
+
+  [ Emmanuel Anne ]
+  * prevent calling autoconf/autoheader/automake from makefile
+  * fix a crash on zfs get all when the fs is mounted with bind
+
+  [ Manuel Amador (Rudd-O) ]
+  * Releasing 0.6.0
+
+  [ Seth Heeren ]
+  * issue #26 (patch for spec changes rpm build)
+
+  [ Manuel Amador (Rudd-O) ]
+  * New fedora initscripts
+  * Packaging fixes
+  * Added ubuntu initscript sent by James Walker
+
+  [ Seth Heeren ]
+  * improved initialization order so connections to zfs-fuse can be
+    made once the process is forked/demonized (addresses issue #36)
+  * Compilation fixes for Fedora 13
+  * propose to use scons CacheDir; this greatly improves rebuild times
+
+  [ Emmanuel Anne ]
+  * remove sleep on start, add zfs share -a, remove zpool call
+  * Takes CC en CFLAGS from the environment for scons
+  * zpool export must sleep sometimes
+
+  [ Seth Heeren ]
+  * using a socketpair(2) instead of pipe(2) because, unlike solaris,
+    linux
+  * on linux, prefer using /dev/disk/by-id when importing (if available)
+  * resurrect zfs_zget param zget_unlinked
+  * added contrib/zfs_completion.bash received from Aneurin Price
+
+  [ Emmanuel Anne ]
+  * remove unused bitmap.c (thanks to Sandeep for noticing)
+  * Update waf support
+
+  [ Eric Astor ]
+  * sid implementation from bsd
+
+  [ Seth Heeren ]
+  * Upstart script for 0.6.9+ on Lucid
+  * make it easy to switch between threading/nonthreading ioctls
+  * cmd_listener ioctl threads now uses a queue and a thread pool
+  * fixed unitialized variable (ioctl thread shutdown)
+  * Cleanup of shutdown logic
+  * call pthread_attr_destroy where appropriate
+  * valgrind spotted a bad mem ref in do_mount
+  * more: option disable-page-cache deprecated
+  * Issue #67 Improve parsing of /etc/zfs/zfsrc
+  * SConstruct: incorporate suggested installation prefix as DESTDIR=
+    and made it non-intrusive (tested)
+  * * SConstruct safely handle optim flag as paramline
+  * Add /etc/zfs to debian/dirs
+
+  [ Mike Hommey ]
+  * Start sharing datasets marked as such at daemon startup
+  * Change default options for the zfs-fuse daemon
+
+  [ Seth Heeren ]
+  * update debian package rules for 0.6.9
+  * fixed wrong path to binary in debianized init script (reported as
+    part of issue #57)
+  * deprecated DAEMON_OPTS in init scripts
+  * Manpage update
+  * Several improvements to debian/ubuntu zfs-fuse.init
+  * Move existing zpool.cache to new location if posisble
+  * Fix for clean with libumem still unconfigured
+  * Leave /etc/zfs/zpool.cache
+
+  [ Emmanuel Anne ]
+  * merge with Sehe umem SConscript file
+
+  [ Seth Heeren ]
+  * Upstreamed the zfs-fuse man page
+  * Gunzip the manpages. They caused trouble with packaging
+  * Debian snapshot 0.6.9-6~1.gbp52ec03
+  * Removed DAEMON_OPTS fom debian/zfs-fuse.default
+  * removed braindead leftover -O0 flag
+  * shutdown ioctl handlers after zfsfuse listener
+  * deadlock in fuse_unmount_all because listeners already gone
+  * fuse_unmount_all could be starved for the mtx lock
+  * add tags to .gitignore
+  * improved comment in zfsrc
+  * improved detection of default_permissions option
+  * option disable-page-cache deprecated
+  * gcc 4.5 patch submitted by Piotr Pawłow
+  * Dynamically enable xattr support (--enable-xattr)
+
+  [ Mike Hommey ]
+  * Add an optim option to the build system
+
+  [ Emmanuel Anne ]
+  * Remount the fs after a rollback
+
+  [ Seth Heeren ]
+  * backported hg 5688:c0b02c8fd2c0 (bonwick) 6640580 spa_get_random()
+    is insanely slow in userland from ONNV dec2007
+  * allow pretty diffs of gzipped manpages (use git config
+    diff.gzip.textconv zcat)
+  * issue #15 - BUGS fixed
+  * issue #16: BUGS edits
+  * fixed homepage in README
+  * #56 — Wording change in fedora init script comment
+
+  [ Emmanuel Anne ]
+  * merge official/testing
+
+  [ Mike Hommey ]
+  * Don't link zfs, zpool and zdb against libssl
+
+  [ Seth Heeren ]
+  * Removing unused path.py
+  * fixed broken lockfile logic (introduced in 42fe23421de)
+  * issue #53 - O_CLOEXEC undefined on RHEL5.5
+
+  [ Emmanuel Anne ]
+  * improve sleep when exporting pool
+
+  [ Seth Heeren ]
+  * version bump
+
+  [ Emmanuel Anne ]
+  * spec update from testing branch.
+  * better handling of new files
+  * Revert "improve sleep when exporting pool"
+  * improved --enable-xattr support
+
+  [ Dai Ngo ]
+  * hg commit 10793:6886081 Solaris needs reparse point support (PSARC
+    2009/387)
+
+  [ chunli zhang - Sun Microsystems - Irvine United States ]
+  * hg commit 11539:
+
+  [ Emmanuel Anne ]
+  * Revert "Revert "hg commit 11816:6928246 spa_history_log should use
+    dsl_sync_task_do_nowait""
+  * bsd fix for hg commit 11816
+  * Fix the times on Sehe method to export the pools
+  * add km_strdup, which is an umem version of strdup
+  * formats don't include the leading % anymore
+  * fix dladdr in ztest
+
+  [ Jonathan Adams ]
+  * hg commit 11173:6881015 ZFS write activity prevents other threads
+    from running in a timely manner
+
+  [ Emmanuel Anne ]
+  * use O_SYNC with O_DIRECT
+
+  [ Mark Shellenbaum ]
+  * hg commit 11935:6716117 ZFS needs native system attribute
+    infrastructure
+
+  [ Emmanuel Anne ]
+  * the return of the workaround for broken acls
+
+  [ Mark J Musante ]
+  * hg commit 11937:6932590 zdb -vvv causes core dump
+
+  [ Mark Shellenbaum ]
+  * hg commit 11952:6936079 disappearing 56char symlink targets
+
+  [ George Wilson ]
+  * hg commit 11958:6923585 deadlock while booting OpenSolaris build 132
+    from mirrored rpool with removed submirror
+
+  [ afshin salek ardakani - Sun Microsystems - Irvine United States ]
+  * hg commit 11963:PSARC/2009/534 SMB/CIFS Standalone DFS
+
+  [ Mark Shellenbaum ]
+  * hg commit 11969:PSARC/2010/009 Modified ZFS passthrough-x ACL
+    inheritance
+
+  [ Tom Erickson ]
+  * hg commit 11976:6931963 zfs_receive_004_neg test regression results
+    in no reported error for invalid incremental receive
+
+  [ George Wilson ]
+  * hg commit 11982:6932959 ZFS allows too many devices to be faulted
+
+  [ William Gorrell ]
+  * hg commit 12033:6935088 elpaso panics: kernel heap corruption
+    detected
+
+  [ Mark J Musante ]
+  * hg commit 12047:6917066 zfs block picking can be improved
+
+  [ Mark Shellenbaum ]
+  * hg commit 12050:6938757 SMB and NFS referrals not working correctly
+  * hg commit 12070:6940770 panic in sa_find_idx_tab() after receiving
+    into pool when version shouldn't have allowed it
+  * hg commit 12079:6939941 problem with moving files in zfs
+
+  [ Chris Kirby ]
+  * hg commit 12095:6891449 zvol_strategy() check for zv == NULL too
+    late
+  * hg commit 12115:6942295 use-after-free panic in
+    dsl_dataset_user_release_one
+
+  [ Tim Haley ]
+  * hg commit 12123:6572591 meta dnode lookup causes bucket lock
+    contention in dbuf hash
+
+  [ George Wilson ]
+  * hg commit 12136:6941175 panic assertion failed: scl->scl_writer !=
+    curthread,file: common/fs/zfs/spa_misc.c, line: 327
+
+  [ John Harres ]
+  * hg commit 12141:6916981 zfs recv needs better messaging when quota
+    exceeded
+
+  [ Mark Shellenbaum ]
+  * hg commit 12164:PSARC/2010/029 Improved ACL interoperability
+  * hg commit 12178:6939983 assertion failed: zap_count(os,
+    DMU_USERUSED_OBJECT, &count) != 0||count == 0, in dsl_dataset.c
+
+  [ Emmanuel Anne ]
+  * be more smart to skip libs
+
+  [ Mark Shellenbaum ]
+  * hg commit 12218:6945935 potential mutex problem in
+    zfs_zaccess_aces_check()
+
+  [ George Wilson ]
+  * hg commit 12247:6911420 ZFS device removal detection should work
+    with SCSAv3
+
+  [ Emmanuel Anne ]
+  * add a map for priv.c and prioritize the map
+
+  [ Tom Erickson ]
+  * hg commit 12282:6946467 'zfs send -Ri' should include clone origin
+    snapshots in the specified interval
+
+  [ Jeff Bonwick ]
+  * hg commit 12285:6944833 Avoid prefetching dbufs in dmu_sync() path
+
+  [ Mark J Musante ]
+  * hg commit 12294:PSARC/2010/108 zil synchronicity
+
+  [ George Wilson ]
+  * hg commit 12295:6948911 snapshot deletion can induce unsatisfiable
+    allocations in txg sync
+
+  [ Emmanuel Anne ]
+  * be more verbose about renames
+
+  [ Lin Ling ]
+  * hg commit 12296:6675946 'zpool status' should show the progress of
+    resilvering for individual disk.
+
+  [ Mark Shellenbaum ]
+  * hg commit 12302:6946681 System panics in a loop with "pf
+    zfs_fuid_create"
+
+  [ James Moore ]
+  * hg commit 12314:6909809 COMSTAR should avoid extra data copy to
+    zvol-based backing store
+
+  [ Eric Taylor ]
+  * hg commit 12318:6907687 zfs pool is not automatically fixed when
+    disk are brought back online or after boot
+
+  [ stephanie scheffler ]
+  * hg commit 12321:6898657 zfs upgrade -v and zpool upgrade -v version
+    URL has changed
+
+  [ Mark Shellenbaum ]
+  * hg commit 12322:6947609 not inheriting inherit_only directories
+    correctly
+
+  [ George Wilson ]
+  * hg commit 12351:6949730 spurious arc_free() can significantly
+    exacerbate 6948890
+
+  [ Lin Ling ]
+  * hg commit 12352:6950285 race between removing a top-level vdev and
+    updating the vdev labels
+
+  [ John Harres ]
+  * hg commit 12383:6881631 zpool_vdev_name(): "c0t0d0s0/old" becomes
+    "c0t0d0s0/o" on whole disks that were replaced
+
+  [ Mark Shellenbaum ]
+  * hg commit 12394:6950273 CIFS attributes aren't always updated when
+    timestamps are updated
+
+  [ Tom Erickson ]
+  * hg commit 12409:6952268 zfs recv usage message needs a little more
+    work
+
+  [ John Harres ]
+  * hg commit 12411:6911391 panic in dmu_tx_count_write()
+
+  [ Sam Falkner ]
+  * hg commit 12413:6894240 zfs has a partially deleted file
+
+  [ Mark Shellenbaum ]
+  * hg commit 12421:6952968 fstest hanging on symlink/06 testcase on
+    nevada, build 140
+  * hg commit 12432:6952522 elpaso panics: assertion failed:
+    refcount_is_zero(&dn->dn_holds), file: ../../common/fs/zfs/dnode.c
+
+  [ Victor Latushkin ]
+  * hg commit 12441:6952889 zpool_vdev_clear is broken
+
+  [ Mark J Musante ]
+  * hg commit 12446:6608465 zfs mount -v should only report progress if
+    progress is slow
+
+  [ Emmanuel Anne ]
+  * correctly exit from skip_diff (2nd call)
+
+  [ George Wilson ]
+  * hg commit 12450:6938089 dedup-induced latency causes FC initiator
+    logouts/FC port resets
+
+  [ Tom Erickson ]
+  * hg commit 12455:6954140 'zfs inherit' does not override recursively
+    received property
+
+  [ Matthew Ahrens ]
+  * hg commit 12470:6948890 snapshot deletion can induce pathologically
+    long spa_sync() times
+
+  [ Emmanuel Anne ]
+  * use z_root instead of the hack to get the root inode
+  * Merge with Sehe work
+  * explicitely initialize uio_extflg
+  * Simplify flags handling in opencreate
+
+  [ Seth Heeren ]
+  * typo
+  * TODO strikeouts
+  * preparing for a 0.7.0 release
+
+  [ Emmanuel Anne ]
+  * fs type becomes "fuse.zfs"
+  * Revert "use O_SYNC with O_DIRECT"
+
+  [ Seth Heeren ]
+  * TODO strikeouts
+  * preparing for a 0.7.0 release
+  * typo
+  * Remount before rollback
+  * Replace remount by drop_caches (on rollback)
+  * fixing undetected mergeconflict
+
+  [ Emmanuel Anne ]
+  * take back also some comment for VM_NOSLEEP
+  * zdb -l also displays labels offsets and sizes now
+
+  [ Andrea Gelmini ]
+  * remove useless includes
+
+  [ Seth Heeren ]
+  * tentative fix for issue #29, #108
+
+  [ Andrea Gelmini ]
+  * Fix a typo
+
+  [ Emmanuel Anne ]
+  * fix rounding numbers when using arcstat.pl 3
+  * adjust pools uuid to util-linux patch
+  * fix compilation warning
+
+  [ Mark Shellenbaum ]
+  * hg commit 12493:6952177 SA handling of on-disk corruption can be
+    improved
+
+  [ Eric Taylor ]
+  * hg commit 12496:6930145 zfs(1M) set volsize command failed without
+    any error
+
+  [ Mark Maybee ]
+  * hg commit 12515:6952565 panic[cpu0]/thread=ffffff00202a3c40:
+    Deadlock: cycle in blocking chain
+
+  [ Mark J Musante ]
+  * hg commit 12530:6957113 accessing a fifo special file in .zfs
+    snapshot dir panics kernel
+
+  [ Lin Ling ]
+  * hg commit 12538:6956280 mutex problem in bpobj_iterate_impl()
+
+  [ George Wilson ]
+  * hg commit 12586:6494473 ZFS needs a way to slow down resilvering
+  * hg commit 12587:6957090 ddt_zap_prefetch() induces deadlock, panic
+
+  [ Matthew Ahrens ]
+  * hg commit 12593:6959054 stack overflow due to nested bpobj's while
+    deleting a share
+
+  [ Lin Ling ]
+  * hg commit 12600:6951283 hotspare_import_001_pos FAILs unless doing a
+    sync before detach
+
+  [ Chris Kirby ]
+  * hg commit 12605:6959846 DMU traverse prefetch size should be a
+    global tunable
+
+  [ Sean McEnroe ]
+  * hg commit 11185:6887924 PP_ISKAS needs to be defined in terms of
+    VN_ISKAS for vnodes
+
+  [ Emmanuel Anne ]
+  * fixes for ddi_get_lbolt64()
+
+  [ Mark Shellenbaum ]
+  * hg commit 12620:6957974 assertion failed: 0 == sa_lookup(zp-
+    >z_sa_hdl, SA_ZPL_ZNODE_ACL(zp->z_zfsvfs)
+
+  [ John Levon ]
+  * hg commit 12633:PSARC 2010/144 lofi(7D) in non global zones
+
+  [ Tom Erickson ]
+  * hg commit 12636:6950219 large ghost eviction causes high write
+    latency
+
+  [ George Wilson ]
+  * hg commit 12659:6957089 race between dedup prefetch and table remove
+
+  [ Mark J Musante ]
+  * hg commit 12662:6960054 faulting data/log device causing cluster
+    head inaccessible
+
+  [ George Wilson ]
+  * hg commit 12671:6959651 assertion failed: ddo_total->ddo_dspace ==
+    0, file: ../../common/fs/zfs/ddt.c, line: 460
+
+  [ Sanjeev Bagewadi ]
+  * hg commit 12674:6954665 system stuck spinning in arc_evict_ghost()
+
+  [ Tom Erickson ]
+  * hg commit 12684:6710343 dnode cache should register a dnode_move()
+    callback to limit fragmentation
+
+  [ Neil Perrin ]
+  * hg commit 12699:6913010 assertion failed: error||lr->lr_length <=
+    zp->z_blksz, file: ../../common/fs/zfs/zfs_vnops.c
+  * hg commit 12700:6913010 assertion failed: error||lr->lr_length <=
+    zp->z_blksz, file: ../../common/fs/zfs/zfs_vnops.c (fix 32bit build)
+
+  [ Chris Kirby ]
+  * hg commit 12711:6952867 recursive rw_enter in dsl_dataset_clone_swap
+
+  [ Sanjeev Bagewadi ]
+  * hg commit 12722:6937998 txg_wait_synced() is called when unmounting
+    zfs snapshots
+
+  [ Matthew Ahrens ]
+  * hg commit 12727:6964442 panic from dmu_recv_begin: No such hold X on
+    refcount Y
+
+  [ George Wilson ]
+  * hg commit 12754:6966214 ztest_freeze(): Assertion failed: list-
+    >list_head.list_next == node
+
+  [ Neil Perrin ]
+  * hg commit 12771:6834694 zfs renames can potentially be committed
+    without the data
+  * hg commit 12772:6959659 Extending end of file *may* get lost on
+    replay of writes.
+
+  [ Seth ]
+
+ -- Seth <sehe@meerkat.sehe.nl>  Wed, 09 Mar 2011 10:38:42 +0100
+
 zfs-fuse (0.6.9-6~2.gbp417532) UNRELEASED; urgency=low
 
   ** SNAPSHOT build @417532196fd6e8ddbf3937601a15aedc25504612 **

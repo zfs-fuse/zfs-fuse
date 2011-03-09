@@ -2,7 +2,7 @@
 
 Name:          zfs-fuse
 Version:       0.7.0
-Release:       snapshot
+Release:       1
 Summary:       The last word in filesystems
 License:       GPL
 Group:         System Environment/Daemons
@@ -94,6 +94,9 @@ scons install install_dir=$RPM_BUILD_ROOT%_sbindir man_dir=$RPM_BUILD_ROOT%_mand
 %{_sbindir}/zstreamdump
 
 %changelog
+* Wed Mar 09 2011 Seth Heeren <zfs-fuse@sehe.nl> 0.7.0-1
+- Release 0.7.0
+
 * Fri Oct 01 2010 Seth Heeren <zfs-fuse@sehe.nl> 0.7.0-0
 - Release 0.7.0
 
