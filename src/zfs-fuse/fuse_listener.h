@@ -35,6 +35,9 @@
 typedef struct file_info {
 	vnode_t *vp;
 	int flags;
+	char *buffer;
+	size_t alloc,used;
+	off_t last_off;
 } file_info_t;
 
 extern kmem_cache_t *file_info_cache;

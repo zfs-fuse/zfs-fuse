@@ -46,6 +46,7 @@ static int cf_disable_page_cache = 0;
 extern void fuse_unmount_all(); // in fuse_listener.c
 static int cf_daemonize = 1;
 extern int no_kstat_mount; // kstat.c
+extern int no_buffers;
 
 static sem_t daemon_shutdown;
 
@@ -89,6 +90,11 @@ static struct option longopts[] = {
 	{ "no-kstat-mount",
 	    0,
 	    &no_kstat_mount,
+	    1
+	},
+	{ "no-buffers",
+	    0,
+	    &no_buffers,
 	    1
 	},
 	{ "log-uberblocks",
