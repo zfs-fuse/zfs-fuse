@@ -1,4 +1,4 @@
-zfs-fuse (0.7.0-0) maverick; urgency=low
+zfs-fuse (0.7.0-1) maverick; urgency=low
 
   [ Seth Heeren ]
   * Revert "Makefile.in should not be tracked by git"
