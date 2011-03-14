@@ -1450,23 +1450,20 @@ static void zfsfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 		// writing and it has some buffers, then the read will not see the
 		// buffers, we have to find them...
 		info2 = get_info(vfs,ino);
-		if (info2 && info2->used) {
-			syslog(LOG_WARNING,"read: found info on buffers from get_info");
-		}
 	}
 
-	if (info && info->used) {
-		size_t boff = info->last_off-info->used;
+	if (info2 && info2->used) {
+		size_t boff = info2->last_off-info2->used;
 		size_t end = off+size-1;
 		// Make sure the flush is necessary : the 2 buffers must have an
 		// intersection for that. Checked : it's really useful, the test avoids
 		// the flush very often.
-		if ((off >= boff && off < info->last_off) ||
-				(end >= boff && end < info->last_off) ||
-				(off <= boff && end >= info->last_off)) {
-			print_debug(4,"read: flush ino %ld size %zd off %zd\n",ino,info->used,info->last_off-info->used);
-			basic_write(zfsvfs,&cred,ino,info->buffer,info->used,info->last_off-info->used,info);
-			info->used = 0;
+		if ((off >= boff && off < info2->last_off) ||
+				(end >= boff && end < info2->last_off) ||
+				(off <= boff && end >= info2->last_off)) {
+			print_debug(4,"read: flush ino %ld size %zd off %zd\n",ino,info2->used,info2->last_off-info2->used);
+			basic_write(zfsvfs,&cred,ino,info2->buffer,info2->used,info2->last_off-info2->used,info2);
+			info2->used = 0;
 		} 
 	}
 
