@@ -1,7 +1,7 @@
 Import('env')
 
-BuildDir('build-user', '.', duplicate = 0)
-BuildDir('build-kernel', '.', duplicate = 0)
+VariantDir('build-user', '.', duplicate = 0)
+VariantDir('build-kernel', '.', duplicate = 0)
 
 objects = Split('compress.c list.c zfs_comutil.c zfs_deleg.c zfs_namecheck.c zfs_prop.c zpool_prop.c zprop_common.c')
 
