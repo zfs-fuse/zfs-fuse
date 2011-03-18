@@ -4193,7 +4193,7 @@ ztest_dmu_commit_callbacks(ztest_ds_t *zd, uint64_t id)
 	     * It just means that not enough commits were run last time.
 	     * With 23 threads running concurrently it's not really a surprise
 	     * so I just turn this to a warning instead of a fatal */
-		printf( "Commit callback threshold exceeded, oldest txg: %"
+		fatal(0, "Commit callback threshold exceeded, oldest txg: %"
 		    PRIu64 ", open txg: %" PRIu64 "\n", tmp_cb->zcd_txg, txg);
 	}
 
