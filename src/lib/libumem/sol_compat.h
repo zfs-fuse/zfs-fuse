@@ -14,6 +14,7 @@
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
+#include <stdio.h>
 
 #ifdef _WIN32
 # define THR_RETURN DWORD
@@ -74,13 +75,25 @@ static INLINE int thr_create(void *stack_base,
 {
   int ret;
   pthread_attr_t attr;
+  pthread_t id;
 
   pthread_attr_init(&attr);
 
   if (flags & THR_DETACHED) {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
   }
-  ret = pthread_create(new_thread_ID, &attr, start_func, arg);
+  ret = pthread_create(&id, &attr, start_func, arg);
+  if (new_thread_ID)
+      *new_thread_ID = id;
+  if (flags & THR_BOUND) {
+      /* See THR_BOUND on the web. It's a very low priority thread in fact */
+#ifndef SCHED_IDLE
+#define SCHED_IDLE 5
+#endif
+      struct sched_param param;
+      param.sched_priority = 0;
+      pthread_setschedparam(id,SCHED_IDLE,&param);
+  }
   pthread_attr_destroy(&attr);
   return ret;
 }

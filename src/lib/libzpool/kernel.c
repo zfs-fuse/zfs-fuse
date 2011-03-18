@@ -37,6 +37,7 @@
 #include <sys/zmod.h>
 #include <sys/utsname.h>
 #include <sys/systeminfo.h>
+#include <sched.h>
 
 /*
  * Emulation of kernel services in userland.
@@ -53,6 +54,10 @@ struct utsname utsname = {
 /* this only exists to have its address taken */
 struct proc p0;
 
+#ifndef SCHED_IDLE
+#define SCHED_IDLE 5
+#endif
+
 /*
  * =========================================================================
  * threads
@@ -60,12 +65,21 @@ struct proc p0;
  */
 /*ARGSUSED*/
 kthread_t *
-zk_thread_create(void (*func)(), void *arg)
+zk_thread_create(void (*func)(), void *arg, int pri)
 {
 	thread_t tid;
 
 	VERIFY(thr_create(0, 0, (void *(*)(void *))func, arg, THR_DETACHED,
 	    &tid) == 0);
+	if (pri == minclsyspri) {
+	    struct sched_param param;
+	    param.sched_priority = 0;
+	    pthread_setschedparam(tid,SCHED_IDLE,&param);
+	} else if (pri == maxclsyspri) {
+	    struct sched_param param;
+	    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+	    pthread_setschedparam(tid,SCHED_FIFO,&param);
+	}
 
 	return ((void *)(uintptr_t)tid);
 }

@@ -238,8 +238,21 @@ taskq_create(const char *name, int nthreads, pri_t pri,
 	VERIFY(0 == pthread_attr_init(&attr));
 	pthread_attr_setscope(&attr,PTHREAD_SCOPE_PROCESS);
 
-	for (t = 0; t < nthreads; t++)
+	for (t = 0; t < nthreads; t++) {
 		pthread_create(&tq->tq_threadlist[t], &attr, taskq_thread, tq);
+		if (pri == minclsyspri) {
+			struct sched_param param;
+			param.sched_priority = 0;
+#ifndef SCHED_IDLE
+#define SCHED_IDLE 5
+#endif
+			pthread_setschedparam(tq->tq_threadlist[t],SCHED_IDLE,&param);
+		} else if (pri == maxclsyspri) {
+			struct sched_param param;
+			param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+			pthread_setschedparam(tq->tq_threadlist[t],SCHED_FIFO,&param);
+		}
+	}
 
 	VERIFY(0 == pthread_attr_destroy(&attr));
 

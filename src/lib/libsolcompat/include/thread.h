@@ -74,8 +74,6 @@ typedef pthread_rwlock_t rwlock_t;
 
 static inline int thr_create(void *stack_base, size_t stack_size, void *(*start_func) (void*), void *arg, long flags, thread_t *new_thread_ID) {
     pthread_t id;
-    if (!new_thread_ID)
-	new_thread_ID = &id;
 	assert(stack_base == NULL);
 	assert(stack_size == 0);
 	assert((flags & ~THR_BOUND & ~THR_DETACHED) == 0);
@@ -86,10 +84,18 @@ static inline int thr_create(void *stack_base, size_t stack_size, void *(*start_
 	if(flags & THR_DETACHED)
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-	if (flags & THR_BOUND)
-	    pthread_attr_setscope(&attr,PTHREAD_SCOPE_PROCESS);
-
-	int ret = pthread_create(new_thread_ID, &attr, start_func, arg);
+	int ret = pthread_create(&id, &attr, start_func, arg);
+	if (new_thread_ID)
+		*new_thread_ID = id;
+	if (flags & THR_BOUND) {
+		/* See THR_BOUND on the web. It's a very low priority thread in fact */
+#ifndef SCHED_IDLE
+#define SCHED_IDLE 5
+#endif
+		struct sched_param param;
+		param.sched_priority = 0;
+	    pthread_setschedparam(id,SCHED_IDLE,&param);
+	}
 
 	pthread_attr_destroy(&attr);
 

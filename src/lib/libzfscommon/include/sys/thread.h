@@ -31,9 +31,9 @@
 typedef pthread_t kthread_t;
 typedef kthread_t *kthread_id_t;
 
-extern kthread_t *zk_thread_create(void (*func)(), void *arg);
+extern kthread_t *zk_thread_create(void (*func)(), void *arg, int pri);
 
-#define thread_create(stk, stksize, func, arg, len, pp, state, pri) zk_thread_create(func, arg)
+#define thread_create(stk, stksize, func, arg, len, pp, state, pri) zk_thread_create(func, arg, pri)
 #define thread_exit(r) pthread_exit(NULL)
 #define thr_self() pthread_self()
 
