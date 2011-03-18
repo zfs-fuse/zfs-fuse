@@ -249,8 +249,8 @@ taskq_create(const char *name, int nthreads, pri_t pri,
 			pthread_setschedparam(tq->tq_threadlist[t],SCHED_IDLE,&param);
 		} else if (pri == maxclsyspri) {
 			struct sched_param param;
-			param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-			pthread_setschedparam(tq->tq_threadlist[t],SCHED_FIFO,&param);
+			param.sched_priority = sched_get_priority_max(SCHED_RR);
+			pthread_setschedparam(tq->tq_threadlist[t],SCHED_RR,&param);
 		}
 	}
 

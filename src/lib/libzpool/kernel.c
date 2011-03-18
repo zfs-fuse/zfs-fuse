@@ -77,8 +77,8 @@ zk_thread_create(void (*func)(), void *arg, int pri)
 	    pthread_setschedparam(tid,SCHED_IDLE,&param);
 	} else if (pri == maxclsyspri) {
 	    struct sched_param param;
-	    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-	    pthread_setschedparam(tid,SCHED_FIFO,&param);
+	    param.sched_priority = sched_get_priority_max(SCHED_RR);
+	    pthread_setschedparam(tid,SCHED_RR,&param);
 	}
 
 	return ((void *)(uintptr_t)tid);
