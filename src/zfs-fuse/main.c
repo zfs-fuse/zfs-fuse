@@ -158,7 +158,7 @@ static struct option longopts[] = {
 	{ "enable-xattr",
 	  0,
 	  &cf_enable_xattr,
-	  0
+	  1
 	},
 	{ 0, 0, 0, 0 }
 };
