@@ -4740,6 +4740,7 @@ const fs_operation_def_t zfs_symvnodeops_template[] = {
 	VOPNAME_GETATTR,	{ .vop_getattr = zfs_getattr },
 	VOPNAME_SETATTR,	{ .vop_setattr = zfs_setattr },
 	VOPNAME_ACCESS,		{ .vop_access = zfs_access },
+	VOPNAME_LOOKUP,		{ .vop_lookup = zfs_lookup },
 	VOPNAME_RENAME,		{ .vop_rename = zfs_rename },
 	VOPNAME_READLINK,	{ .vop_readlink = zfs_readlink },
 	VOPNAME_INACTIVE,	{ .vop_inactive = zfs_inactive },
