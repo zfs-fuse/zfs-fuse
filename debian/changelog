@@ -1,3 +1,14 @@
+zfs-fuse (0.7.0-1ubuntu1~2.gbp43db46) maverick; urgency=low
+
+  ** SNAPSHOT build @43db46c01365f2402be46d5b24ec5d2d8da90679 **
+
+  [ Seth Heeren ]
+  * Fixing xattr lookup for symlinks
+
+  [ Seth ]
+
+ -- Seth Heeren <zfs-fuse@sehe.nl>  Fri, 19 Aug 2011 16:16:54 +0200
+
 zfs-fuse (0.7.0-1ubuntu1~1.gbpd66593) maverick; urgency=low
 
   ** SNAPSHOT build @d66593d025263f4deb4fe6d5df9c6a01fea6a2c7 **
