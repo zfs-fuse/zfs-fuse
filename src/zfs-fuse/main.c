@@ -252,7 +252,7 @@ static void parse_args(int argc, char *argv[])
 				if (cf_pidfile != NULL)
 					syslog(LOG_WARNING,"%s: duplicate pid-file setting, prior setting '%s' ignored", progname, cf_pidfile);
 
-				cf_pidfile = optarg;
+				cf_pidfile = strdup(optarg);
 
 				if (cf_pidfile == NULL) {
 					fprintf(stderr, "%s: you need to specify a file name\n\n", progname);
