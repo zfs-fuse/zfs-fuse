@@ -154,7 +154,12 @@ start() {
 	PID=`pidofproc -p "$PIDFILE" $prog`
 
 	echo -n "Immunizing ZFS-FUSE against the OOM killer: "
-	echo -17 > "/proc/$PID/oom_adj"
+    if [ -f "/proc/$PID/oom_score_adj" ]
+    then
+        echo -1000 > "/proc/$PID/oom_score_adj"
+    else
+        echo -17 > "/proc/$PID/oom_adj"
+    fi
 	ret=$? ; [ $ret -ne 0 ] && warning || success
 	echo
 

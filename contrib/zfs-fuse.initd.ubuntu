@@ -141,7 +141,12 @@ do_start() {
     then
         log_end_msg 0
         log_action_begin_msg "Immunizing $NAME against OOM kills and sendsigs signals"
-        echo -17 > /proc/$(cat /var/run/$NAME.pid)/oom_adj
+        if [ -f "/proc/$(cat /var/run/$NAME.pid)/oom_score_adj" ]
+        then
+            echo -1000 > "/proc/$(cat /var/run/$NAME.pid)/oom_score_adj"
+        else
+            echo -17 > "/proc/$(cat /var/run/$NAME.pid)/oom_adj"
+        fi
         ES_TO_REPORT=$?
         if [ "$ES_TO_REPORT" = 0 ] ; then
           log_action_end_msg 0
