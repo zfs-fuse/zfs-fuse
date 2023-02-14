@@ -38,6 +38,7 @@
 #endif
 
 #include "umem_base.h"
+#include <umem_impl.h>
 
 #include "misc.h"
 

@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "umem.h"
+#include <umem_impl.h>
 
 static const char *TESTSTRINGS[] = {
   "fred",

@@ -59,7 +59,7 @@ static inline hrtime_t gethrtime(void) {
 		fprintf(stderr, "Error: clock_gettime(CLOCK_MONOTONIC) failed\n");
 		fprintf(stderr, "Make sure you are are running kernel 2.6.x and have glibc 2.3.3 or newer installed\n");
 		fprintf(stderr, "Aborting...\n");
-		abort();
+		__builtin_abort();
 	}
 
 	return (((u_int64_t)ts.tv_sec) * NANOSEC) + ts.tv_nsec;
