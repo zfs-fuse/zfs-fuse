@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "umem.h"
+#include <umem_impl.h>
 
 int main(int argc, char *argv[])
 {

@@ -412,10 +412,8 @@ typedef struct umem_cpu {
 #define	UMEM_READY_INITING		2
 #define	UMEM_READY			3
 
-#ifdef UMEM_STANDALONE
 extern void umem_startup(caddr_t, size_t, size_t, caddr_t, caddr_t);
 extern int umem_add(caddr_t, size_t);
-#endif
 
 #ifdef	__cplusplus
 }
